@@ -10,7 +10,8 @@ use Yiisoft\Scheduler\TaskContext;
 
 /**
  * Dispatched when a task throws. Ignoring lets the scheduler continue with the next tasks;
- * otherwise the error is rethrown.
+ * otherwise the error is rethrown. The daemon loop is the exception: it logs the error
+ * instead of rethrowing it, so one failing task does not stop the whole schedule.
  */
 final class FailureEvent
 {
