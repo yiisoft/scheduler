@@ -42,6 +42,8 @@ Declare tasks in the configuration:
 
 ```php
 // config/params.php
+use App\Token\TokenStorage; // a class of your application
+use Yiisoft\Queue\Message\GenericMessage;
 use Yiisoft\Scheduler\RecurringTask;
 
 return [
