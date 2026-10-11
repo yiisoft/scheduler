@@ -229,10 +229,16 @@ final class Scheduler
                 $this->reapChildren();
             }
         } finally {
+            // The stop request ends this run only; left in place it would keep every later
+            // run() from entering the loop at all.
+            $this->shouldStop = false;
             $this->terminateChildren();
         }
     }
 
+    /**
+     * Asks run() to return: the one in progress, or else the next one to be called.
+     */
     public function stop(): void
     {
         $this->shouldStop = true;
