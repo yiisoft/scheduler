@@ -2,6 +2,7 @@
 
 ## 1.0.0 under development
 
+- New #8: Add `RecurringTask::withId()` and include the message type in the generated id of a queue message task, so tasks sharing a trigger and a target can be in one schedule (@samdark)
 - Docs: Document the multi-server setup: a shared mutex driver and a shared checkpoint cache let every application server run the schedule without duplicate runs or a single point of failure (@KalimeroMK)
 - Bug #3: Fix `schedule:work` crashing on Windows, where `time_nanosleep()` is not available (@KalimeroMK)
 - Bug #3: Fix a `SIGCHLD` arriving between the fork and the bookkeeping leaving a task process uncollected (@KalimeroMK)
