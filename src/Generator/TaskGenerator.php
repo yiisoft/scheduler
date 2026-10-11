@@ -6,7 +6,6 @@ namespace Yiisoft\Scheduler\Generator;
 
 use DateTimeImmutable;
 use Psr\Clock\ClockInterface;
-use Throwable;
 use Yiisoft\Scheduler\Exception\LogicException;
 use Yiisoft\Scheduler\RecurringTask;
 use Yiisoft\Scheduler\Schedule;
@@ -99,19 +98,11 @@ final class TaskGenerator
 
                 $emitted = true;
 
-                try {
-                    yield $context => $task;
-                } catch (Throwable $error) {
-                    // The task failing is the root cause; a checkpoint write failing on top of it
-                    // must not replace it. The next save reports the persistence failure anyway.
-                    try {
-                        $this->checkpoint->save($time, $index);
-                    } catch (Throwable) {
-                    }
+                yield $context => $task;
 
-                    throw $error;
-                }
-
+                // Reached whether the task succeeded or failed: the consumer keeps a failure to
+                // itself until the schedule is drained, so a failed run is recorded like any
+                // other instead of being emitted again by the next process.
                 $this->checkpoint->save($time, $index);
             }
 

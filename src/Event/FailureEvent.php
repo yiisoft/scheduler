@@ -9,8 +9,8 @@ use Yiisoft\Scheduler\RecurringTask;
 use Yiisoft\Scheduler\TaskContext;
 
 /**
- * Dispatched when a task throws. Ignoring lets the scheduler continue with the next tasks;
- * otherwise the error is rethrown.
+ * Dispatched when a task throws. The remaining due tasks run either way; unless the failure
+ * is ignored, the error is rethrown once they did.
  */
 final class FailureEvent
 {

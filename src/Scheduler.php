@@ -110,6 +110,9 @@ final class Scheduler
     /**
      * Runs every due task once and returns how many tasks ran.
      *
+     * A task failure that no listener ignored does not stop the tick: the remaining due tasks
+     * still run, and the first such failure is thrown once they did.
+     *
      * @param bool $concurrent Fork a child process per due task, so tasks due at the same time
      * run in parallel instead of blocking one another. Requires ext-pcntl; without it the tasks
      * run one after another as before. A task failure then surfaces as a RuntimeException about
@@ -124,12 +127,32 @@ final class Scheduler
     {
         if (!$concurrent || !self::supportsForking()) {
             $count = 0;
+            $failure = null;
 
+            // A failing task must not take the rest of the tick with it: thrown from here, the
+            // error would leave its own run unrecorded and the tasks behind it not started, so
+            // a process started anew for every tick would retry that one task forever and never
+            // get to the others. Collect the first failure and report it once all of them ran.
             foreach ($this->generators as $generator) {
-                foreach ($generator->getTasks() as $context => $task) {
-                    $this->runTask($task, $context);
-                    ++$count;
+                try {
+                    foreach ($generator->getTasks() as $context => $task) {
+                        ++$count;
+
+                        try {
+                            $this->runTask($task, $context);
+                        } catch (Throwable $error) {
+                            $failure ??= $error;
+                        }
+                    }
+                } catch (Throwable $error) {
+                    // The schedule itself failed, e.g. its checkpoint could not be persisted.
+                    // A task failure collected before it stays the one reported.
+                    $failure ??= $error;
                 }
+            }
+
+            if (null !== $failure) {
+                throw $failure;
             }
 
             return $count;

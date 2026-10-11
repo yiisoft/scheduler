@@ -228,6 +228,69 @@ final class SchedulerTest extends TestCase
         $scheduler->tick();
     }
 
+    public function testFailureDoesNotKeepTheTasksBehindItFromRunning(): void
+    {
+        $clock = new TestClock();
+        $ran = 0;
+
+        $schedule = (new Schedule())->task(
+            RecurringTask::cron('* * * * *', static function (): void {
+                throw new RuntimeException('Task failed.');
+            }),
+            RecurringTask::cron('* * * * *', static function () use (&$ran): void {
+                ++$ran;
+            }),
+        );
+
+        $scheduler = new Scheduler([$schedule], new CallableTaskHandler(), $clock);
+
+        $scheduler->tick();
+        $clock->advance('+1 minute');
+
+        try {
+            $scheduler->tick();
+            $this->fail('The task failure was not reported.');
+        } catch (RuntimeException $error) {
+            $this->assertSame('Task failed.', $error->getMessage());
+        }
+
+        $this->assertSame(1, $ran);
+    }
+
+    public function testFailedRunIsNotRepeatedByTheNextProcess(): void
+    {
+        $cache = new InMemoryCache();
+        $clock = new TestClock();
+        $failed = 0;
+        $ran = 0;
+
+        $tasks = [
+            RecurringTask::cron('* * * * *', static function () use (&$failed): void {
+                ++$failed;
+
+                throw new RuntimeException('Task failed.');
+            }),
+            RecurringTask::cron('* * * * *', static function () use (&$ran): void {
+                ++$ran;
+            }),
+        ];
+
+        // Every tick is a separate process, as a "* * * * * php yii schedule:run" entry is.
+        for ($minute = 0; $minute <= 3; ++$minute) {
+            $schedule = (new Schedule())->stateful($cache)->task(...$tasks);
+
+            try {
+                (new Scheduler([$schedule], new CallableTaskHandler(), $clock))->tick();
+            } catch (RuntimeException) {
+            }
+
+            $clock->advance('+1 minute');
+        }
+
+        $this->assertSame(3, $failed);
+        $this->assertSame(3, $ran);
+    }
+
     public function testIgnoredFailureLetsTheSchedulerContinue(): void
     {
         $clock = new TestClock();
