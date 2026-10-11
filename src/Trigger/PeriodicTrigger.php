@@ -45,6 +45,13 @@ final class PeriodicTrigger implements TriggerInterface
      */
     private const DEFAULT_FROM = '1970-01-01 00:00:00';
 
+    /**
+     * Dates an interval is tried on to tell whether it is a plain amount of time: the middle
+     * and the end of a month, a weekday and a weekend, so a relative format shows itself on
+     * at least one of them.
+     */
+    private const SCALABILITY_PROBES = ['2001-01-17 12:34:56 UTC', '2001-03-31 00:00:00 UTC'];
+
     private readonly ?int $seconds;
     private readonly ?DateInterval $dateInterval;
     private readonly DateTimeImmutable $from;
@@ -71,6 +78,8 @@ final class PeriodicTrigger implements TriggerInterface
         } else {
             $this->seconds = null;
             $this->dateInterval = $interval;
+
+            $this->assertScalable();
         }
     }
 
@@ -161,6 +170,30 @@ final class PeriodicTrigger implements TriggerInterface
     }
 
     /**
+     * The run dates are multiples of the interval, computed from its years, months, days and
+     * time. An interval made from a relative format such as "1 weekday" or "first monday of
+     * next month" carries what it means outside of those, so its multiples would be dates it
+     * never leads to; it is refused here, where the task is declared, rather than left to
+     * run at the wrong time or not at all.
+     */
+    private function assertScalable(): void
+    {
+        /** @var DateInterval $interval */
+        $interval = $this->dateInterval;
+
+        foreach (self::SCALABILITY_PROBES as $probe) {
+            $date = new DateTimeImmutable($probe);
+
+            if ($date->add($interval) != $this->multiple($date, 1)) {
+                throw new LogicException(
+                    'The interval is not a fixed amount of years, months, days and time;'
+                    . ' use a cron expression for calendar-based schedules.',
+                );
+            }
+        }
+    }
+
+    /**
      * Applies the interval the given number of times at once, in a single step.
      */
     private function multiple(DateTimeImmutable $from, int $times): DateTimeImmutable
@@ -170,6 +203,10 @@ final class PeriodicTrigger implements TriggerInterface
 
         $factor = 1 === $interval->invert ? -$times : $times;
 
+        // Whole seconds are carried out of the microseconds: counted from an anchor decades
+        // away, a sub-second interval adds up to more of them than the format accepts.
+        $microseconds = $factor * (int) round($interval->f * 1_000_000);
+
         $scaled = DateInterval::createFromDateString(sprintf(
             '%d years %d months %d days %d hours %d minutes %d seconds %d microseconds',
             $factor * $interval->y,
@@ -177,8 +214,8 @@ final class PeriodicTrigger implements TriggerInterface
             $factor * $interval->d,
             $factor * $interval->h,
             $factor * $interval->i,
-            $factor * $interval->s,
-            $factor * (int) round($interval->f * 1_000_000),
+            $factor * $interval->s + intdiv($microseconds, 1_000_000),
+            $microseconds % 1_000_000,
         ));
 
         // PHP 8.1 and 8.2 report a malformed spec with false instead of throwing; the spec is

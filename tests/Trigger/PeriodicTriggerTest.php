@@ -6,6 +6,7 @@ namespace Yiisoft\Scheduler\Tests\Trigger;
 
 use DateInterval;
 use DateTimeImmutable;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Yiisoft\Scheduler\Exception\LogicException;
 use Yiisoft\Scheduler\Trigger\PeriodicTrigger;
@@ -138,5 +139,51 @@ final class PeriodicTriggerTest extends TestCase
         $this->expectExceptionMessage('The interval does not advance the date');
 
         $trigger->getNextRunDate(new DateTimeImmutable('2026-01-01 01:00:00+00:00'));
+    }
+
+    #[DataProvider('relativeFormats')]
+    public function testIntervalOfARelativeFormatIsRejected(string $format): void
+    {
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('use a cron expression for calendar-based schedules');
+
+        new PeriodicTrigger(DateInterval::createFromDateString($format));
+    }
+
+    public static function relativeFormats(): array
+    {
+        return [
+            'weekday' => ['1 weekday'],
+            'weekdays' => ['3 weekdays'],
+            'day of a month' => ['first monday of next month'],
+        ];
+    }
+
+    #[DataProvider('plainFormats')]
+    public function testIntervalOfAPlainAmountOfTimeIsAccepted(string $format): void
+    {
+        $trigger = new PeriodicTrigger(DateInterval::createFromDateString($format));
+        $lastRun = new DateTimeImmutable('2026-01-01 00:00:00+00:00');
+
+        $this->assertGreaterThan($lastRun, $trigger->getNextRunDate($lastRun));
+    }
+
+    public function testSubSecondIntervalWithoutAnAnchor(): void
+    {
+        $trigger = new PeriodicTrigger(DateInterval::createFromDateString('500 microseconds'));
+        $lastRun = new DateTimeImmutable('2026-01-01 00:00:00.000100+00:00');
+
+        $this->assertSame('2026-01-01 00:00:00.000500', $trigger->getNextRunDate($lastRun)->format('Y-m-d H:i:s.u'));
+    }
+
+    public static function plainFormats(): array
+    {
+        return [
+            'minutes' => ['90 minutes'],
+            'week' => ['1 week'],
+            'month' => ['1 month'],
+            'mixed' => ['1 day 12 hours'],
+            'sub-second' => ['500 microseconds'],
+        ];
     }
 }
