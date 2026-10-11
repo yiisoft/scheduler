@@ -17,6 +17,7 @@ use Yiisoft\Scheduler\Tests\Support\InMemoryCache;
 use Yiisoft\Scheduler\Tests\Support\TestClock;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Yiisoft\Scheduler\Exception\LogicException;
+use Yiisoft\Scheduler\Exception\RuntimeException as SchedulerRuntimeException;
 use Yiisoft\Scheduler\Tests\Support\InMemoryMutex;
 use RuntimeException;
 
@@ -449,6 +450,30 @@ final class SchedulerTest extends TestCase
         $this->expectExceptionMessage('Task failed.');
 
         $scheduler->tick();
+    }
+
+    public function testMutexIsReleasedWhenTheCheckpointCannotBeRead(): void
+    {
+        $cache = new InMemoryCache();
+        $mutex = new InMemoryMutex();
+
+        $schedule = (new Schedule())
+            ->stateful($cache)
+            ->lock($mutex)
+            ->task(RecurringTask::cron('* * * * *', static fn() => null));
+
+        $scheduler = new Scheduler([$schedule], new CallableTaskHandler(), new TestClock());
+
+        $cache->set('yii_schedule_checkpoint_default', 'garbage');
+
+        try {
+            $scheduler->tick();
+            $this->fail('The unreadable checkpoint was not reported.');
+        } catch (SchedulerRuntimeException $error) {
+            $this->assertStringContainsString('unexpected payload', $error->getMessage());
+        }
+
+        $this->assertTrue($mutex->acquire());
     }
 
     public function testDuplicateScheduleNameIsRejected(): void

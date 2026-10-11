@@ -6,6 +6,7 @@ namespace Yiisoft\Scheduler\Generator;
 
 use DateTimeImmutable;
 use Psr\SimpleCache\CacheInterface;
+use Throwable;
 use Yiisoft\Mutex\MutexInterface;
 use Yiisoft\Scheduler\Exception\RuntimeException;
 
@@ -52,7 +53,16 @@ final class Checkpoint
 
         $this->locked = null !== $this->mutex;
 
-        $this->load();
+        // The caller only releases what it was told it acquired, so a position that cannot be
+        // read must not leave the mutex behind: nobody else could run the schedule until this
+        // process is gone.
+        try {
+            $this->load();
+        } catch (Throwable $error) {
+            $this->release();
+
+            throw $error;
+        }
 
         return true;
     }
