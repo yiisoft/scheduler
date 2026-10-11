@@ -50,6 +50,35 @@ final class ConfigTest extends TestCase
         $this->assertSame(10, $ran);
     }
 
+    public function testCronStyleInvocationsRunAnIntervalLongerThanTheTimeBetweenThem(): void
+    {
+        $cache = new InMemoryCache();
+        $clock = new TestClock();
+        $ran = 0;
+
+        $container = new StubContainer([
+            ClockInterface::class => $clock,
+            TaskHandlerInterface::class => new CallableTaskHandler(),
+            CacheInterface::class => $cache,
+        ]);
+
+        $factory = $this->schedulerFactory([
+            RecurringTask::every('10 minutes', static function () use (&$ran): void {
+                ++$ran;
+            }),
+        ]);
+
+        // Every idle invocation moves the checkpoint on, which must not move the next run with it.
+        $factory($container)->tick();
+
+        for ($minute = 0; $minute < 60; ++$minute) {
+            $clock->advance('+1 minute');
+            $factory($container)->tick();
+        }
+
+        $this->assertSame(6, $ran);
+    }
+
     public function testScheduleIsStatelessWithoutACacheInTheContainer(): void
     {
         $container = new StubContainer([

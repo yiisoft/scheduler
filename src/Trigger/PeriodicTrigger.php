@@ -18,10 +18,13 @@ use function sprintf;
 use const PHP_INT_MAX;
 
 /**
- * A trigger firing at a fixed interval, anchored to a "from" date (by default the first time it is asked).
+ * A trigger firing at a fixed interval, anchored to a "from" date (by default the Unix epoch
+ * in the default timezone).
  *
- * When anchored, the run dates are the multiples of the interval counted from the anchor, so the
- * sequence never drifts: `from`, `from + 1 × interval`, `from + 2 × interval`, and so on.
+ * The run dates are the multiples of the interval counted from the anchor, so the sequence
+ * never drifts: `from`, `from + 1 × interval`, `from + 2 × interval`, and so on. With the
+ * default anchor that means "every 10 minutes" fires at :00, :10, :20 and so on, no matter when
+ * the process evaluating the trigger was started or what date it is asked about.
  */
 final class PeriodicTrigger implements TriggerInterface
 {
@@ -34,19 +37,30 @@ final class PeriodicTrigger implements TriggerInterface
      */
     private const MAX_MULTIPLE = PHP_INT_MAX >> 2;
 
+    /**
+     * The anchor used when none is given. A fixed one keeps the trigger a pure function of the
+     * date it is asked about: anchoring to that date instead would make the next run depend on
+     * when the schedule was last evaluated, so a process started anew for every tick, as a
+     * `schedule:run` cron entry is, would push the run one interval ahead of itself forever.
+     */
+    private const DEFAULT_FROM = '1970-01-01 00:00:00';
+
     private readonly ?int $seconds;
     private readonly ?DateInterval $dateInterval;
+    private readonly DateTimeImmutable $from;
 
     /**
      * @param int|DateInterval $interval The interval between runs, in seconds or as a date interval.
-     * @param DateTimeImmutable|null $from The anchor date. Defaults to the first time the trigger is asked.
+     * @param DateTimeImmutable|null $from The anchor date. Defaults to the Unix epoch in the default timezone.
      * @param DateTimeImmutable|null $until The date after which the trigger is exhausted.
      */
     public function __construct(
         int|DateInterval $interval,
-        private readonly ?DateTimeImmutable $from = null,
+        ?DateTimeImmutable $from = null,
         private readonly ?DateTimeImmutable $until = null,
     ) {
+        $this->from = $from ?? new DateTimeImmutable(self::DEFAULT_FROM);
+
         if (is_int($interval)) {
             if ($interval <= 0) {
                 throw new LogicException(sprintf('The interval must be greater than zero, "%d" given.', $interval));
@@ -78,13 +92,7 @@ final class PeriodicTrigger implements TriggerInterface
             return null;
         }
 
-        if (null === $this->from) {
-            $next = $this->add($lastRun);
-
-            if ($next <= $lastRun) {
-                throw new LogicException(self::NON_ADVANCING_MESSAGE);
-            }
-        } elseif ($lastRun < $this->from) {
+        if ($lastRun < $this->from) {
             $next = $this->from;
         } elseif (null !== $this->seconds) {
             $elapsed = $lastRun->getTimestamp() - $this->from->getTimestamp();
@@ -180,19 +188,6 @@ final class PeriodicTrigger implements TriggerInterface
         }
 
         return $from->add($scaled);
-    }
-
-    private function add(DateTimeImmutable $date): DateTimeImmutable
-    {
-        if (null !== $this->seconds) {
-            // setTimestamp() is used instead of modify(): the latter may return false on older PHP versions.
-            return $date->setTimestamp($date->getTimestamp() + $this->seconds);
-        }
-
-        /** @var DateInterval $interval */
-        $interval = $this->dateInterval;
-
-        return $date->add($interval);
     }
 
     /**

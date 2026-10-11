@@ -55,7 +55,11 @@ return [
 ];
 ```
 
-and run them, either with a single system cron entry:
+An interval is counted from a fixed point in time rather than from the moment the scheduler
+was started, so `every('10 minutes')` runs at :00, :10, :20 and so on. To count from another
+moment, pass a `PeriodicTrigger` with its own `from` date to `RecurringTask::trigger()`.
+
+Run them either with a single system cron entry:
 
 ```shell
 * * * * * php yii schedule:run

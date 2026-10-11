@@ -44,7 +44,31 @@ final class PeriodicTriggerTest extends TestCase
         $trigger = new PeriodicTrigger(300, until: $until);
 
         $this->assertNotNull($trigger->getNextRunDate(new DateTimeImmutable('2026-01-01 00:00:00+00:00')));
-        $this->assertNull($trigger->getNextRunDate(new DateTimeImmutable('2026-01-01 00:56:00+00:00')));
+        $this->assertNotNull($trigger->getNextRunDate(new DateTimeImmutable('2026-01-01 00:56:00+00:00')));
+        $this->assertNull($trigger->getNextRunDate(new DateTimeImmutable('2026-01-01 01:00:00+00:00')));
+    }
+
+    public function testWithoutAnAnchorTheRunsDoNotDependOnTheDateAskedAbout(): void
+    {
+        $trigger = new PeriodicTrigger(600);
+
+        // Asked at any moment of the same ten minutes, the answer is the same wall-clock run.
+        foreach (['00:00:00', '00:03:27', '00:09:59.999999'] as $time) {
+            $lastRun = new DateTimeImmutable('2026-01-01 ' . $time . '+00:00');
+
+            $this->assertSame('2026-01-01 00:10:00', $trigger->getNextRunDate($lastRun)->format('Y-m-d H:i:s'));
+        }
+    }
+
+    public function testDateIntervalWithoutAnAnchorDoesNotDependOnTheDateAskedAbout(): void
+    {
+        $trigger = new PeriodicTrigger(new DateInterval('PT10M'));
+        $lastRun = new DateTimeImmutable('2026-01-01 00:03:27+00:00');
+
+        $this->assertSame(
+            '2026-01-01 00:10:00',
+            $trigger->getNextRunDate($lastRun)->setTimezone($lastRun->getTimezone())->format('Y-m-d H:i:s'),
+        );
     }
 
     public function testDateInterval(): void
