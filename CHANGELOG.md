@@ -2,6 +2,7 @@
 
 ## 1.0.0 under development
 
+- Bug #3: Fix a cron expression without an explicit timezone being evaluated in UTC once the schedule had a persisted checkpoint; it is now read in the default timezone (@samdark)
 - Docs: Document the multi-server setup: a shared mutex driver and a shared checkpoint cache let every application server run the schedule without duplicate runs or a single point of failure (@KalimeroMK)
 - Bug #3: Fix `schedule:work` crashing on Windows, where `time_nanosleep()` is not available (@KalimeroMK)
 - Bug #3: Fix a `SIGCHLD` arriving between the fork and the bookkeeping leaving a task process uncollected (@KalimeroMK)
