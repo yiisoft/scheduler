@@ -7,6 +7,7 @@ use Psr\Container\ContainerInterface;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Log\LoggerInterface;
 use Psr\SimpleCache\CacheInterface;
+use Symfony\Component\Console\Application;
 use Yiisoft\Scheduler\Clock\SystemClock;
 use Yiisoft\Scheduler\Handler\CallableTaskHandler;
 use Yiisoft\Scheduler\Handler\QueueTaskHandler;
@@ -22,11 +23,23 @@ return [
     ClockInterface::class => SystemClock::class,
 
     TaskHandlerInterface::class => static function (ContainerInterface $container): TaskHandlerInterface {
+        // The application running the commands is registered under the yiisoft/yii-console class
+        // name. Asking the container for the Symfony class it extends would not find it: where
+        // undefined classes are autowired, that builds a new application without any command.
+        $application = $container->has('Yiisoft\\Yii\\Console\\Application')
+            ? $container->get('Yiisoft\\Yii\\Console\\Application')
+            : null;
+
+        $handler = new CallableTaskHandler($application instanceof Application ? $application : null);
+
         if (interface_exists(QueueProducerInterface::class) && $container->has(QueueProducerInterface::class)) {
-            return $container->get(QueueTaskHandler::class);
+            /** @var QueueProducerInterface $producer */
+            $producer = $container->get(QueueProducerInterface::class);
+
+            return new QueueTaskHandler($producer, $handler);
         }
 
-        return $container->get(CallableTaskHandler::class);
+        return $handler;
     },
 
     Scheduler::class => static function (ContainerInterface $container) use ($params): Scheduler {
