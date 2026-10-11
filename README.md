@@ -48,14 +48,23 @@ return [
     'yiisoft/scheduler' => [
         'tasks' => [
             RecurringTask::cron('0 5 * * *', 'report:daily'),
-            RecurringTask::every('10 minutes', static fn () => $cleaner->purgeExpiredTokens()),
+            RecurringTask::every('10 minutes', [TokenStorage::class, 'purgeExpired']), // a static method
             RecurringTask::cron('*/5 * * * *', GenericMessage::fromPayload('metrics.collect', [])),
         ],
     ],
 ];
 ```
 
-and run them, either with a single system cron entry:
+A task is one of:
+
+- the name of a console command, with its arguments and options if any;
+- a callable, which is called with the `TaskContext` of the run. It is called as is, without
+  the container resolving its arguments, and a configuration file has no services to capture
+  in a closure — so a task that needs them is better off as a console command;
+- a queue message, pushed to the queue when [yiisoft/queue](https://github.com/yiisoft/queue)
+  is installed.
+
+Run them either with a single system cron entry:
 
 ```shell
 * * * * * php yii schedule:run
