@@ -17,6 +17,7 @@ use Yiisoft\Scheduler\Tests\Support\InMemoryCache;
 use Yiisoft\Scheduler\Tests\Support\TestClock;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Yiisoft\Scheduler\Exception\LogicException;
+use Yiisoft\Scheduler\Exception\RuntimeException as SchedulerRuntimeException;
 use Yiisoft\Scheduler\Tests\Support\InMemoryMutex;
 use RuntimeException;
 
@@ -289,6 +290,35 @@ final class SchedulerTest extends TestCase
 
         $this->assertSame(3, $failed);
         $this->assertSame(3, $ran);
+    }
+
+    public function testFailingScheduleDoesNotKeepTheOtherSchedulesFromRunning(): void
+    {
+        [$scheduler, $dispatcher] = $this->schedulerWithAnUnreadableFirstSchedule();
+
+        try {
+            $scheduler->tick();
+            $this->fail('The unreadable checkpoint was not reported.');
+        } catch (SchedulerRuntimeException $error) {
+            $this->assertStringContainsString('"first"', $error->getMessage());
+        }
+
+        $this->assertSame(['second'], $dispatcher->started);
+    }
+
+    #[RequiresPhpExtension('pcntl')]
+    public function testFailingScheduleDoesNotKeepTheOtherSchedulesFromRunningConcurrently(): void
+    {
+        [$scheduler, $dispatcher] = $this->schedulerWithAnUnreadableFirstSchedule();
+
+        try {
+            $scheduler->tick(true);
+            $this->fail('The unreadable checkpoint was not reported.');
+        } catch (SchedulerRuntimeException $error) {
+            $this->assertStringContainsString('"first"', $error->getMessage());
+        }
+
+        $this->assertSame(['second'], $dispatcher->started);
     }
 
     public function testIgnoredFailureLetsTheSchedulerContinue(): void
@@ -1026,5 +1056,49 @@ final class SchedulerTest extends TestCase
                 unlink($marker);
             }
         }
+    }
+
+    /**
+     * Two schedules with a due task each, the first of which cannot read its checkpoint. The
+     * dispatcher records the schedules whose task got as far as its pre-run event and cancels
+     * the run, so nothing is forked.
+     *
+     * @return array{Scheduler, object{started: list<string>}}
+     */
+    private function schedulerWithAnUnreadableFirstSchedule(): array
+    {
+        $cache = new InMemoryCache();
+        $clock = new TestClock();
+
+        $dispatcher = new class implements EventDispatcherInterface {
+            /** @var list<string> */
+            public array $started = [];
+
+            public function dispatch(object $event): object
+            {
+                if ($event instanceof PreRunEvent) {
+                    $this->started[] = $event->context->scheduleName;
+                    $event->cancel();
+                }
+
+                return $event;
+            }
+        };
+
+        $scheduler = new Scheduler(
+            [
+                (new Schedule('first'))->stateful($cache)->task(RecurringTask::cron('* * * * *', static fn() => null)),
+                (new Schedule('second'))->task(RecurringTask::cron('* * * * *', static fn() => null)),
+            ],
+            new CallableTaskHandler(),
+            $clock,
+            $dispatcher,
+        );
+
+        $scheduler->tick();
+        $clock->advance('+1 minute');
+        $cache->set('yii_schedule_checkpoint_first', 'garbage');
+
+        return [$scheduler, $dispatcher];
     }
 }

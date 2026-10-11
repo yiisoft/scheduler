@@ -159,14 +159,19 @@ final class Scheduler
         }
 
         $due = [];
+        $failure = null;
 
+        // As above, a schedule that fails keeps neither the other schedules nor its own runs
+        // emitted so far from being started.
         foreach ($this->generators as $generator) {
-            foreach ($generator->getTasks() as $context => $task) {
-                $due[] = [$task, $context];
+            try {
+                foreach ($generator->getTasks() as $context => $task) {
+                    $due[] = [$task, $context];
+                }
+            } catch (Throwable $error) {
+                $failure ??= $error;
             }
         }
-
-        $failure = null;
 
         // Draining the generators above already moved every checkpoint past these runs, so a
         // task that fails to start must not abort the ones queued behind it: they would never
