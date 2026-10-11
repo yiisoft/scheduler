@@ -2,6 +2,7 @@
 
 ## 1.0.0 under development
 
+- Bug #7: Fix a console command task that exits with a non-zero code being reported as a successful run (@samdark)
 - Docs: Document the multi-server setup: a shared mutex driver and a shared checkpoint cache let every application server run the schedule without duplicate runs or a single point of failure (@KalimeroMK)
 - Bug #3: Fix `schedule:work` crashing on Windows, where `time_nanosleep()` is not available (@KalimeroMK)
 - Bug #3: Fix a `SIGCHLD` arriving between the fork and the bookkeeping leaving a task process uncollected (@KalimeroMK)
