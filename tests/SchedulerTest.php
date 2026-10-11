@@ -677,7 +677,7 @@ final class SchedulerTest extends TestCase
             // The result cannot cross the process boundary, so the events carry null.
             $this->assertSame([null, null], $dispatcher->results);
         } finally {
-            array_map('unlink', glob("$dir/*") ?: []);
+            array_map(unlink(...), glob("$dir/*") ?: []);
             rmdir($dir);
         }
     }
@@ -794,7 +794,7 @@ final class SchedulerTest extends TestCase
             $this->assertFalse($scheduler->hasRunningChildren());
             $this->assertCount(1, file("$dir/runs", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: []);
         } finally {
-            array_map('unlink', glob("$dir/*") ?: []);
+            array_map(unlink(...), glob("$dir/*") ?: []);
             rmdir($dir);
         }
     }
@@ -874,7 +874,7 @@ final class SchedulerTest extends TestCase
         } finally {
             pcntl_signal(SIGTERM, SIG_DFL);
             pcntl_async_signals($asyncSignals);
-            array_map('unlink', glob("$dir/*") ?: []);
+            array_map(unlink(...), glob("$dir/*") ?: []);
             rmdir($dir);
         }
     }
@@ -933,7 +933,7 @@ final class SchedulerTest extends TestCase
                 $this->assertSame('end ' . substr($order[$index], 6), $order[$index + 1]);
             }
         } finally {
-            array_map('unlink', glob("$dir/*") ?: []);
+            array_map(unlink(...), glob("$dir/*") ?: []);
             rmdir($dir);
         }
     }
