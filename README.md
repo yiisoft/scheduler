@@ -108,6 +108,18 @@ $schedule = (new Schedule())
     ->task(...);
 ```
 
+## Task identifiers
+
+Every task gets an identifier generated from its trigger and from what it runs: the command
+name, the class of an object, the type of a queue message, or the file and line a closure is
+declared at. Two tasks alike in all of that, such as closures created in a loop or queue
+messages differing only in their payload, cannot share a schedule until they are given
+identifiers of their own:
+
+```php
+RecurringTask::every('10 minutes', $syncTenant)->withId('sync-' . $tenantId);
+```
+
 ## Running on multiple servers
 
 The same setup scales horizontally without a single point of failure: put the `schedule:run`

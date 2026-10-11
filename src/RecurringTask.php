@@ -8,6 +8,7 @@ use Closure;
 use DateInterval;
 use ReflectionFunction;
 use Throwable;
+use Yiisoft\Queue\Message\MessageInterface;
 use Yiisoft\Scheduler\Trigger\CronExpressionTrigger;
 use Yiisoft\Scheduler\Trigger\PeriodicTrigger;
 use Yiisoft\Scheduler\Trigger\TriggerInterface;
@@ -71,6 +72,24 @@ final class RecurringTask
         return $this->id;
     }
 
+    /**
+     * Returns the task under an identifier of your choosing instead of the generated one.
+     *
+     * The generated identifier is derived from the trigger and from what the task is: the
+     * command name, the class of an object, the type of a queue message, or the file and line
+     * a closure is declared at. Tasks that are alike in all of that, such as closures created
+     * in a loop or messages differing only in their payload, need identifiers of their own to
+     * be in one schedule.
+     */
+    public function withId(string $id): self
+    {
+        if ('' === $id) {
+            throw new Exception\LogicException('The task id must not be empty.');
+        }
+
+        return new self($this->trigger, $this->task, $id);
+    }
+
     public function getTrigger(): TriggerInterface
     {
         return $this->trigger;
@@ -131,6 +150,12 @@ final class RecurringTask
             $method = $task[1] ?? null;
 
             return sprintf('%s::%s', $target, is_string($method) ? $method : 'unknown');
+        }
+
+        // Messages of one class are told apart by their type: GenericMessage is the class of
+        // every message built from a payload.
+        if ($task instanceof MessageInterface) {
+            return sprintf('%s(%s)', $task::class, $task->getType());
         }
 
         if (is_object($task)) {
