@@ -40,7 +40,7 @@ final class ListCommand extends Command
                     $schedule->getName(),
                     $task->getId(),
                     (string) $task->getTrigger(),
-                    null === $next ? '(exhausted)' : $next->format('Y-m-d H:i:s P'),
+                    $next?->format('Y-m-d H:i:s P') ?? '(exhausted)',
                 ]);
             }
         }
