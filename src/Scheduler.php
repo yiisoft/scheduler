@@ -79,7 +79,7 @@ final class Scheduler
     private array $children = [];
     private bool $terminating = false;
     /**
-     * Whether run() is driving the ticks. A task failure is then logged instead of thrown:
+     * Whether run() is driving the ticks. A task failure is then only logged, not thrown:
      * thrown, it would end the loop and with it every other task of the schedule.
      */
     private bool $looping = false;
@@ -206,8 +206,8 @@ final class Scheduler
      * schedule evaluation per second.
      *
      * A task failure does not end the loop. The failure event and the schedule's failure
-     * listeners are told about it as usual, and unless a listener ignored it, it is logged as
-     * an error; the other tasks, running or due later, are not affected.
+     * listeners are told about it as usual and it is logged as an error, whether a listener
+     * ignored it or not; the other tasks, running or due later, are not affected.
      *
      * @param float $sleepSeconds The fallback sleep when no task has a pending run.
      * @param bool $concurrent Fork a child process per due task (see tick()). Falls back to
@@ -255,7 +255,8 @@ final class Scheduler
      *
      * Outside of run(), a failure that no listener ignored is thrown once the whole batch is
      * reaped, so one broken task neither kills its siblings nor goes silently unnoticed.
-     * Inside of run() it is logged instead and nothing is thrown for it. A listener may still
+     * Inside of run() nothing is thrown for it; it is logged as an error instead, the way an
+     * ignored failure is everywhere. A listener may still
      * throw, though, and called from a signal handler that lands wherever the main loop happens
      * to be, so the handler should catch it and let the loop finish instead of unwinding it
      * from there.
