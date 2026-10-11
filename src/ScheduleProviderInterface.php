@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule;
+namespace Yiisoft\Scheduler;
 
 /**
  * Provides a schedule, e.g. built from configuration or loaded from a database.

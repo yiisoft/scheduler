@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests;
+namespace Yiisoft\Scheduler\Tests;
 
 use PHPUnit\Framework\TestCase;
-use Yiisoft\Schedule\Exception\LogicException;
-use Yiisoft\Schedule\RecurringTask;
+use Yiisoft\Scheduler\Exception\LogicException;
+use Yiisoft\Scheduler\RecurringTask;
 
 final class RecurringTaskTest extends TestCase
 {

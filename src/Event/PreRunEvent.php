@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Event;
+namespace Yiisoft\Scheduler\Event;
 
-use Yiisoft\Schedule\RecurringTask;
-use Yiisoft\Schedule\TaskContext;
+use Yiisoft\Scheduler\RecurringTask;
+use Yiisoft\Scheduler\TaskContext;
 
 /**
  * Dispatched before a due task runs. Cancelling skips this run only.

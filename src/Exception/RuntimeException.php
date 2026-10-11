@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Exception;
+namespace Yiisoft\Scheduler\Exception;
 
 /**
  * Represents a runtime failure while scheduling or running tasks, such as a state persistence error.

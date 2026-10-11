@@ -1,4 +1,4 @@
-# Yii Schedule Change Log
+# Yii Scheduler Change Log
 
 ## 1.0.0 under development
 

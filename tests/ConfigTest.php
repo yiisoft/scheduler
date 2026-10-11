@@ -2,20 +2,20 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests;
+namespace Yiisoft\Scheduler\Tests;
 
 use Closure;
 use PHPUnit\Framework\TestCase;
 use Psr\Clock\ClockInterface;
 use Psr\Container\ContainerInterface;
 use Psr\SimpleCache\CacheInterface;
-use Yiisoft\Schedule\Handler\CallableTaskHandler;
-use Yiisoft\Schedule\Handler\TaskHandlerInterface;
-use Yiisoft\Schedule\RecurringTask;
-use Yiisoft\Schedule\Scheduler;
-use Yiisoft\Schedule\Tests\Support\InMemoryCache;
-use Yiisoft\Schedule\Tests\Support\StubContainer;
-use Yiisoft\Schedule\Tests\Support\TestClock;
+use Yiisoft\Scheduler\Handler\CallableTaskHandler;
+use Yiisoft\Scheduler\Handler\TaskHandlerInterface;
+use Yiisoft\Scheduler\RecurringTask;
+use Yiisoft\Scheduler\Scheduler;
+use Yiisoft\Scheduler\Tests\Support\InMemoryCache;
+use Yiisoft\Scheduler\Tests\Support\StubContainer;
+use Yiisoft\Scheduler\Tests\Support\TestClock;
 
 use function dirname;
 
@@ -70,7 +70,7 @@ final class ConfigTest extends TestCase
     private function schedulerFactory(array $tasks): Closure
     {
         $params = require dirname(__DIR__) . '/config/params.php';
-        $params['yiisoft/schedule']['tasks'] = $tasks;
+        $params['yiisoft/scheduler']['tasks'] = $tasks;
 
         $definitions = $this->loadDefinitions($params);
 

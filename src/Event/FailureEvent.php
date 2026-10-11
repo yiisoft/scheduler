@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Event;
+namespace Yiisoft\Scheduler\Event;
 
 use Throwable;
-use Yiisoft\Schedule\RecurringTask;
-use Yiisoft\Schedule\TaskContext;
+use Yiisoft\Scheduler\RecurringTask;
+use Yiisoft\Scheduler\TaskContext;
 
 /**
  * Dispatched when a task throws. Ignoring lets the scheduler continue with the next tasks;

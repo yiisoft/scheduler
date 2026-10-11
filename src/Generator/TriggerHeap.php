@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Generator;
+namespace Yiisoft\Scheduler\Generator;
 
 use DateTimeImmutable;
 use SplHeap;
@@ -13,7 +13,7 @@ use SplHeap;
  *
  * @internal
  *
- * @extends SplHeap<array{DateTimeImmutable, int, \Yiisoft\Schedule\RecurringTask}>
+ * @extends SplHeap<array{DateTimeImmutable, int, \Yiisoft\Scheduler\RecurringTask}>
  */
 final class TriggerHeap extends SplHeap
 {

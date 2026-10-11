@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Trigger;
+namespace Yiisoft\Scheduler\Trigger;
 
 use DateInterval;
 use DateTimeImmutable;
-use Yiisoft\Schedule\Exception\LogicException;
+use Yiisoft\Scheduler\Exception\LogicException;
 
 use function abs;
 use function intdiv;

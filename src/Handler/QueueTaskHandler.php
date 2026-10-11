@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Handler;
+namespace Yiisoft\Scheduler\Handler;
 
 use Yiisoft\Queue\Message\MessageInterface;
 use Yiisoft\Queue\QueueProducerInterface;
-use Yiisoft\Schedule\Exception\LogicException;
-use Yiisoft\Schedule\TaskContext;
+use Yiisoft\Scheduler\Exception\LogicException;
+use Yiisoft\Scheduler\TaskContext;
 
 use function get_debug_type;
 use function is_callable;

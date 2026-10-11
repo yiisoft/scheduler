@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Handler;
+namespace Yiisoft\Scheduler\Handler;
 
-use Yiisoft\Schedule\TaskContext;
+use Yiisoft\Scheduler\TaskContext;
 
 /**
  * Executes a due task.

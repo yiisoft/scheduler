@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule;
+namespace Yiisoft\Scheduler;
 
 use DateTimeImmutable;
-use Yiisoft\Schedule\Trigger\TriggerInterface;
+use Yiisoft\Scheduler\Trigger\TriggerInterface;
 
 /**
  * The context of a single task run: which task, when it was triggered and when the next run is due.

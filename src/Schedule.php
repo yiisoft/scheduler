@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule;
+namespace Yiisoft\Scheduler;
 
 use Psr\SimpleCache\CacheInterface;
 use Yiisoft\Mutex\MutexInterface;

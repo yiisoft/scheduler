@@ -1,4 +1,4 @@
-# Proposal: yiisoft/schedule — recurring tasks for Yii 3
+# Proposal: yiisoft/scheduler — recurring tasks for Yii 3
 
 > Draft for https://github.com/orgs/yiisoft/discussions (new package proposal)
 
@@ -17,7 +17,7 @@ Prior art outside Yii: Laravel's scheduler and Symfony's Scheduler component (st
 
 ## Proposal
 
-A new framework-agnostic package, **`yiisoft/schedule`** (per the packages guide, it has no Yii-specific dependencies in its core), plus console integration through `yiisoft/yii-console` params.
+A new framework-agnostic package, **`yiisoft/scheduler`** (per the packages guide, it has no Yii-specific dependencies in its core), plus console integration through `yiisoft/yii-console` params.
 
 ### Core concepts (adapted from Symfony Scheduler, mapped onto Yii packages)
 
@@ -71,7 +71,7 @@ return [
 
 ### Config-first task definition (Yii style)
 
-Tasks can be declared in `config/params.php` under `yiisoft/schedule` or provided by a `ScheduleProviderInterface` service for dynamic (DB-driven) schedules — both feed the same `Schedule`.
+Tasks can be declared in `config/params.php` under `yiisoft/scheduler` or provided by a `ScheduleProviderInterface` service for dynamic (DB-driven) schedules — both feed the same `Schedule`.
 
 ## What the MVP includes / excludes
 
@@ -84,4 +84,4 @@ Tasks can be declared in `config/params.php` under `yiisoft/schedule` or provide
 - I have working context from both sides: recent contributions to Symfony (incl. its Console) and to yiisoft (db, router, http-middleware, yii-sentry cron check-ins).
 - If you prefer, I'm happy to build this as a community package first (per the yii3-symfony-messenger precedent in discussion #496) and transfer it to the yiisoft org once it proves itself. Either way I can start immediately.
 
-Looking forward to your feedback — especially on naming (`yiisoft/schedule`), the queue integration boundary, and whether the config-first task definition matches how you'd want apps to declare schedules.
+Looking forward to your feedback — especially on naming (`yiisoft/scheduler`), the queue integration boundary, and whether the config-first task definition matches how you'd want apps to declare schedules.

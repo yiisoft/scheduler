@@ -2,17 +2,17 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Handler;
+namespace Yiisoft\Scheduler\Tests\Handler;
 
 use PHPUnit\Framework\TestCase;
 use Yiisoft\Queue\Message\GenericMessage;
 use Yiisoft\Queue\Message\MessageInterface;
 use Yiisoft\Queue\MessageStatus;
 use Yiisoft\Queue\QueueProducerInterface;
-use Yiisoft\Schedule\Handler\QueueTaskHandler;
-use Yiisoft\Schedule\TaskContext;
-use Yiisoft\Schedule\Tests\Support\TestClock;
-use Yiisoft\Schedule\Trigger\CronExpressionTrigger;
+use Yiisoft\Scheduler\Handler\QueueTaskHandler;
+use Yiisoft\Scheduler\TaskContext;
+use Yiisoft\Scheduler\Tests\Support\TestClock;
+use Yiisoft\Scheduler\Trigger\CronExpressionTrigger;
 use LogicException;
 
 final class QueueTaskHandlerTest extends TestCase

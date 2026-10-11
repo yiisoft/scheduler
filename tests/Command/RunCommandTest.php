@@ -2,18 +2,18 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Command;
+namespace Yiisoft\Scheduler\Tests\Command;
 
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Tester\CommandTester;
-use Yiisoft\Schedule\Command\RunCommand;
-use Yiisoft\Schedule\Handler\CallableTaskHandler;
-use Yiisoft\Schedule\RecurringTask;
-use Yiisoft\Schedule\Schedule;
-use Yiisoft\Schedule\Scheduler;
-use Yiisoft\Schedule\Tests\Support\InMemoryCache;
-use Yiisoft\Schedule\Tests\Support\TestClock;
+use Yiisoft\Scheduler\Command\RunCommand;
+use Yiisoft\Scheduler\Handler\CallableTaskHandler;
+use Yiisoft\Scheduler\RecurringTask;
+use Yiisoft\Scheduler\Schedule;
+use Yiisoft\Scheduler\Scheduler;
+use Yiisoft\Scheduler\Tests\Support\InMemoryCache;
+use Yiisoft\Scheduler\Tests\Support\TestClock;
 
 final class RunCommandTest extends TestCase
 {

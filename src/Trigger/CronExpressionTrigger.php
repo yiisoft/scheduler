@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Trigger;
+namespace Yiisoft\Scheduler\Trigger;
 
 use Cron\CronExpression;
 use DateTimeImmutable;
 use DateTimeZone;
-use Yiisoft\Schedule\Exception\LogicException;
+use Yiisoft\Scheduler\Exception\LogicException;
 
 use function is_string;
 use function sprintf;

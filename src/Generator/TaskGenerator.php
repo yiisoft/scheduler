@@ -2,15 +2,15 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Generator;
+namespace Yiisoft\Scheduler\Generator;
 
 use DateTimeImmutable;
 use Psr\Clock\ClockInterface;
 use Throwable;
-use Yiisoft\Schedule\Exception\LogicException;
-use Yiisoft\Schedule\RecurringTask;
-use Yiisoft\Schedule\Schedule;
-use Yiisoft\Schedule\TaskContext;
+use Yiisoft\Scheduler\Exception\LogicException;
+use Yiisoft\Scheduler\RecurringTask;
+use Yiisoft\Scheduler\Schedule;
+use Yiisoft\Scheduler\TaskContext;
 
 use function count;
 

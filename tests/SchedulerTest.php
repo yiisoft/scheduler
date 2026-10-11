@@ -2,22 +2,22 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests;
+namespace Yiisoft\Scheduler\Tests;
 
 use PHPUnit\Framework\Attributes\RequiresPhpExtension;
 use PHPUnit\Framework\TestCase;
-use Yiisoft\Schedule\Event\FailureEvent;
-use Yiisoft\Schedule\Event\PostRunEvent;
-use Yiisoft\Schedule\Event\PreRunEvent;
-use Yiisoft\Schedule\Handler\CallableTaskHandler;
-use Yiisoft\Schedule\RecurringTask;
-use Yiisoft\Schedule\Schedule;
-use Yiisoft\Schedule\Scheduler;
-use Yiisoft\Schedule\Tests\Support\InMemoryCache;
-use Yiisoft\Schedule\Tests\Support\TestClock;
+use Yiisoft\Scheduler\Event\FailureEvent;
+use Yiisoft\Scheduler\Event\PostRunEvent;
+use Yiisoft\Scheduler\Event\PreRunEvent;
+use Yiisoft\Scheduler\Handler\CallableTaskHandler;
+use Yiisoft\Scheduler\RecurringTask;
+use Yiisoft\Scheduler\Schedule;
+use Yiisoft\Scheduler\Scheduler;
+use Yiisoft\Scheduler\Tests\Support\InMemoryCache;
+use Yiisoft\Scheduler\Tests\Support\TestClock;
 use Psr\EventDispatcher\EventDispatcherInterface;
-use Yiisoft\Schedule\Exception\LogicException;
-use Yiisoft\Schedule\Tests\Support\InMemoryMutex;
+use Yiisoft\Scheduler\Exception\LogicException;
+use Yiisoft\Scheduler\Tests\Support\InMemoryMutex;
 use RuntimeException;
 
 use function sprintf;
@@ -581,7 +581,7 @@ final class SchedulerTest extends TestCase
     public function testConcurrentTickRunsDueTasksInParallel(): void
     {
         $clock = new TestClock();
-        $dir = sys_get_temp_dir() . '/yii-schedule-test-' . uniqid();
+        $dir = sys_get_temp_dir() . '/yii-scheduler-test-' . uniqid();
         mkdir($dir);
 
         // Each task waits for the other to have started; run one after another,
@@ -726,7 +726,7 @@ final class SchedulerTest extends TestCase
     public function testConcurrentTickSkipsATaskWhosePreviousRunIsStillRunning(): void
     {
         $clock = new TestClock();
-        $dir = sys_get_temp_dir() . '/yii-schedule-test-' . uniqid();
+        $dir = sys_get_temp_dir() . '/yii-scheduler-test-' . uniqid();
         mkdir($dir);
 
         // Runs until released, so the second due time arrives while the first run is still on.
@@ -779,7 +779,7 @@ final class SchedulerTest extends TestCase
     public function testForkedTaskDoesNotInheritTheParentsSignalHandlers(): void
     {
         $clock = new TestClock();
-        $dir = sys_get_temp_dir() . '/yii-schedule-test-' . uniqid();
+        $dir = sys_get_temp_dir() . '/yii-scheduler-test-' . uniqid();
         mkdir($dir);
 
         $schedule = (new Schedule())->task(
@@ -858,7 +858,7 @@ final class SchedulerTest extends TestCase
     public function testConcurrentTickKeepsToTheProcessLimit(): void
     {
         $clock = new TestClock();
-        $dir = sys_get_temp_dir() . '/yii-schedule-test-' . uniqid();
+        $dir = sys_get_temp_dir() . '/yii-scheduler-test-' . uniqid();
         mkdir($dir);
 
         // Each run brackets itself in the log, so two running at once would interleave.
@@ -917,7 +917,7 @@ final class SchedulerTest extends TestCase
     public function testForkedTaskDoesNotRunTheParentsShutdownSequence(): void
     {
         $clock = new TestClock();
-        $marker = sys_get_temp_dir() . '/yii-schedule-teardown-' . uniqid();
+        $marker = sys_get_temp_dir() . '/yii-scheduler-teardown-' . uniqid();
 
         // Stands in for whatever the daemon holds open across the fork - a connection, say,
         // whose destructor would say goodbye to the server the parent is still talking to.

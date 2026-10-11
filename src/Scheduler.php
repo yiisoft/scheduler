@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule;
+namespace Yiisoft\Scheduler;
 
 use DateTimeImmutable;
 use Psr\Clock\ClockInterface;
@@ -10,13 +10,13 @@ use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use Throwable;
-use Yiisoft\Schedule\Event\FailureEvent;
-use Yiisoft\Schedule\Event\PostRunEvent;
-use Yiisoft\Schedule\Event\PreRunEvent;
-use Yiisoft\Schedule\Exception\LogicException;
-use Yiisoft\Schedule\Exception\RuntimeException;
-use Yiisoft\Schedule\Generator\TaskGenerator;
-use Yiisoft\Schedule\Handler\TaskHandlerInterface;
+use Yiisoft\Scheduler\Event\FailureEvent;
+use Yiisoft\Scheduler\Event\PostRunEvent;
+use Yiisoft\Scheduler\Event\PreRunEvent;
+use Yiisoft\Scheduler\Exception\LogicException;
+use Yiisoft\Scheduler\Exception\RuntimeException;
+use Yiisoft\Scheduler\Generator\TaskGenerator;
+use Yiisoft\Scheduler\Handler\TaskHandlerInterface;
 
 use function array_key_exists;
 use function array_keys;

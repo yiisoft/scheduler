@@ -7,14 +7,14 @@ use Psr\Container\ContainerInterface;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Log\LoggerInterface;
 use Psr\SimpleCache\CacheInterface;
-use Yiisoft\Schedule\Clock\SystemClock;
-use Yiisoft\Schedule\Handler\CallableTaskHandler;
-use Yiisoft\Schedule\Handler\QueueTaskHandler;
-use Yiisoft\Schedule\Handler\TaskHandlerInterface;
-use Yiisoft\Schedule\Schedule;
-use Yiisoft\Schedule\Scheduler;
+use Yiisoft\Scheduler\Clock\SystemClock;
+use Yiisoft\Scheduler\Handler\CallableTaskHandler;
+use Yiisoft\Scheduler\Handler\QueueTaskHandler;
+use Yiisoft\Scheduler\Handler\TaskHandlerInterface;
+use Yiisoft\Scheduler\Schedule;
+use Yiisoft\Scheduler\Scheduler;
 use Yiisoft\Queue\QueueProducerInterface;
-use Yiisoft\Schedule\RecurringTask;
+use Yiisoft\Scheduler\RecurringTask;
 
 /** @var array $params */
 
@@ -41,7 +41,7 @@ return [
         }
 
         /** @var RecurringTask $task */
-        foreach ($params['yiisoft/schedule']['tasks'] as $task) {
+        foreach ($params['yiisoft/scheduler']['tasks'] as $task) {
             $schedule->task($task);
         }
 

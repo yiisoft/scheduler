@@ -2,15 +2,15 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule;
+namespace Yiisoft\Scheduler;
 
 use Closure;
 use DateInterval;
 use ReflectionFunction;
 use Throwable;
-use Yiisoft\Schedule\Trigger\CronExpressionTrigger;
-use Yiisoft\Schedule\Trigger\PeriodicTrigger;
-use Yiisoft\Schedule\Trigger\TriggerInterface;
+use Yiisoft\Scheduler\Trigger\CronExpressionTrigger;
+use Yiisoft\Scheduler\Trigger\PeriodicTrigger;
+use Yiisoft\Scheduler\Trigger\TriggerInterface;
 
 use function get_debug_type;
 use function hash;

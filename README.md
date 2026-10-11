@@ -2,16 +2,16 @@
     <a href="https://github.com/yiisoft" target="_blank">
         <img src="https://yiisoft.github.io/docs/images/yii_logo.svg" height="100px" alt="Yii">
     </a>
-    <h1 align="center">Yii Schedule</h1>
+    <h1 align="center">Yii Scheduler</h1>
     <br>
 </p>
 
-[![Latest Stable Version](https://poser.pugx.org/yiisoft/schedule/v)](https://packagist.org/packages/yiisoft/schedule)
-[![Total Downloads](https://poser.pugx.org/yiisoft/schedule/downloads)](https://packagist.org/packages/yiisoft/schedule)
-[![Build status](https://github.com/yiisoft/schedule/actions/workflows/build.yml/badge.svg)](https://github.com/yiisoft/schedule/actions/workflows/build.yml)
-[![Code Coverage](https://codecov.io/gh/yiisoft/schedule/graph/badge.svg)](https://codecov.io/gh/yiisoft/schedule)
-[![Mutation testing badge](https://img.shields.io/endpoint?style=flat&url=https%3A%2F%2Fbadge-api.stryker-mutator.io%2Fgithub.com%2Fyiisoft%2Fschedule%2Fmaster)](https://dashboard.stryker-mutator.io/reports/github.com/yiisoft/schedule/master)
-[![static analysis](https://github.com/yiisoft/schedule/actions/workflows/static.yml/badge.svg?branch=master)](https://github.com/yiisoft/schedule/actions/workflows/static.yml?query=branch%3Amaster)
+[![Latest Stable Version](https://poser.pugx.org/yiisoft/scheduler/v)](https://packagist.org/packages/yiisoft/scheduler)
+[![Total Downloads](https://poser.pugx.org/yiisoft/scheduler/downloads)](https://packagist.org/packages/yiisoft/scheduler)
+[![Build status](https://github.com/yiisoft/scheduler/actions/workflows/build.yml/badge.svg)](https://github.com/yiisoft/scheduler/actions/workflows/build.yml)
+[![Code Coverage](https://codecov.io/gh/yiisoft/scheduler/graph/badge.svg)](https://codecov.io/gh/yiisoft/scheduler)
+[![Mutation testing badge](https://img.shields.io/endpoint?style=flat&url=https%3A%2F%2Fbadge-api.stryker-mutator.io%2Fgithub.com%2Fyiisoft%2Fscheduler%2Fmaster)](https://dashboard.stryker-mutator.io/reports/github.com/yiisoft/scheduler/master)
+[![static analysis](https://github.com/yiisoft/scheduler/actions/workflows/static.yml/badge.svg?branch=master)](https://github.com/yiisoft/scheduler/actions/workflows/static.yml?query=branch%3Amaster)
 
 Recurring tasks and cron-style scheduling for PHP applications: define the tasks in code,
 and let a single cron entry or a long-running worker run them when due — with missed-run
@@ -33,7 +33,7 @@ catch-up, overlap prevention and failure handling included.
 ## Installation
 
 ```shell
-composer require yiisoft/schedule
+composer require yiisoft/scheduler
 ```
 
 ## General usage
@@ -42,10 +42,10 @@ Declare tasks in the configuration:
 
 ```php
 // config/params.php
-use Yiisoft\Schedule\RecurringTask;
+use Yiisoft\Scheduler\RecurringTask;
 
 return [
-    'yiisoft/schedule' => [
+    'yiisoft/scheduler' => [
         'tasks' => [
             RecurringTask::cron('0 5 * * *', 'report:daily'),
             RecurringTask::every('10 minutes', static fn () => $cleaner->purgeExpiredTokens()),
@@ -100,7 +100,7 @@ When building a schedule by hand, persist its checkpoint, and add a mutex to pre
 overlapping runs across processes:
 
 ```php
-use Yiisoft\Schedule\Schedule;
+use Yiisoft\Scheduler\Schedule;
 
 $schedule = (new Schedule())
     ->stateful($cache) // any PSR-16 implementation
@@ -136,7 +136,7 @@ If you need help or have questions, [contact us](https://www.yiiframework.com/co
 
 ## License
 
-The Yii Schedule is free software. It is released under the terms of the BSD License.
+The Yii Scheduler is free software. It is released under the terms of the BSD License.
 Please see [`LICENSE`](./LICENSE.md) for more information.
 
 Maintained by [Yii Software](https://www.yiiframework.com/).

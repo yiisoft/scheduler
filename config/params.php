@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-use Yiisoft\Schedule\Command\ListCommand;
-use Yiisoft\Schedule\Command\RunCommand;
-use Yiisoft\Schedule\Command\WorkCommand;
+use Yiisoft\Scheduler\Command\ListCommand;
+use Yiisoft\Scheduler\Command\RunCommand;
+use Yiisoft\Scheduler\Command\WorkCommand;
 
 return [
     'yiisoft/yii-console' => [
@@ -14,7 +14,7 @@ return [
             'schedule:list' => ListCommand::class,
         ],
     ],
-    'yiisoft/schedule' => [
+    'yiisoft/scheduler' => [
         'tasks' => [],
     ],
 ];

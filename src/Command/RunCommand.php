@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Command;
+namespace Yiisoft\Scheduler\Command;
 
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Throwable;
-use Yiisoft\Schedule\Scheduler;
+use Yiisoft\Scheduler\Scheduler;
 
 use function implode;
 use function sprintf;

@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Generator;
+namespace Yiisoft\Scheduler\Generator;
 
 use DateTimeImmutable;
 use Psr\SimpleCache\CacheInterface;
 use Yiisoft\Mutex\MutexInterface;
-use Yiisoft\Schedule\Exception\RuntimeException;
+use Yiisoft\Scheduler\Exception\RuntimeException;
 
 use function is_array;
 use function is_int;

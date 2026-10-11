@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Handler;
+namespace Yiisoft\Scheduler\Handler;
 
 use Symfony\Component\Console\Application;
 use Symfony\Component\Console\Input\StringInput;
 use Symfony\Component\Console\Output\NullOutput;
-use Yiisoft\Schedule\Exception\LogicException;
-use Yiisoft\Schedule\TaskContext;
+use Yiisoft\Scheduler\Exception\LogicException;
+use Yiisoft\Scheduler\TaskContext;
 
 use function is_callable;
 use function is_string;
