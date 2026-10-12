@@ -18,10 +18,17 @@ use function sprintf;
 use const PHP_INT_MAX;
 
 /**
- * A trigger firing at a fixed interval, anchored to a "from" date (by default the first time it is asked).
+ * A trigger firing at a fixed interval, anchored to a "from" date (by default the midnight of
+ * January 1, 2001 in the default timezone).
  *
- * When anchored, the run dates are the multiples of the interval counted from the anchor, so the
- * sequence never drifts: `from`, `from + 1 × interval`, `from + 2 × interval`, and so on.
+ * The run dates are the multiples of the interval counted from the anchor, so the sequence
+ * never drifts: `from`, `from + 1 × interval`, `from + 2 × interval`, and so on. With the
+ * default anchor that means "every 10 minutes" fires at :00, :10, :20 and so on, no matter when
+ * the process evaluating the trigger was started or what date it is asked about.
+ *
+ * An interval of hours, minutes and seconds only is an amount of time that passes: a change of
+ * the clock neither skips nor repeats its runs. One with days, months or years in it follows
+ * the calendar of the anchor's timezone instead, so "every day" stays at the same local time.
  */
 final class PeriodicTrigger implements TriggerInterface
 {
@@ -34,12 +41,40 @@ final class PeriodicTrigger implements TriggerInterface
      */
     private const MAX_MULTIPLE = PHP_INT_MAX >> 2;
 
+    /**
+     * The anchor used when none is given. A fixed one keeps the trigger a pure function of the
+     * date it is asked about: anchoring to that date instead would make the next run depend on
+     * when the schedule was last evaluated, so a process started anew for every tick, as a
+     * `schedule:run` cron entry is, would push the run one interval ahead of itself forever.
+     *
+     * This one is a Monday and the first day of a year, so weeks are counted from Mondays and
+     * months from the first. It is also recent enough for most timezones to be at the offset
+     * they have today, which many were not in 1970; where the offset has changed since, or
+     * changes with the season, an interval counted in seconds is off the local hour by that
+     * much. It is read in the default timezone of the moment the trigger is asked, like the
+     * cron expression of a CronExpressionTrigger.
+     */
+    private const DEFAULT_FROM = '2001-01-01 00:00:00';
+
+    /**
+     * Dates an interval is tried on to tell whether it is a plain amount of time: the middle
+     * and the end of a month, a weekday and a weekend, so a relative format shows itself on
+     * at least one of them.
+     */
+    private const SCALABILITY_PROBES = ['2001-01-17 12:34:56 UTC', '2001-03-31 00:00:00 UTC'];
+
     private readonly ?int $seconds;
     private readonly ?DateInterval $dateInterval;
+    /**
+     * The interval in seconds when it is a plain amount of them, whichever way it was given.
+     * Such an interval is counted on the timestamp rather than on the wall clock.
+     */
+    private readonly ?int $step;
 
     /**
      * @param int|DateInterval $interval The interval between runs, in seconds or as a date interval.
-     * @param DateTimeImmutable|null $from The anchor date. Defaults to the first time the trigger is asked.
+     * @param DateTimeImmutable|null $from The anchor date. Defaults to the midnight of January 1, 2001
+     * in the default timezone.
      * @param DateTimeImmutable|null $until The date after which the trigger is exhausted.
      */
     public function __construct(
@@ -54,9 +89,14 @@ final class PeriodicTrigger implements TriggerInterface
 
             $this->seconds = $interval;
             $this->dateInterval = null;
+            $this->step = $interval;
         } else {
             $this->seconds = null;
             $this->dateInterval = $interval;
+
+            $this->assertScalable();
+
+            $this->step = self::wholeSeconds($interval);
         }
     }
 
@@ -78,24 +118,20 @@ final class PeriodicTrigger implements TriggerInterface
             return null;
         }
 
-        if (null === $this->from) {
-            $next = $this->add($lastRun);
+        $from = $this->from ?? new DateTimeImmutable(self::DEFAULT_FROM);
+
+        if ($lastRun < $from) {
+            $next = $from;
+        } elseif (null !== $this->step) {
+            $elapsed = $lastRun->getTimestamp() - $from->getTimestamp();
+            $timestamp = $from->getTimestamp() + intdiv($elapsed, $this->step) * $this->step;
+            $next = self::atTimestamp($timestamp, $from, $lastRun);
 
             if ($next <= $lastRun) {
-                throw new LogicException(self::NON_ADVANCING_MESSAGE);
-            }
-        } elseif ($lastRun < $this->from) {
-            $next = $this->from;
-        } elseif (null !== $this->seconds) {
-            $elapsed = $lastRun->getTimestamp() - $this->from->getTimestamp();
-            $next = $this->from->getTimestamp() + intdiv($elapsed, $this->seconds) * $this->seconds;
-            $next = (new DateTimeImmutable())->setTimestamp($next)->setTimezone($lastRun->getTimezone());
-
-            if ($next <= $lastRun) {
-                $next = $next->setTimestamp($next->getTimestamp() + $this->seconds);
+                $next = self::atTimestamp($timestamp + $this->step, $from, $lastRun);
             }
         } else {
-            $next = $this->firstMultipleAfter($this->from, $lastRun);
+            $next = $this->firstMultipleAfter($from, $lastRun);
         }
 
         if (null !== $this->until && $next > $this->until) {
@@ -103,6 +139,24 @@ final class PeriodicTrigger implements TriggerInterface
         }
 
         return $next;
+    }
+
+    /**
+     * The date at the given timestamp and at the fraction of a second the anchor is at, in the
+     * timezone of the date asked about. Whole seconds apart from the anchor, a run shares its
+     * fraction, which setting a timestamp alone would drop.
+     */
+    private static function atTimestamp(int $timestamp, DateTimeImmutable $from, DateTimeImmutable $lastRun): DateTimeImmutable
+    {
+        $date = DateTimeImmutable::createFromFormat('U.u', sprintf('%d.%s', $timestamp, $from->format('u')));
+
+        // The spec is built here from an integer and six digits, so this only guards against
+        // an impossible state.
+        if (false === $date) {
+            throw new LogicException(sprintf('The run date at timestamp %d could not be created.', $timestamp));
+        }
+
+        return $date->setTimezone($lastRun->getTimezone());
     }
 
     /**
@@ -153,6 +207,54 @@ final class PeriodicTrigger implements TriggerInterface
     }
 
     /**
+     * The length of an interval of hours, minutes and whole seconds only, null for any other.
+     *
+     * Multiples of such an interval are better counted on the timestamp: added to a date as
+     * hours and minutes they follow the wall clock, which skips the hour repeated when the
+     * clocks go back, and every run due in it.
+     */
+    private static function wholeSeconds(DateInterval $interval): ?int
+    {
+        if (
+            0 !== $interval->y
+            || 0 !== $interval->m
+            || 0 !== $interval->d
+            || 1 === $interval->invert
+            || 0 !== (int) round($interval->f * 1_000_000)
+        ) {
+            return null;
+        }
+
+        $seconds = $interval->h * 3600 + $interval->i * 60 + $interval->s;
+
+        return $seconds > 0 ? $seconds : null;
+    }
+
+    /**
+     * The run dates are multiples of the interval, computed from its years, months, days and
+     * time. An interval made from a relative format such as "1 weekday" or "first monday of
+     * next month" carries what it means outside of those, so its multiples would be dates it
+     * never leads to; it is refused here, where the task is declared, rather than left to
+     * run at the wrong time or not at all.
+     */
+    private function assertScalable(): void
+    {
+        /** @var DateInterval $interval */
+        $interval = $this->dateInterval;
+
+        foreach (self::SCALABILITY_PROBES as $probe) {
+            $date = new DateTimeImmutable($probe);
+
+            if ($date->add($interval) != $this->multiple($date, 1)) {
+                throw new LogicException(
+                    'The interval is not a fixed amount of years, months, days and time;'
+                    . ' use a cron expression for calendar-based schedules.',
+                );
+            }
+        }
+    }
+
+    /**
      * Applies the interval the given number of times at once, in a single step.
      */
     private function multiple(DateTimeImmutable $from, int $times): DateTimeImmutable
@@ -162,6 +264,10 @@ final class PeriodicTrigger implements TriggerInterface
 
         $factor = 1 === $interval->invert ? -$times : $times;
 
+        // Whole seconds are carried out of the microseconds: counted from an anchor decades
+        // away, a sub-second interval adds up to more of them than the format accepts.
+        $microseconds = $factor * (int) round($interval->f * 1_000_000);
+
         $scaled = DateInterval::createFromDateString(sprintf(
             '%d years %d months %d days %d hours %d minutes %d seconds %d microseconds',
             $factor * $interval->y,
@@ -169,8 +275,8 @@ final class PeriodicTrigger implements TriggerInterface
             $factor * $interval->d,
             $factor * $interval->h,
             $factor * $interval->i,
-            $factor * $interval->s,
-            $factor * (int) round($interval->f * 1_000_000),
+            $factor * $interval->s + intdiv($microseconds, 1_000_000),
+            $microseconds % 1_000_000,
         ));
 
         // PHP 8.1 and 8.2 report a malformed spec with false instead of throwing; the spec is
@@ -180,19 +286,6 @@ final class PeriodicTrigger implements TriggerInterface
         }
 
         return $from->add($scaled);
-    }
-
-    private function add(DateTimeImmutable $date): DateTimeImmutable
-    {
-        if (null !== $this->seconds) {
-            // setTimestamp() is used instead of modify(): the latter may return false on older PHP versions.
-            return $date->setTimestamp($date->getTimestamp() + $this->seconds);
-        }
-
-        /** @var DateInterval $interval */
-        $interval = $this->dateInterval;
-
-        return $date->add($interval);
     }
 
     /**
