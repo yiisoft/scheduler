@@ -7,6 +7,7 @@ use Psr\Container\ContainerInterface;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Log\LoggerInterface;
 use Psr\SimpleCache\CacheInterface;
+use Symfony\Component\Console\Application;
 use Yiisoft\Scheduler\Clock\SystemClock;
 use Yiisoft\Scheduler\Handler\CallableTaskHandler;
 use Yiisoft\Scheduler\Handler\QueueTaskHandler;
@@ -22,11 +23,31 @@ return [
     ClockInterface::class => SystemClock::class,
 
     TaskHandlerInterface::class => static function (ContainerInterface $container): TaskHandlerInterface {
-        if (interface_exists(QueueProducerInterface::class) && $container->has(QueueProducerInterface::class)) {
-            return $container->get(QueueTaskHandler::class);
+        // The application running the commands is registered under the yiisoft/yii-console class
+        // name. Asking the container for the Symfony class it extends first would not find it:
+        // where undefined classes are autowired, that builds a new application without any
+        // command. The Symfony class is the fallback, for an application registered as one.
+        $application = null;
+
+        foreach (['Yiisoft\\Yii\\Console\\Application', Application::class] as $id) {
+            if ($container->has($id)) {
+                /** @var mixed $application */
+                $application = $container->get($id);
+
+                break;
+            }
         }
 
-        return $container->get(CallableTaskHandler::class);
+        $handler = new CallableTaskHandler($application instanceof Application ? $application : null);
+
+        if (interface_exists(QueueProducerInterface::class) && $container->has(QueueProducerInterface::class)) {
+            /** @var QueueProducerInterface $producer */
+            $producer = $container->get(QueueProducerInterface::class);
+
+            return new QueueTaskHandler($producer, $handler);
+        }
+
+        return $handler;
     },
 
     Scheduler::class => static function (ContainerInterface $container) use ($params): Scheduler {

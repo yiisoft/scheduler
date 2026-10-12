@@ -2,6 +2,7 @@
 
 ## 1.0.0 under development
 
+- Bug #5: Fix console command tasks not finding their command with the bundled configuration, by passing the running `yiisoft/yii-console` application to the task handler (@samdark)
 - Bug #6: Fix a single failing task stopping `schedule:work` and terminating the other running tasks; the daemon now logs the failure and carries on (@samdark)
 - Bug #7: Fix a console command task that exits with a non-zero code being reported as a successful run (@samdark)
 - New #8: Add `RecurringTask::withId()` and include the message type in the generated id of a queue message task, so tasks sharing a trigger and a target can be in one schedule (@samdark)
