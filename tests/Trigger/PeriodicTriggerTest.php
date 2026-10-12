@@ -6,10 +6,14 @@ namespace Yiisoft\Scheduler\Tests\Trigger;
 
 use DateInterval;
 use DateTimeImmutable;
+use DateTimeZone;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Yiisoft\Scheduler\Exception\LogicException;
 use Yiisoft\Scheduler\Trigger\PeriodicTrigger;
+
+use function date_default_timezone_get;
+use function date_default_timezone_set;
 
 final class PeriodicTriggerTest extends TestCase
 {
@@ -141,6 +145,64 @@ final class PeriodicTriggerTest extends TestCase
         $trigger->getNextRunDate(new DateTimeImmutable('2026-01-01 01:00:00+00:00'));
     }
 
+    public function testIntervalOfTimeOnlyRunsThroughTheHourRepeatedWhenTheClocksGoBack(): void
+    {
+        $this->inTimezone('Europe/Berlin', function (): void {
+            $triggers = [
+                new PeriodicTrigger(new DateInterval('PT30M')),
+                new PeriodicTrigger(new DateInterval('PT30M'), new DateTimeImmutable('2026-01-01 00:00:00')),
+                new PeriodicTrigger(1800),
+            ];
+
+            foreach ($triggers as $trigger) {
+                $run = new DateTimeImmutable('2026-10-25 00:59:00');
+                $runs = [];
+
+                for ($i = 0; $i < 6; ++$i) {
+                    $run = $trigger->getNextRunDate($run);
+                    $runs[] = $run->setTimezone(new DateTimeZone('Europe/Berlin'))->format('H:i T');
+                }
+
+                $this->assertSame(
+                    ['01:00 CEST', '01:30 CEST', '02:00 CEST', '02:30 CEST', '02:00 CET', '02:30 CET'],
+                    $runs,
+                );
+            }
+        });
+    }
+
+    public function testIntervalOfDaysKeepsItsLocalTimeAcrossAClockChange(): void
+    {
+        $this->inTimezone('Europe/Berlin', function (): void {
+            $trigger = new PeriodicTrigger(new DateInterval('P1D'));
+
+            foreach (['2026-01-14 09:03:00' => '2026-01-15T00:00:00+01:00', '2026-07-15 09:03:00' => '2026-07-16T00:00:00+02:00'] as $lastRun => $expected) {
+                $this->assertSame($expected, $trigger->getNextRunDate(new DateTimeImmutable($lastRun))->format('c'));
+            }
+        });
+    }
+
+    public function testWeeksAreCountedFromMondaysWithoutAnAnchor(): void
+    {
+        $trigger = new PeriodicTrigger(new DateInterval('P1W'));
+
+        $next = $trigger->getNextRunDate(new DateTimeImmutable('2026-01-14 09:03:00+00:00'));
+
+        $this->assertSame('Monday 2026-01-19 00:00:00', $next->format('l Y-m-d H:i:s'));
+    }
+
+    public function testSecondsAndTheSameIntervalAsADateIntervalAgreeWithoutAnAnchor(): void
+    {
+        // A timezone whose offset in 1970 was not the one it has now.
+        $this->inTimezone('Asia/Kathmandu', function (): void {
+            $lastRun = new DateTimeImmutable('2026-01-14 09:03:00');
+
+            foreach ([new PeriodicTrigger(3600), new PeriodicTrigger(new DateInterval('PT1H'))] as $trigger) {
+                $this->assertSame('2026-01-14T10:00:00+05:45', $trigger->getNextRunDate($lastRun)->format('c'));
+            }
+        });
+    }
+
     #[DataProvider('relativeFormats')]
     public function testIntervalOfARelativeFormatIsRejected(string $format): void
     {
@@ -185,5 +247,20 @@ final class PeriodicTriggerTest extends TestCase
             'mixed' => ['1 day 12 hours'],
             'sub-second' => ['500 microseconds'],
         ];
+    }
+
+    /**
+     * @param callable(): void $test
+     */
+    private function inTimezone(string $timezone, callable $test): void
+    {
+        $default = date_default_timezone_get();
+        date_default_timezone_set($timezone);
+
+        try {
+            $test();
+        } finally {
+            date_default_timezone_set($default);
+        }
     }
 }

@@ -55,11 +55,7 @@ return [
 ];
 ```
 
-An interval is counted from a fixed point in time rather than from the moment the scheduler
-was started, so `every('10 minutes')` runs at :00, :10, :20 and so on. To count from another
-moment, pass a `PeriodicTrigger` with its own `from` date to `RecurringTask::trigger()`.
-
-Run them either with a single system cron entry:
+and run them, either with a single system cron entry:
 
 ```shell
 * * * * * php yii schedule:run
@@ -99,6 +95,11 @@ which runs already happened: it requires a stateful schedule and reports an erro
 The bundled configuration makes the schedule stateful automatically when the application has a
 PSR-16 cache. `schedule:work` keeps the position in memory and works either way, though a
 checkpoint also lets it compensate the runs missed while it was down.
+
+An interval is counted from a fixed point in time rather than from the moment the scheduler
+was started, so `every('10 minutes')` runs at :00, :10, :20 and so on, `every('1 day')` at
+midnight and `every('1 week')` on Mondays. To count from another moment, pass a
+`PeriodicTrigger` with its own `from` date to `RecurringTask::trigger()`.
 
 When building a schedule by hand, persist its checkpoint, and add a mutex to prevent
 overlapping runs across processes:
