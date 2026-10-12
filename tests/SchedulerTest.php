@@ -232,6 +232,138 @@ final class SchedulerTest extends TestCase
         $scheduler->tick();
     }
 
+    public function testFailureDoesNotKeepTheTasksBehindItFromRunning(): void
+    {
+        $clock = new TestClock();
+        $ran = 0;
+
+        $schedule = (new Schedule())->task(
+            RecurringTask::cron('* * * * *', static function (): void {
+                throw new RuntimeException('Task failed.');
+            }),
+            RecurringTask::cron('* * * * *', static function () use (&$ran): void {
+                ++$ran;
+            }),
+        );
+
+        $scheduler = new Scheduler([$schedule], new CallableTaskHandler(), $clock);
+
+        $scheduler->tick();
+        $clock->advance('+1 minute');
+
+        try {
+            $scheduler->tick();
+            $this->fail('The task failure was not reported.');
+        } catch (RuntimeException $error) {
+            $this->assertSame('Task failed.', $error->getMessage());
+        }
+
+        $this->assertSame(1, $ran);
+    }
+
+    public function testFailuresAfterTheFirstAreLogged(): void
+    {
+        $clock = new TestClock();
+
+        $schedule = (new Schedule())->task(
+            RecurringTask::cron('* * * * *', static function (): void {
+                throw new RuntimeException('First failed.');
+            }),
+            RecurringTask::cron('* * * * *', static function (): void {
+                throw new RuntimeException('Second failed.');
+            }),
+        );
+
+        $logger = new class extends AbstractLogger {
+            /** @var list<string> */
+            public array $errors = [];
+
+            public function log($level, string|Stringable $message, array $context = []): void
+            {
+                if (LogLevel::ERROR === $level) {
+                    $this->errors[] = (string) ($context['error'] ?? '');
+                }
+            }
+        };
+
+        $scheduler = new Scheduler([$schedule], new CallableTaskHandler(), $clock, null, $logger);
+
+        $scheduler->tick();
+        $clock->advance('+1 minute');
+
+        try {
+            $scheduler->tick();
+            $this->fail('The task failure was not reported.');
+        } catch (RuntimeException $error) {
+            $this->assertSame('First failed.', $error->getMessage());
+        }
+
+        $this->assertSame(['Second failed.'], $logger->errors);
+    }
+
+    public function testFailedRunIsNotRepeatedByTheNextProcess(): void
+    {
+        $cache = new InMemoryCache();
+        $clock = new TestClock();
+        $failed = 0;
+        $ran = 0;
+
+        $tasks = [
+            RecurringTask::cron('* * * * *', static function () use (&$failed): void {
+                ++$failed;
+
+                throw new RuntimeException('Task failed.');
+            }),
+            RecurringTask::cron('* * * * *', static function () use (&$ran): void {
+                ++$ran;
+            }),
+        ];
+
+        // Every tick is a separate process, as a "* * * * * php yii schedule:run" entry is.
+        for ($minute = 0; $minute <= 3; ++$minute) {
+            $schedule = (new Schedule())->stateful($cache)->task(...$tasks);
+
+            try {
+                (new Scheduler([$schedule], new CallableTaskHandler(), $clock))->tick();
+            } catch (RuntimeException) {
+            }
+
+            $clock->advance('+1 minute');
+        }
+
+        $this->assertSame(3, $failed);
+        $this->assertSame(3, $ran);
+    }
+
+    public function testFailingScheduleDoesNotKeepTheOtherSchedulesFromRunning(): void
+    {
+        [$scheduler, $dispatcher] = $this->schedulerWithAnUnreadableFirstSchedule();
+
+        try {
+            $scheduler->tick();
+            $this->fail('The unreadable checkpoint was not reported.');
+        } catch (SchedulerRuntimeException $error) {
+            $this->assertStringContainsString('"first"', $error->getMessage());
+        }
+
+        $this->assertSame(['second'], $dispatcher->started);
+    }
+
+    #[RequiresPhpExtension('pcntl')]
+    public function testFailingScheduleDoesNotKeepTheOtherSchedulesFromRunningConcurrently(): void
+    {
+        [$scheduler, $dispatcher] = $this->schedulerWithAnUnreadableFirstSchedule();
+
+        try {
+            $scheduler->tick(true);
+            $this->fail('The unreadable checkpoint was not reported.');
+        } catch (SchedulerRuntimeException $error) {
+            $this->assertStringContainsString('"first"', $error->getMessage());
+        }
+
+        $this->assertSame(['second'], $dispatcher->started);
+    }
+
     public function testIgnoredFailureLetsTheSchedulerContinue(): void
     {
         $clock = new TestClock();
@@ -1123,5 +1255,49 @@ final class SchedulerTest extends TestCase
                 unlink($marker);
             }
         }
+    }
+
+    /**
+     * Two schedules with a due task each, the first of which cannot read its checkpoint. The
+     * dispatcher records the schedules whose task got as far as its pre-run event and cancels
+     * the run, so nothing is forked.
+     *
+     * @return array{Scheduler, object{started: list<string>}}
+     */
+    private function schedulerWithAnUnreadableFirstSchedule(): array
+    {
+        $cache = new InMemoryCache();
+        $clock = new TestClock();
+
+        $dispatcher = new class implements EventDispatcherInterface {
+            /** @var list<string> */
+            public array $started = [];
+
+            public function dispatch(object $event): object
+            {
+                if ($event instanceof PreRunEvent) {
+                    $this->started[] = $event->context->scheduleName;
+                    $event->cancel();
+                }
+
+                return $event;
+            }
+        };
+
+        $scheduler = new Scheduler(
+            [
+                (new Schedule('first'))->stateful($cache)->task(RecurringTask::cron('* * * * *', static fn() => null)),
+                (new Schedule('second'))->task(RecurringTask::cron('* * * * *', static fn() => null)),
+            ],
+            new CallableTaskHandler(),
+            $clock,
+            $dispatcher,
+        );
+
+        $scheduler->tick();
+        $clock->advance('+1 minute');
+        $cache->set('yii_schedule_checkpoint_first', 'garbage');
+
+        return [$scheduler, $dispatcher];
     }
 }
