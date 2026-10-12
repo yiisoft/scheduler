@@ -31,9 +31,9 @@ final class PreparedConfigurationExecutionBindingSource implements ExecutionBind
         $this->portable($runId, 'owner run');
     }
 
-    public function map(string $scheduleKey, string $taskKey, string $occurrenceId, int $occurrenceTime): ExecutionBinding
+    public function map(string $taskKey, string $occurrenceId, int $occurrenceTime): ExecutionBinding
     {
-        new ExecutionOccurrenceKey($scheduleKey, $taskKey, $occurrenceId);
+        new ExecutionOccurrenceKey($taskKey, $occurrenceId);
         if ($occurrenceTime < 0 || $occurrenceTime > 2147483647) {
             throw new InvalidArgumentException('Occurrence time is out of bounds.');
         }
@@ -41,25 +41,20 @@ final class PreparedConfigurationExecutionBindingSource implements ExecutionBind
             throw new InvalidArgumentException('Prepared configuration source identity or revision changed.');
         }
         $task = $this->configuration->task($taskKey);
-        if ((string) $task->scheduleId !== $scheduleKey) {
-            throw new InvalidArgumentException('Unknown schedule for task.');
-        }
         $timeout = $this->configuration->timeoutFor($task);
         $policy = $this->configuration->taskPolicyProjection($task);
         $version = $this->configuration->taskFingerprint($task);
         $correlation = $this->correlationFactory === null
             ? new ExecutionIdentity(
-                $scheduleKey,
                 $taskKey,
                 $occurrenceId,
                 'attempt-1',
                 $this->runId,
-                'e' . hash('sha256', $this->sourceId . "\0" . $this->revision . "\0" . $scheduleKey . "\0" . $taskKey . "\0" . $occurrenceId),
+                'e' . hash('sha256', $this->sourceId . "\0" . $this->revision . "\0" . $taskKey . "\0" . $occurrenceId),
             )
             : $this->correlationFactory->create($this->sourceId, $this->revision, $taskKey, $occurrenceId);
 
         return new ExecutionBinding(
-            $scheduleKey,
             $taskKey,
             $occurrenceId,
             $occurrenceTime,

@@ -40,8 +40,8 @@ final class FileExecutionLedgerTest extends TestCase
     {
         $outcome = new ExecutionOutcome(ExecutionOutcome::SUCCEEDED, 'done', $this->deepTree(32));
         $record = new ExecutionLedgerRecord(
-            new ExecutionOccurrenceKey('schedule', 'task', 'deep'),
-            new ExecutionIdentity('schedule', 'task', 'deep', 'attempt', 'run-1', 'execution-1'),
+            new ExecutionOccurrenceKey('task', 'deep'),
+            new ExecutionIdentity('task', 'deep', 'attempt', 'run-1', 'execution-1'),
             1,
             new ExecutionFence(1, 'fence-1'),
             ExecutionLedgerState::SUCCEEDED,
@@ -66,8 +66,8 @@ final class FileExecutionLedgerTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
         try {
             $record = new ExecutionLedgerRecord(
-                new ExecutionOccurrenceKey('schedule', 'task', 'too-deep'),
-                new ExecutionIdentity('schedule', 'task', 'too-deep', 'attempt', 'run-1', 'execution-1'),
+                new ExecutionOccurrenceKey('task', 'too-deep'),
+                new ExecutionIdentity('task', 'too-deep', 'attempt', 'run-1', 'execution-1'),
                 1,
                 new ExecutionFence(1, 'fence-1'),
                 ExecutionLedgerState::LAUNCH_REQUIRED,
@@ -90,7 +90,7 @@ final class FileExecutionLedgerTest extends TestCase
         self::assertInstanceOf(ExecutionLedgerQueryInterface::class, $ledger);
         self::assertEquals([$record], $ledger->activeExecutions());
         self::assertEquals([$record], $ledger->ownershipHoldingExecutions());
-        self::assertTrue($ledger->hasTaskHistory('schedule', 'task'));
+        self::assertTrue($ledger->hasTaskHistory('task'));
     }
 
     #[DataProvider('unfinishedStateProvider')]
@@ -132,13 +132,13 @@ final class FileExecutionLedgerTest extends TestCase
         self::assertSame($record->occurrence->occurrenceId, $ownership[0]->occurrence->occurrenceId);
         self::assertSame(ExecutionLedgerState::SUCCEEDED, $ownership[0]->state);
         self::assertSame(ExecutionLedgerState::SUCCEEDED, $reopened->observe($record->occurrence)?->state);
-        self::assertTrue($ledger->hasTaskHistory('schedule', 'task'));
+        self::assertTrue($ledger->hasTaskHistory('task'));
 
         // History is a marker, not a scan of retained execution snapshots.
         foreach ($this->recordFiles() as $path) {
             unlink($path);
         }
-        self::assertTrue((new FileExecutionLedger($this->directory))->hasTaskHistory('schedule', 'task'));
+        self::assertTrue((new FileExecutionLedger($this->directory))->hasTaskHistory('task'));
     }
 
     public function testRepairRebuildsMissingActiveIndexAndMissingTaskMarkerFromSnapshots(): void
@@ -154,7 +154,7 @@ final class FileExecutionLedgerTest extends TestCase
         $ledger = new FileExecutionLedger($this->directory);
         $ledger->repairIndexes();
         self::assertEquals([$record], $ledger->activeExecutions());
-        self::assertTrue($ledger->hasTaskHistory('schedule', 'task'));
+        self::assertTrue($ledger->hasTaskHistory('task'));
     }
 
     public function testRepairDropsOrphanActiveReferenceWithoutFabricatingRecord(): void
@@ -182,6 +182,32 @@ final class FileExecutionLedgerTest extends TestCase
         new FileExecutionLedger($this->directory);
     }
 
+    public function testMalformedOwnershipIndexRejectsAdmissionBeforeAnyDurableMutation(): void
+    {
+        $existing = $this->record();
+        $ledger = new FileExecutionLedger($this->directory);
+        $ledger->admit($existing);
+        $ownership = $this->indexFile('ownership');
+        file_put_contents($ownership, '{"version":1,"entries":[]}');
+        $newRecord = $this->record(occurrenceId: 'new');
+        $before = [];
+        foreach (glob($this->directory . '/*') ?: [] as $path) {
+            $before[basename($path)] = file_get_contents($path);
+        }
+
+        $this->expectException(InvalidArgumentException::class);
+        try {
+            $ledger->admit($newRecord);
+        } finally {
+            $after = [];
+            foreach (glob($this->directory . '/*') ?: [] as $path) {
+                $after[basename($path)] = file_get_contents($path);
+            }
+            self::assertSame($before, $after);
+            self::assertFileDoesNotExist($this->recordPath($newRecord) . '.lock');
+        }
+    }
+
     #[DataProvider('postSnapshotAdmissionFailureProvider')]
     public function testStartupRepairRestoresIndexesAfterPostSnapshotAdmissionFailure(string $pathFragment): void
     {
@@ -196,7 +222,7 @@ final class FileExecutionLedgerTest extends TestCase
         self::assertTrue($failed);
 
         $reopened = new FileExecutionLedger($this->directory);
-        self::assertTrue($reopened->hasTaskHistory('schedule', 'task'));
+        self::assertTrue($reopened->hasTaskHistory('task'));
         self::assertEquals([$record], $reopened->activeExecutions());
         self::assertEquals($record, $reopened->observe($record->occurrence));
     }
@@ -228,7 +254,7 @@ final class FileExecutionLedgerTest extends TestCase
         new FileExecutionLedger($this->directory);
     }
 
-    public function testMalformedUnrelatedClosedSnapshotDoesNotBreakTaskHistoryMarkerLookup(): void
+    public function testMalformedUnrelatedClosedSnapshotFailsLedgerConstruction(): void
     {
         $record = $this->record();
         $closed = $this->record(occurrenceId: 'closed');
@@ -239,7 +265,8 @@ final class FileExecutionLedgerTest extends TestCase
         $ledger->recordOutcome($closed->occurrence, $closed->fence, new ExecutionOutcome(ExecutionOutcome::SUCCEEDED), 11);
         file_put_contents($this->recordPath($closed), '{malformed');
 
-        self::assertTrue((new FileExecutionLedger($this->directory))->hasTaskHistory('schedule', 'task'));
+        $this->expectException(InvalidArgumentException::class);
+        new FileExecutionLedger($this->directory);
     }
 
     public function testPreIndexSnapshotsMigrateOnceThroughRepairAndAdmissionIsIdempotent(): void
@@ -625,10 +652,10 @@ final class FileExecutionLedgerTest extends TestCase
 
     private function record(string $state = ExecutionLedgerState::LAUNCH_REQUIRED, string $configurationFingerprint = 'manifest', string $occurrenceId = 'occurrence', ?int $claimLeaseDeadline = null): ExecutionLedgerRecord
     {
-        $occurrence = new ExecutionOccurrenceKey('schedule', 'task', $occurrenceId);
+        $occurrence = new ExecutionOccurrenceKey('task', $occurrenceId);
         return new ExecutionLedgerRecord(
             $occurrence,
-            new ExecutionIdentity('schedule', 'task', $occurrenceId, 'attempt', 'run-1', 'execution-1'),
+            new ExecutionIdentity('task', $occurrenceId, 'attempt', 'run-1', 'execution-1'),
             1,
             new ExecutionFence(1, 'fence-1'),
             $state,
@@ -646,14 +673,13 @@ final class FileExecutionLedgerTest extends TestCase
     private function policy(?array $metadata = null): array
     {
         return [
-            'format' => 3,
+            'format' => 4,
             'source' => [null, null],
             'task' => [
                 'id' => 'task',
                 'mode' => 'async',
                 'timeout' => [1.0, 2.0],
                 'metadata' => $metadata ?? [],
-                'schedule' => 'schedule',
                 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]],
                 'overlap' => 'allow',
                 'missed' => ['skip', null],

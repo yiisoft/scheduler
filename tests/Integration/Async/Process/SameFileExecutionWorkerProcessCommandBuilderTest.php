@@ -23,7 +23,7 @@ final class SameFileExecutionWorkerProcessCommandBuilderTest extends TestCase
     {
         $encoded = $this->request()->capability->encode();
         $this->expectException(InvalidArgumentException::class);
-        ExecutionWorkerCapability::decode(str_replace('"version":3', '"version":2', $encoded));
+        ExecutionWorkerCapability::decode(str_replace('"version":4', '"version":3', $encoded));
     }
 
     public function testBuilderDoesNotTransportRemainingBudget(): void
@@ -104,9 +104,9 @@ final class SameFileExecutionWorkerProcessCommandBuilderTest extends TestCase
 
     private function request(): ExecutionWorkerLaunchRequest
     {
-        $policy = ['format' => 3, 'source' => [null, null], 'task' => ['id' => 'task', 'mode' => 'async', 'timeout' => null, 'metadata' => [], 'schedule' => 'schedule', 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null]]];
+        $policy = ['format' => 4, 'source' => [null, null], 'task' => ['id' => 'task', 'mode' => 'async', 'timeout' => null, 'metadata' => [], 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null]]];
         return new ExecutionWorkerLaunchRequest(new ExecutionWorkerCapability(
-            new ExecutionOccurrenceKey('schedule', 'task', 'occurrence'),
+            new ExecutionOccurrenceKey('task', 'occurrence'),
             'attempt',
             'run',
             'execution',

@@ -41,7 +41,7 @@ final class CallableDependencyInjectionTest extends TestCase
             foreach (glob(AcceptanceScheduler::sourceLedgerDirectory($config) . '/*.json') ?: [] as $path) {
                 $record = json_decode((string) file_get_contents($path), true, 32, JSON_THROW_ON_ERROR);
                 if (in_array($record['state'] ?? null, ['succeeded', 'failed', 'cancelled'], true)) {
-                    self::assertSame(5, $record['version'] ?? null);
+                    self::assertSame(6, $record['version'] ?? null);
                 }
             }
 

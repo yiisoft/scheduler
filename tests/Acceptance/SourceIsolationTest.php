@@ -66,8 +66,8 @@ final class SourceIsolationTest extends TestCase
             self::assertFileExists($root . '/two/external-effect.effect');
             $oneIdentity = json_decode((string) file_get_contents($root . '/one/external-effect.identity.json'), true, 8, JSON_THROW_ON_ERROR);
             $twoIdentity = json_decode((string) file_get_contents($root . '/two/external-effect.identity.json'), true, 8, JSON_THROW_ON_ERROR);
-            self::assertSame('default', $oneIdentity['schedule']);
-            self::assertSame('default', $twoIdentity['schedule']);
+            self::assertArrayNotHasKey('schedule', $oneIdentity);
+            self::assertArrayNotHasKey('schedule', $twoIdentity);
             self::assertSame('external-task', $oneIdentity['task']);
             self::assertSame('external-task', $twoIdentity['task']);
             self::assertNotSame($oneIdentity['source'], $twoIdentity['source']);

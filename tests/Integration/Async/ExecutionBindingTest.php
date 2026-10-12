@@ -31,14 +31,14 @@ final class ExecutionBindingTest extends TestCase
         $type = new ReflectionClass($identity);
 
         self::assertSame(
-            ['scheduleKey', 'taskKey', 'occurrenceId', 'attemptId', 'runId', 'executionId'],
+            ['taskKey', 'occurrenceId', 'attemptId', 'runId', 'executionId'],
             array_map(static fn($property): string => $property->getName(), $type->getProperties()),
         );
         foreach ($type->getProperties() as $property) {
             self::assertTrue($property->isPublic());
             self::assertTrue($property->isReadOnly());
         }
-        self::assertSame('schedule', $identity->scheduleKey);
+        self::assertSame('task', $identity->taskKey);
         self::assertSame('execution', $identity->executionId);
     }
 
@@ -48,7 +48,6 @@ final class ExecutionBindingTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
 
         new ExecutionIdentity(
-            scheduleKey: $field === 'scheduleKey' ? $value : 'schedule',
             taskKey: $field === 'taskKey' ? $value : 'task',
             occurrenceId: $field === 'occurrenceId' ? $value : 'occurrence',
             attemptId: $field === 'attemptId' ? $value : 'attempt',
@@ -60,7 +59,7 @@ final class ExecutionBindingTest extends TestCase
     /** @return iterable<string, array{string, string}> */
     public static function invalidIdentityProvider(): iterable
     {
-        $fields = ['scheduleKey', 'taskKey', 'occurrenceId', 'attemptId', 'runId', 'executionId'];
+        $fields = ['taskKey', 'occurrenceId', 'attemptId', 'runId', 'executionId'];
         $invalidValues = [
             'empty' => '',
             'leading digit' => '1identifier',
@@ -96,10 +95,9 @@ final class ExecutionBindingTest extends TestCase
     {
         $configurationFingerprint = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
 
-        $identity = new ExecutionIdentity('schedule', 'task', 'occurrence', 'attempt', 'run', 'execution');
+        $identity = new ExecutionIdentity('task', 'occurrence', 'attempt', 'run', 'execution');
         $timeout = new TimeoutPolicy(1.25, 2.5);
         $binding = new ExecutionBinding(
-            'schedule',
             'task',
             'occurrence',
             1,
@@ -110,7 +108,7 @@ final class ExecutionBindingTest extends TestCase
             mode: 'async',
             timeout: $timeout,
         );
-        $candidate = new ExecutionOccurrenceCandidate(new ExecutionOccurrenceKey('schedule', 'task', 'occurrence'), $binding, 'cursor-1');
+        $candidate = new ExecutionOccurrenceCandidate(new ExecutionOccurrenceKey('task', 'occurrence'), $binding, 'cursor-1');
 
         self::assertSame($configurationFingerprint, $binding->configurationFingerprint);
         self::assertSame($identity, $binding->correlation);
@@ -127,7 +125,6 @@ final class ExecutionBindingTest extends TestCase
     {
         $this->expectException(InvalidArgumentException::class);
         new ExecutionBinding(
-            'schedule',
             'task',
             'occurrence',
             1,
@@ -153,10 +150,9 @@ final class ExecutionBindingTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
         new ExecutionBinding(
             str_repeat('a', 129),
-            'task',
             'occurrence',
             1,
-            new ExecutionIdentity('schedule', 'task', 'occurrence', 'attempt', 'run', 'execution'),
+            new ExecutionIdentity(str_repeat('a', 129), 'occurrence', 'attempt', 'run', 'execution'),
             configurationFingerprint: str_repeat('a', 64),
             payload: $this->policy(),
             runId: 'run',
@@ -165,11 +161,11 @@ final class ExecutionBindingTest extends TestCase
 
     private function policy(): array
     {
-        return ['format' => 3, 'source' => [null, null], 'task' => ['id' => 'task', 'mode' => 'async', 'timeout' => null, 'metadata' => [], 'schedule' => 'schedule', 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null]]];
+        return ['format' => 4, 'source' => [null, null], 'task' => ['id' => 'task', 'mode' => 'async', 'timeout' => null, 'metadata' => [], 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null]]];
     }
 
     private function identity(): ExecutionIdentity
     {
-        return new ExecutionIdentity('schedule', 'task', 'occurrence', 'attempt', 'run', 'execution');
+        return new ExecutionIdentity('task', 'occurrence', 'attempt', 'run', 'execution');
     }
 }

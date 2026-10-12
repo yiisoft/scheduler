@@ -31,28 +31,28 @@ final class FileExecutionOccurrenceCheckpointTest extends TestCase
     public function testInitializeOnlyCreatesAbsentStateAndStateSurvivesRestart(): void
     {
         $checkpoint = new FileExecutionOccurrenceCheckpoint($this->root);
-        self::assertNull($checkpoint->read('schedule', 'task'));
+        self::assertNull($checkpoint->read('task'));
 
-        $checkpoint->initialize('schedule', 'task', 't0000000001');
+        $checkpoint->initialize('task', 't0000000001');
         $restarted = new FileExecutionOccurrenceCheckpoint($this->root);
-        self::assertSame('t0000000001', $restarted->read('schedule', 'task'));
+        self::assertSame('t0000000001', $restarted->read('task'));
         $this->expectException(InvalidArgumentException::class);
-        $checkpoint->initialize('schedule', 'task', 't0000000002');
+        $checkpoint->initialize('task', 't0000000002');
     }
 
     public function testAdvanceIsExactCasAndRejectsStaleDuplicateAndNoOpWithoutChangingState(): void
     {
         $checkpoint = new FileExecutionOccurrenceCheckpoint($this->root);
-        $checkpoint->initialize('schedule', 'task', 'cursor-1');
-        $checkpoint->advance('schedule', 'task', 'cursor-1', 'cursor-2');
-        self::assertSame('cursor-2', $checkpoint->read('schedule', 'task'));
+        $checkpoint->initialize('task', 'cursor-1');
+        $checkpoint->advance('task', 'cursor-1', 'cursor-2');
+        self::assertSame('cursor-2', $checkpoint->read('task'));
 
         foreach ([['cursor-1', 'cursor-3'], ['cursor-2', 'cursor-2']] as [$expected, $next]) {
             try {
-                $checkpoint->advance('schedule', 'task', $expected, $next);
+                $checkpoint->advance('task', $expected, $next);
                 self::fail('Expected an exact CAS rejection.');
             } catch (InvalidArgumentException) {
-                self::assertSame('cursor-2', $checkpoint->read('schedule', 'task'));
+                self::assertSame('cursor-2', $checkpoint->read('task'));
             }
         }
     }
@@ -60,42 +60,43 @@ final class FileExecutionOccurrenceCheckpointTest extends TestCase
     public function testAdvanceRejectsBackwardCursorAndPreservesState(): void
     {
         $checkpoint = new FileExecutionOccurrenceCheckpoint($this->root);
-        $checkpoint->initialize('schedule', 'task', 'cursor-2');
+        $checkpoint->initialize('task', 'cursor-2');
 
         $this->expectException(InvalidArgumentException::class);
         try {
-            $checkpoint->advance('schedule', 'task', 'cursor-2', 'cursor-1');
+            $checkpoint->advance('task', 'cursor-2', 'cursor-1');
         } finally {
-            self::assertSame('cursor-2', $checkpoint->read('schedule', 'task'));
+            self::assertSame('cursor-2', $checkpoint->read('task'));
         }
     }
 
     public function testSkipIsDurableExactCasAndRestartSafe(): void
     {
         $checkpoint = new FileExecutionOccurrenceCheckpoint($this->root);
-        $checkpoint->initialize('schedule', 'task', 'cursor-1');
-        $checkpoint->skip('schedule', 'task', 'cursor-1', 'cursor-2', OccurrenceSkipReason::OVERLAP);
-        self::assertSame('cursor-2', $checkpoint->read('schedule', 'task'));
+        $checkpoint->initialize('task', 'cursor-1');
+        $checkpoint->skip('task', 'cursor-1', 'cursor-2', OccurrenceSkipReason::OVERLAP);
+        self::assertSame('cursor-2', $checkpoint->read('task'));
         try {
-            $checkpoint->skip('schedule', 'task', 'cursor-1', 'cursor-3', OccurrenceSkipReason::OVERLAP);
+            $checkpoint->skip('task', 'cursor-1', 'cursor-3', OccurrenceSkipReason::OVERLAP);
             self::fail('Expected a stale skip to be rejected.');
         } catch (InvalidArgumentException) {
-            self::assertSame('cursor-2', $checkpoint->read('schedule', 'task'));
+            self::assertSame('cursor-2', $checkpoint->read('task'));
         }
-        self::assertSame('cursor-2', (new FileExecutionOccurrenceCheckpoint($this->root))->read('schedule', 'task'));
+        self::assertSame('cursor-2', (new FileExecutionOccurrenceCheckpoint($this->root))->read('task'));
     }
 
-    public function testVersionOneCheckpointJsonRemainsReadable(): void
+    public function testVersionOneCheckpointJsonIsRejected(): void
     {
         file_put_contents($this->root . '/checkpoints.json', '{"version":1,"checkpoints":{"schedule":{"task":"cursor-1"}}}');
-        self::assertSame('cursor-1', (new FileExecutionOccurrenceCheckpoint($this->root))->read('schedule', 'task'));
+        $this->expectException(InvalidArgumentException::class);
+        (new FileExecutionOccurrenceCheckpoint($this->root))->read('task');
     }
 
     public function testMalformedAndUnexpectedStateIsRejected(): void
     {
         file_put_contents($this->root . '/checkpoints.json', '{"version":1,"checkpoints":{"schedule":{"task":42}}}');
         $this->expectException(InvalidArgumentException::class);
-        (new FileExecutionOccurrenceCheckpoint($this->root))->read('schedule', 'task');
+        (new FileExecutionOccurrenceCheckpoint($this->root))->read('task');
     }
 
     public function testOversizedStateAndInvalidInputsAreRejected(): void
@@ -103,23 +104,23 @@ final class FileExecutionOccurrenceCheckpointTest extends TestCase
         file_put_contents($this->root . '/checkpoints.json', str_repeat('x', 1_048_577));
         $checkpoint = new FileExecutionOccurrenceCheckpoint($this->root);
         $this->expectException(InvalidArgumentException::class);
-        $checkpoint->read('schedule', 'task');
+        $checkpoint->read('task');
     }
 
     #[DataProvider('invalidInputProvider')]
-    public function testInvalidKeysAndCursorsAreRejected(string $schedule, string $task, string $cursor): void
+    public function testInvalidKeysAndCursorsAreRejected(string $task, string $cursor): void
     {
         $this->expectException(InvalidArgumentException::class);
-        (new FileExecutionOccurrenceCheckpoint($this->root))->initialize($schedule, $task, $cursor);
+        (new FileExecutionOccurrenceCheckpoint($this->root))->initialize($task, $cursor);
     }
 
     #[DataProvider('invalidReasonProvider')]
     public function testSkipRejectsInvalidBoundedReason(string $reason): void
     {
         $checkpoint = new FileExecutionOccurrenceCheckpoint($this->root);
-        $checkpoint->initialize('schedule', 'task', 'cursor-1');
+        $checkpoint->initialize('task', 'cursor-1');
         $this->expectException(InvalidArgumentException::class);
-        $checkpoint->skip('schedule', 'task', 'cursor-1', 'cursor-2', OccurrenceSkipReason::fromString($reason));
+        $checkpoint->skip('task', 'cursor-1', 'cursor-2', OccurrenceSkipReason::fromString($reason));
     }
 
     public static function invalidReasonProvider(): array
@@ -130,11 +131,11 @@ final class FileExecutionOccurrenceCheckpointTest extends TestCase
     public static function invalidInputProvider(): array
     {
         return [
-            'key traversal' => ['../schedule', 'task', 'cursor'],
-            'empty task' => ['schedule', '', 'cursor'],
-            'empty cursor' => ['schedule', 'task', ''],
-            'cursor control' => ['schedule', 'task', "cursor\n"],
-            'cursor oversized' => ['schedule', 'task', str_repeat('x', 2049)],
+            'key traversal' => ['../schedule', 'cursor'],
+            'empty task' => ['', 'cursor'],
+            'empty cursor' => ['task', ''],
+            'cursor control' => ['task', "cursor\n"],
+            'cursor oversized' => ['task', str_repeat('x', 2049)],
         ];
     }
 }

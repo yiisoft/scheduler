@@ -44,7 +44,7 @@ final class PlannerStateFormatTest extends TestCase
 
         PlannerStateFormat::initializeOrValidate($directory);
 
-        self::assertSame('{"version":1,"runtime":3}', $before);
+        self::assertSame('{"version":1,"runtime":4}', $before);
         self::assertSame($before, file_get_contents($marker));
     }
 
@@ -68,11 +68,11 @@ final class PlannerStateFormatTest extends TestCase
     public static function invalidMarkerProvider(): iterable
     {
         yield 'malformed' => ['not-json'];
-        yield 'unknown version' => ['{"version":99,"runtime":3}'];
-        yield 'wrong type' => ['{"version":"1","runtime":3}'];
-        yield 'extra key' => ['{"version":1,"runtime":3,"extra":true}'];
-        yield 'duplicate version' => ['{"version":1,"runtime":3,"version":1}'];
-        yield 'duplicate runtime' => ['{"version":1,"runtime":3,"runtime":3}'];
-        yield 'oversized' => ['{"version":1,"runtime":3}' . str_repeat(' ', 4096)];
+        yield 'unknown version' => ['{"version":99,"runtime":4}'];
+        yield 'wrong type' => ['{"version":"1","runtime":4}'];
+        yield 'extra key' => ['{"version":1,"runtime":4,"extra":true}'];
+        yield 'duplicate version' => ['{"version":1,"runtime":4,"version":1}'];
+        yield 'duplicate runtime' => ['{"version":1,"runtime":4,"runtime":4}'];
+        yield 'oversized' => ['{"version":1,"runtime":4}' . str_repeat(' ', 4096)];
     }
 }

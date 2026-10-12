@@ -30,7 +30,6 @@ final class ExecutionOccurrenceSource implements ExecutionOccurrenceSourceInterf
     private readonly MissedOccurrenceSetting $policy;
 
     public function __construct(
-        private readonly string $scheduleKey,
         private readonly string $taskKey,
         private readonly TriggerInterface $trigger,
         private readonly ExecutionBindingSourceInterface $bindings,
@@ -69,7 +68,7 @@ final class ExecutionOccurrenceSource implements ExecutionOccurrenceSourceInterf
         $wasPrimed = $this->checkpointPrimed;
         $cursor = $wasPrimed
             ? $this->scanCheckpoint
-            : $this->checkpoint->read($this->scheduleKey, $this->taskKey);
+            : $this->checkpoint->read($this->taskKey);
         $this->checkpointPrimed = false;
         if ($cursor === null) {
             throw new InvalidArgumentException('An occurrence checkpoint is required before reading the source.');
@@ -83,7 +82,7 @@ final class ExecutionOccurrenceSource implements ExecutionOccurrenceSourceInterf
 
         $hasHistory = $this->policy->policy !== MissedOccurrencePolicy::SKIP
             && $this->ledger !== null
-            && $this->ledger->hasTaskHistory($this->scheduleKey, $this->taskKey);
+            && $this->ledger->hasTaskHistory($this->taskKey);
         $last = self::decodeCursor($cursor);
         if ($this->trigger instanceof TriggerRangeInterface) {
             return $this->nextFromRange($last, $hasHistory);
@@ -97,11 +96,11 @@ final class ExecutionOccurrenceSource implements ExecutionOccurrenceSourceInterf
         if ($current === null || !$current->isSameCandidate($candidate) || !$candidate->matchesAdmission($admission)) {
             throw new InvalidArgumentException('Candidate acknowledgement does not match the current committed admission.');
         }
-        $expectedCursor = $this->checkpoint->read($this->scheduleKey, $this->taskKey);
+        $expectedCursor = $this->checkpoint->read($this->taskKey);
         if ($expectedCursor === null) {
             throw new InvalidArgumentException('An occurrence checkpoint is required before acknowledgement.');
         }
-        $this->checkpoint->advance($this->scheduleKey, $this->taskKey, $expectedCursor, $candidate->cursor);
+        $this->checkpoint->advance($this->taskKey, $expectedCursor, $candidate->cursor);
         $this->resetScan($candidate->cursor);
     }
 
@@ -111,11 +110,11 @@ final class ExecutionOccurrenceSource implements ExecutionOccurrenceSourceInterf
         if ($current === null || !$current->isSameCandidate($candidate)) {
             throw new InvalidArgumentException('Candidate skip does not match the current candidate.');
         }
-        $expectedCursor = $this->checkpoint->read($this->scheduleKey, $this->taskKey);
+        $expectedCursor = $this->checkpoint->read($this->taskKey);
         if ($expectedCursor === null) {
             throw new InvalidArgumentException('An occurrence checkpoint is required before skipping.');
         }
-        $this->checkpoint->skip($this->scheduleKey, $this->taskKey, $expectedCursor, $candidate->cursor, $reason);
+        $this->checkpoint->skip($this->taskKey, $expectedCursor, $candidate->cursor, $reason);
         $this->resetScan($candidate->cursor);
     }
 
@@ -223,8 +222,8 @@ final class ExecutionOccurrenceSource implements ExecutionOccurrenceSourceInterf
     private function candidate(int $timestamp): ExecutionOccurrenceCandidate
     {
         $occurrenceId = 'o' . str_pad((string) $timestamp, 10, '0', STR_PAD_LEFT);
-        $occurrence = new ExecutionOccurrenceKey($this->scheduleKey, $this->taskKey, $occurrenceId);
-        $mapping = $this->bindings->map($this->scheduleKey, $this->taskKey, $occurrenceId, $timestamp);
+        $occurrence = new ExecutionOccurrenceKey($this->taskKey, $occurrenceId);
+        $mapping = $this->bindings->map($this->taskKey, $occurrenceId, $timestamp);
         return new ExecutionOccurrenceCandidate($occurrence, $mapping, self::encodeTimestamp($timestamp));
     }
 

@@ -8,11 +8,11 @@ use InvalidArgumentException;
 use LogicException;
 use Yiisoft\Scheduler\Callable\ContainerProvider;
 use Yiisoft\Scheduler\Executor\CommandExecutorMap;
-use Yiisoft\Scheduler\ScalarMetadata;
-use Yiisoft\Scheduler\Task\ScheduleId;
-use Yiisoft\Scheduler\Task\TaskId;
 use Yiisoft\Scheduler\ExecutionMode;
+use Yiisoft\Scheduler\ScalarMetadata;
+use Yiisoft\Scheduler\Task\TaskId;
 
+use function array_key_exists;
 use function in_array;
 use function is_array;
 use function is_float;
@@ -22,7 +22,7 @@ use function is_string;
 /** Process-local prepared scheduling policy. Command handles never enter its projections. */
 final class PreparedConfiguration
 {
-    public const TASK_FORMAT = 3;
+    public const TASK_FORMAT = 4;
 
     /** @var array<string, TaskDefinition> */
     public readonly array $tasks;
@@ -97,7 +97,7 @@ final class PreparedConfiguration
             || !is_array($policy['source'])
             || array_keys($policy['source']) !== [0, 1]
             || !is_array($policy['task'])
-            || array_keys($policy['task']) !== ['id', 'mode', 'timeout', 'metadata', 'schedule', 'trigger', 'overlap', 'missed']) {
+            || array_keys($policy['task']) !== ['id', 'mode', 'timeout', 'metadata', 'trigger', 'overlap', 'missed']) {
             throw new InvalidArgumentException('Task policy projection shape is invalid.');
         }
 
@@ -115,7 +115,7 @@ final class PreparedConfiguration
 
         $task = $policy['task'];
         if (!is_string($task['id']) || !is_string($task['mode']) || !in_array($task['mode'], ['async', 'sync'], true)
-            || !is_string($task['schedule']) || !is_string($task['overlap'])
+            || !is_string($task['overlap'])
             || !in_array($task['overlap'], ['allow', 'skip'], true)
             || !is_array($task['metadata']) || !is_array($task['trigger']) || array_keys($task['trigger']) !== [0, 1]
             || !is_string($task['trigger'][0]) || !is_array($task['trigger'][1])
@@ -153,7 +153,9 @@ final class PreparedConfiguration
         // The constructors below enforce the same portable Identifier and
         // standard trigger contracts used by process-local configuration.
         new TaskId($task['id']);
-        new ScheduleId($task['schedule']);
+        if (array_key_exists('schedule', $task)) {
+            throw new InvalidArgumentException('Legacy schedule-bearing task policy is unsupported.');
+        }
         ScalarMetadata::assertAggregateSupported($task['metadata'], $task['trigger'][1]);
         (new TriggerDefinition($task['trigger'][0], $task['trigger'][1]))->validate();
     }
@@ -191,7 +193,6 @@ final class PreparedConfiguration
                 'mode' => $task->mode->value,
                 'timeout' => $timeout === null ? null : [$timeout->softSeconds, $timeout->hardSeconds],
                 'metadata' => $task->metadata,
-                'schedule' => (string) $task->scheduleId,
                 'trigger' => [$task->trigger->reference, $task->trigger->definition],
                 'overlap' => $task->overlap->value,
                 'missed' => [$task->missedOccurrences->policy->value, $task->missedOccurrences->max],
@@ -216,7 +217,6 @@ final class PreparedConfiguration
                 'mode' => $task->mode->value,
                 'timeout' => $timeout === null ? null : [$timeout->softSeconds, $timeout->hardSeconds],
                 'metadata' => $task->metadata,
-                'schedule' => (string) $task->scheduleId,
                 'trigger' => [$task->trigger->reference, $task->trigger->definition],
                 'missed' => [$task->missedOccurrences->policy->value, $task->missedOccurrences->max],
                 'overlap' => $task->overlap->value,

@@ -36,7 +36,6 @@ final class ConfigurationConverter
                 $schedule->mode,
                 $schedule->timeout,
                 $schedule->metadata,
-                null,
                 $schedule->trigger,
                 $schedule->missedOccurrences,
                 $schedule->overlap,

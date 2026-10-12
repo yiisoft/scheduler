@@ -37,18 +37,18 @@ final class ExecutionOccurrenceSourceTest extends TestCase
     public function testCandidateIsBoundedConsistentAndRetainsSnapshot(): void
     {
         $mapping = $this->mapping('occurrence-1', 'manifest-v1', 'task-snapshot-v1');
-        $candidate = new ExecutionOccurrenceCandidate(new ExecutionOccurrenceKey('schedule', 'task', 'occurrence-1'), $mapping, 'position-1');
+        $candidate = new ExecutionOccurrenceCandidate(new ExecutionOccurrenceKey('task', 'occurrence-1'), $mapping, 'position-1');
 
         self::assertSame('manifest-v1', $candidate->mapping->configurationFingerprint);
         self::assertSame('task-snapshot-v1', $candidate->mapping->payload['task']['metadata']['snapshot']);
-        $this->assertThrows(fn() => new ExecutionOccurrenceCandidate(new ExecutionOccurrenceKey('schedule', 'other', 'occurrence-1'), $mapping, 'position-1'));
+        $this->assertThrows(fn() => new ExecutionOccurrenceCandidate(new ExecutionOccurrenceKey('other', 'occurrence-1'), $mapping, 'position-1'));
         $this->assertThrows(fn() => new ExecutionOccurrenceCandidate($candidate->occurrence, $mapping, str_repeat('x', 2049)));
     }
 
     public function testOnlyCommittedNewOrExistingAdmissionAdvancesExactlyOnce(): void
     {
-        $first = new ExecutionOccurrenceCandidate(new ExecutionOccurrenceKey('schedule', 'task', 'occurrence-1'), $this->mapping('occurrence-1', 'v1', 'one'), 'p1');
-        $second = new ExecutionOccurrenceCandidate(new ExecutionOccurrenceKey('schedule', 'task', 'occurrence-2'), $this->mapping('occurrence-2', 'v2', 'two'), 'p2');
+        $first = new ExecutionOccurrenceCandidate(new ExecutionOccurrenceKey('task', 'occurrence-1'), $this->mapping('occurrence-1', 'v1', 'one'), 'p1');
+        $second = new ExecutionOccurrenceCandidate(new ExecutionOccurrenceKey('task', 'occurrence-2'), $this->mapping('occurrence-2', 'v2', 'two'), 'p2');
         $source = new FakeOccurrenceSource([$first, $second]);
 
         self::assertSame($first, $source->next());
@@ -66,8 +66,8 @@ final class ExecutionOccurrenceSourceTest extends TestCase
 
     public function testMismatchedAdmissionDoesNotAdvance(): void
     {
-        $first = new ExecutionOccurrenceCandidate(new ExecutionOccurrenceKey('schedule', 'task', 'occurrence-1'), $this->mapping('occurrence-1', 'v1', 'one'), 'p1');
-        $other = new ExecutionOccurrenceCandidate(new ExecutionOccurrenceKey('schedule', 'task', 'occurrence-2'), $this->mapping('occurrence-2', 'v1', 'two'), 'p2');
+        $first = new ExecutionOccurrenceCandidate(new ExecutionOccurrenceKey('task', 'occurrence-1'), $this->mapping('occurrence-1', 'v1', 'one'), 'p1');
+        $other = new ExecutionOccurrenceCandidate(new ExecutionOccurrenceKey('task', 'occurrence-2'), $this->mapping('occurrence-2', 'v1', 'two'), 'p2');
         $source = new FakeOccurrenceSource([$first]);
 
         $this->assertThrows(fn() => $source->acknowledge($first, new ExecutionAdmission($this->record($other), true)));
@@ -76,8 +76,8 @@ final class ExecutionOccurrenceSourceTest extends TestCase
 
     public function testSkipConsumesExactlyCurrentCandidateAndLeavesCapacityDecisionRetryable(): void
     {
-        $first = new ExecutionOccurrenceCandidate(new ExecutionOccurrenceKey('schedule', 'task', 'occurrence-1'), $this->mapping('occurrence-1', 'v1', 'one'), 'p1');
-        $second = new ExecutionOccurrenceCandidate(new ExecutionOccurrenceKey('schedule', 'task', 'occurrence-2'), $this->mapping('occurrence-2', 'v2', 'two'), 'p2');
+        $first = new ExecutionOccurrenceCandidate(new ExecutionOccurrenceKey('task', 'occurrence-1'), $this->mapping('occurrence-1', 'v1', 'one'), 'p1');
+        $second = new ExecutionOccurrenceCandidate(new ExecutionOccurrenceKey('task', 'occurrence-2'), $this->mapping('occurrence-2', 'v2', 'two'), 'p2');
         $source = new FakeOccurrenceSource([$first, $second]);
 
         self::assertSame($first, $source->next());
@@ -95,7 +95,7 @@ final class ExecutionOccurrenceSourceTest extends TestCase
     #[DataProvider('candidateBindingMismatches')]
     public function testSameOccurrenceCandidateBindingMismatchLeavesCursorRetryable(callable $candidate): void
     {
-        $current = new ExecutionOccurrenceCandidate(new ExecutionOccurrenceKey('schedule', 'task', 'occurrence-1'), $this->mapping('occurrence-1', 'manifest-v1', 'snapshot-v1'), 'cursor-1');
+        $current = new ExecutionOccurrenceCandidate(new ExecutionOccurrenceKey('task', 'occurrence-1'), $this->mapping('occurrence-1', 'manifest-v1', 'snapshot-v1'), 'cursor-1');
         $acknowledged = $candidate($this, $current);
         $source = new FakeOccurrenceSource([$current]);
 
@@ -119,7 +119,7 @@ final class ExecutionOccurrenceSourceTest extends TestCase
     #[DataProvider('admissionBindingMismatches')]
     public function testEveryAdmissionBindingMismatchLeavesCursorRetryable(callable $admission): void
     {
-        $candidate = new ExecutionOccurrenceCandidate(new ExecutionOccurrenceKey('schedule', 'task', 'occurrence-1'), $this->mapping('occurrence-1', 'manifest-v1', 'snapshot-v1'), 'cursor-1');
+        $candidate = new ExecutionOccurrenceCandidate(new ExecutionOccurrenceKey('task', 'occurrence-1'), $this->mapping('occurrence-1', 'manifest-v1', 'snapshot-v1'), 'cursor-1');
         $source = new FakeOccurrenceSource([$candidate]);
 
         $this->assertThrows(fn() => $source->acknowledge($candidate, $admission($this, $candidate)));
@@ -131,7 +131,7 @@ final class ExecutionOccurrenceSourceTest extends TestCase
     {
         return [
             'cursor' => [static fn(self $test, ExecutionOccurrenceCandidate $candidate) => new ExecutionAdmission($test->record($candidate, cursor: 'cursor-2'), true)],
-            'correlation' => [static fn(self $test, ExecutionOccurrenceCandidate $candidate) => new ExecutionAdmission($test->record($candidate, correlation: new ExecutionIdentity('schedule', 'task', 'occurrence-1', 'attempt-2', 'run-1', 'execution-1')), true)],
+            'correlation' => [static fn(self $test, ExecutionOccurrenceCandidate $candidate) => new ExecutionAdmission($test->record($candidate, correlation: new ExecutionIdentity('task', 'occurrence-1', 'attempt-2', 'run-1', 'execution-1')), true)],
             'configuration fingerprint' => [static fn(self $test, ExecutionOccurrenceCandidate $candidate) => new ExecutionAdmission($test->record($candidate, configurationFingerprint: 'manifest-v2'), true)],
             'task policy' => [static fn(self $test, ExecutionOccurrenceCandidate $candidate) => new ExecutionAdmission($test->record($candidate, snapshot: $test->policy('snapshot-v2')), true)],
             'context' => [static fn(self $test, ExecutionOccurrenceCandidate $candidate) => new ExecutionAdmission($test->record($candidate, context: ['tenant' => 'other']), true)],
@@ -142,11 +142,10 @@ final class ExecutionOccurrenceSourceTest extends TestCase
     private function mapping(string $occurrence, string $configurationFingerprint, string $snapshot): ExecutionBinding
     {
         return new ExecutionBinding(
-            'schedule',
             'task',
             $occurrence,
             100,
-            new ExecutionIdentity('schedule', 'task', $occurrence, 'attempt-1', 'run-1', 'execution-1'),
+            new ExecutionIdentity('task', $occurrence, 'attempt-1', 'run-1', 'execution-1'),
             $configurationFingerprint,
             $this->policy($snapshot),
             runId: 'run-1',
@@ -158,11 +157,10 @@ final class ExecutionOccurrenceSourceTest extends TestCase
     private function mappingWithCorrelation(ExecutionOccurrenceCandidate $candidate, string $attempt): ExecutionBinding
     {
         return new ExecutionBinding(
-            'schedule',
             'task',
             $candidate->occurrence->occurrenceId,
             100,
-            new ExecutionIdentity('schedule', 'task', $candidate->occurrence->occurrenceId, $attempt, 'run-1', 'execution-1'),
+            new ExecutionIdentity('task', $candidate->occurrence->occurrenceId, $attempt, 'run-1', 'execution-1'),
             $candidate->mapping->configurationFingerprint,
             $candidate->mapping->payload,
             runId: 'run-1',
@@ -174,7 +172,6 @@ final class ExecutionOccurrenceSourceTest extends TestCase
     private function mappingWithPolicy(ExecutionOccurrenceCandidate $candidate, string $value): ExecutionBinding
     {
         return new ExecutionBinding(
-            'schedule',
             'task',
             $candidate->occurrence->occurrenceId,
             100,
@@ -190,12 +187,12 @@ final class ExecutionOccurrenceSourceTest extends TestCase
 
     private function mappingWithContext(ExecutionOccurrenceCandidate $candidate, array $context): ExecutionBinding
     {
-        return new ExecutionBinding('schedule', 'task', $candidate->occurrence->occurrenceId, 100, $candidate->mapping->correlation, $candidate->mapping->configurationFingerprint, $candidate->mapping->payload, context: $context, runId: 'run-1', timeout: new TimeoutPolicy(100.0), mode: 'async');
+        return new ExecutionBinding('task', $candidate->occurrence->occurrenceId, 100, $candidate->mapping->correlation, $candidate->mapping->configurationFingerprint, $candidate->mapping->payload, context: $context, runId: 'run-1', timeout: new TimeoutPolicy(100.0), mode: 'async');
     }
 
     private function policy(string $value = 'snapshot-v1'): array
     {
-        return ['format' => 3, 'source' => [null, null], 'task' => ['id' => 'task', 'mode' => 'async', 'timeout' => [100.0, null], 'metadata' => ['snapshot' => $value], 'schedule' => 'schedule', 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null]]];
+        return ['format' => 4, 'source' => [null, null], 'task' => ['id' => 'task', 'mode' => 'async', 'timeout' => [100.0, null], 'metadata' => ['snapshot' => $value], 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null]]];
     }
 
     private function record(
@@ -210,7 +207,6 @@ final class ExecutionOccurrenceSourceTest extends TestCase
         return new ExecutionLedgerRecord(
             $candidate->occurrence,
             $correlation ?? new ExecutionIdentity(
-                $candidate->mapping->correlation->scheduleKey,
                 $candidate->mapping->correlation->taskKey,
                 $candidate->mapping->correlation->occurrenceId,
                 $candidate->mapping->correlation->attemptId,

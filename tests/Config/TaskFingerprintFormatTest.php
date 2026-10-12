@@ -13,12 +13,12 @@ use stdClass;
 
 final class TaskFingerprintFormatTest extends TestCase
 {
-    public function testFingerprintUsesApprovedFormatThreeProjection(): void
+    public function testFingerprintUsesApprovedFormatFourProjection(): void
     {
         $task = new TaskDefinition(new TaskId('task'), new ShellCommand('/bin/echo'), metadata: ['key' => 'value']);
         $prepared = (new PreparedConfiguration([$task]))->withSource('source', 'revision');
         $projection = $prepared->taskPolicyProjection($task);
-        self::assertSame(3, $projection['format']);
+        self::assertSame(4, $projection['format']);
         self::assertSame($prepared->taskFingerprint($task), hash('sha256', PreparedConfiguration::canonical($projection)));
         self::assertNotSame($prepared->fingerprint(), $prepared->taskFingerprint($task));
     }
@@ -69,7 +69,7 @@ final class TaskFingerprintFormatTest extends TestCase
     {
         return [
             'empty timeout' => [['timeout' => [null, null]]], 'empty source' => [['id' => '']],
-            'invalid task id' => [['id' => 'not valid']], 'invalid schedule' => [['schedule' => '']],
+            'invalid task id' => [['id' => 'not valid']], 'old schedule field' => [['schedule' => 'schedule']], 'invalid schedule' => [['schedule' => '']],
             'invalid overlap' => [['overlap' => 'bad']], 'invalid missed' => [['missed' => ['all', null]]],
             'invalid trigger reference' => [['trigger' => ['bad reference', []]]],
             'invalid metadata' => [['metadata' => [new stdClass()]]],
@@ -78,6 +78,6 @@ final class TaskFingerprintFormatTest extends TestCase
 
     private function policy(): array
     {
-        return ['format' => 3,'source' => ['source','revision'],'task' => ['id' => 'task','mode' => 'async','timeout' => null,'metadata' => [],'schedule' => 'schedule','trigger' => ['periodic',['type' => 'periodic','seconds' => 60,'from' => null,'until' => null]],'overlap' => 'allow','missed' => ['skip',null]]];
+        return ['format' => 4,'source' => ['source','revision'],'task' => ['id' => 'task','mode' => 'async','timeout' => null,'metadata' => [],'trigger' => ['periodic',['type' => 'periodic','seconds' => 60,'from' => null,'until' => null]],'overlap' => 'allow','missed' => ['skip',null]]];
     }
 }

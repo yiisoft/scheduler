@@ -29,7 +29,7 @@ final class BlackBoxApplication
 
     public static function record(ExecutionWorkerCapability $capability): ExecutionLedgerRecord
     {
-        return new ExecutionLedgerRecord($capability->occurrence, new ExecutionIdentity('fixture-schedule', 'fixture-task', $capability->occurrence->occurrenceId, 'attempt-1', 'run-1', 'execution-1'), 1, new ExecutionFence($capability->generation, $capability->fenceToken), 'launch-required', 'fixture-dispatch', self::CONFIGURATION_FINGERPRINT, self::policy(), 1000, 1000);
+        return new ExecutionLedgerRecord($capability->occurrence, new ExecutionIdentity('fixture-task', $capability->occurrence->occurrenceId, 'attempt-1', 'run-1', 'execution-1'), 1, new ExecutionFence($capability->generation, $capability->fenceToken), 'launch-required', 'fixture-dispatch', self::CONFIGURATION_FINGERPRINT, self::policy(), 1000, 1000);
     }
 
     /** The callable is intentionally application-owned and is never encoded in the capability. */
@@ -48,11 +48,11 @@ final class BlackBoxApplication
     private static function policy(): array
     {
         return [
-            'format' => 3,
+            'format' => 4,
             'source' => ['fixture-source', 'source-revision'],
             'task' => [
                 'id' => 'fixture-task', 'mode' => 'async', 'timeout' => null, 'metadata' => [],
-                'schedule' => 'fixture-schedule', 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60]],
+                'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60]],
                 'overlap' => 'allow', 'missed' => ['skip', null],
             ],
         ];

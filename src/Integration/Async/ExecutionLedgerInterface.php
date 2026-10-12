@@ -17,7 +17,7 @@ interface ExecutionLedgerInterface
     public function observe(ExecutionOccurrenceKey $occurrence): ?ExecutionLedgerRecord;
 
     /** Whether any admitted execution snapshot exists for this task. */
-    public function hasTaskHistory(string $scheduleKey, string $taskKey): bool;
+    public function hasTaskHistory(string $taskKey): bool;
 
     /** The claim lease is independent from any dispatch reservation deadline. */
     public function claim(ExecutionOccurrenceKey $occurrence, ExecutionFence $fence, int $at, ?int $claimLeaseDeadline): ExecutionClaimResult;

@@ -52,6 +52,7 @@ use const LOCK_UN;
  */
 final class FileExecutionOccurrenceCheckpoint implements ExecutionOccurrenceCheckpointInterface
 {
+    private const VERSION = 2;
     private const MAX_STATE_BYTES = 1_048_576;
     private const MAX_ENTRIES = 10_000;
 
@@ -69,49 +70,46 @@ final class FileExecutionOccurrenceCheckpoint implements ExecutionOccurrenceChec
         $this->lockPath = $root . '/checkpoints.lock';
     }
 
-    public function read(string $scheduleKey, string $taskKey): ?string
+    public function read(string $taskKey): ?string
     {
-        $this->validateKey($scheduleKey, 'schedule');
         $this->validateKey($taskKey, 'task');
 
         /** @var ?string $result */
-        $result = $this->withLock(function () use ($scheduleKey, $taskKey): ?string {
+        $result = $this->withLock(function () use ($taskKey): ?string {
             $state = $this->load();
-            return $state['checkpoints'][$scheduleKey][$taskKey] ?? null;
+            return $state['checkpoints'][$taskKey] ?? null;
         });
         return $result;
     }
 
-    public function initialize(string $scheduleKey, string $taskKey, string $cursor): void
+    public function initialize(string $taskKey, string $cursor): void
     {
-        $this->validateKey($scheduleKey, 'schedule');
         $this->validateKey($taskKey, 'task');
         $this->validateCursor($cursor);
 
-        $this->withLock(function () use ($scheduleKey, $taskKey, $cursor): void {
+        $this->withLock(function () use ($taskKey, $cursor): void {
             $state = $this->load();
-            if (isset($state['checkpoints'][$scheduleKey][$taskKey])) {
+            if (isset($state['checkpoints'][$taskKey])) {
                 throw new InvalidArgumentException('Occurrence checkpoint already exists.');
             }
-            $this->replaceState($state, $scheduleKey, $taskKey, $cursor);
+            $this->replaceState($state, $taskKey, $cursor);
         });
     }
 
-    public function advance(string $scheduleKey, string $taskKey, string $expectedCursor, string $nextCursor): void
+    public function advance(string $taskKey, string $expectedCursor, string $nextCursor): void
     {
-        $this->update($scheduleKey, $taskKey, $expectedCursor, $nextCursor);
+        $this->update($taskKey, $expectedCursor, $nextCursor);
     }
 
-    public function skip(string $scheduleKey, string $taskKey, string $expectedCursor, string $nextCursor, OccurrenceSkipReason $reason): void
+    public function skip(string $taskKey, string $expectedCursor, string $nextCursor, OccurrenceSkipReason $reason): void
     {
         // The enum is validated before entering the CAS update. Capacity is
         // deliberately not a skip reason and therefore cannot consume a cursor.
-        $this->update($scheduleKey, $taskKey, $expectedCursor, $nextCursor);
+        $this->update($taskKey, $expectedCursor, $nextCursor);
     }
 
-    private function update(string $scheduleKey, string $taskKey, string $expectedCursor, string $nextCursor): void
+    private function update(string $taskKey, string $expectedCursor, string $nextCursor): void
     {
-        $this->validateKey($scheduleKey, 'schedule');
         $this->validateKey($taskKey, 'task');
         $this->validateCursor($expectedCursor);
         $this->validateCursor($nextCursor);
@@ -119,24 +117,21 @@ final class FileExecutionOccurrenceCheckpoint implements ExecutionOccurrenceChec
             throw new InvalidArgumentException('Occurrence checkpoint cursor must move forward.');
         }
 
-        $this->withLock(function () use ($scheduleKey, $taskKey, $expectedCursor, $nextCursor): void {
+        $this->withLock(function () use ($taskKey, $expectedCursor, $nextCursor): void {
             $state = $this->load();
-            if (($state['checkpoints'][$scheduleKey][$taskKey] ?? null) !== $expectedCursor) {
+            if (($state['checkpoints'][$taskKey] ?? null) !== $expectedCursor) {
                 throw new InvalidArgumentException('Occurrence checkpoint cursor is stale.');
             }
-            $this->replaceState($state, $scheduleKey, $taskKey, $nextCursor);
+            $this->replaceState($state, $taskKey, $nextCursor);
         });
     }
 
-    /** @param array{version: int, checkpoints: array<string, array<string, string>>} $state */
-    private function replaceState(array $state, string $scheduleKey, string $taskKey, string $cursor): void
+    /** @param array{version: int, checkpoints: array<string, string>} $state */
+    private function replaceState(array $state, string $taskKey, string $cursor): void
     {
-        /** @var array<string, array<string, string>> $checkpoints */
+        /** @var array<string, string> $checkpoints */
         $checkpoints = $state['checkpoints'];
-        /** @var array<string, string> $tasks */
-        $tasks = $checkpoints[$scheduleKey] ?? [];
-        $tasks[$taskKey] = $cursor;
-        $checkpoints[$scheduleKey] = $tasks;
+        $checkpoints[$taskKey] = $cursor;
         $state['checkpoints'] = $checkpoints;
         $state = $this->validateState($state);
         $encoded = $this->encode($state);
@@ -183,11 +178,11 @@ final class FileExecutionOccurrenceCheckpoint implements ExecutionOccurrenceChec
         return strlen($left) <=> strlen($right) ?: strcmp($left, $right);
     }
 
-    /** @return array{version: int, checkpoints: array<string, array<string, string>>} */
+    /** @return array{version: int, checkpoints: array<string, string>} */
     private function load(): array
     {
         if (!is_file($this->statePath)) {
-            return ['version' => 1, 'checkpoints' => []];
+            return ['version' => self::VERSION, 'checkpoints' => []];
         }
         $size = filesize($this->statePath);
         if ($size === false || $size > self::MAX_STATE_BYTES) {
@@ -207,44 +202,31 @@ final class FileExecutionOccurrenceCheckpoint implements ExecutionOccurrenceChec
 
     /**
      * @param mixed $state
-     * @return array{version: int, checkpoints: array<string, array<string, string>>}
+     * @return array{version: int, checkpoints: array<string, string>}
      */
     private function validateState(mixed $state): array
     {
-        if (!is_array($state) || count($state) !== 2 || !array_key_exists('version', $state) || !array_key_exists('checkpoints', $state) || $state['version'] !== 1 || !is_array($state['checkpoints'])) {
+        if (!is_array($state) || count($state) !== 2 || !array_key_exists('version', $state) || !array_key_exists('checkpoints', $state) || $state['version'] !== self::VERSION || !is_array($state['checkpoints'])) {
             throw new InvalidArgumentException('Occurrence checkpoint state has an unexpected shape.');
         }
         $entries = 0;
-        /** @var array<string, array<string, string>> $checkpoints */
+        /** @var array<string, string> $checkpoints */
         $checkpoints = [];
-        foreach ($state['checkpoints'] as $scheduleKey => $tasks) {
+        foreach ($state['checkpoints'] as $taskKey => $cursor) {
             $entries++;
-            if (!is_string($scheduleKey)) {
-                throw new InvalidArgumentException('Occurrence checkpoint schedule key is invalid.');
+            if (!is_string($taskKey)) {
+                throw new InvalidArgumentException('Occurrence checkpoint task key is invalid.');
             }
-            $this->validateKey($scheduleKey, 'schedule');
-            if (!is_array($tasks)) {
-                throw new InvalidArgumentException('Occurrence checkpoint task state is invalid.');
+            $this->validateKey($taskKey, 'task');
+            if (!is_string($cursor) || $cursor === '' || strlen($cursor) > 2048 || preg_match('/^[A-Za-z0-9._~:-]+$/D', $cursor) !== 1) {
+                throw new InvalidArgumentException('Occurrence checkpoint cursor is invalid.');
             }
-            /** @var array<string, string> $validatedTasks */
-            $validatedTasks = [];
-            foreach ($tasks as $taskKey => $cursor) {
-                $entries++;
-                if (!is_string($taskKey)) {
-                    throw new InvalidArgumentException('Occurrence checkpoint task key is invalid.');
-                }
-                $this->validateKey($taskKey, 'task');
-                if (!is_string($cursor) || $cursor === '' || strlen($cursor) > 2048 || preg_match('/^[A-Za-z0-9._~:-]+$/D', $cursor) !== 1) {
-                    throw new InvalidArgumentException('Occurrence checkpoint cursor is invalid.');
-                }
-                $validatedTasks[$taskKey] = $cursor;
-            }
-            $checkpoints[$scheduleKey] = $validatedTasks;
+            $checkpoints[$taskKey] = $cursor;
         }
         if ($entries > self::MAX_ENTRIES) {
             throw new InvalidArgumentException('Occurrence checkpoint state is too large.');
         }
-        return ['version' => 1, 'checkpoints' => $checkpoints];
+        return ['version' => self::VERSION, 'checkpoints' => $checkpoints];
     }
 
     private function encode(array $state): string

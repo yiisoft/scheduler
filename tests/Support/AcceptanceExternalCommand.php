@@ -15,7 +15,6 @@ file_put_contents($directory . '/external.pid', (string) getmypid() . "\n", \LOC
 file_put_contents($directory . '/' . $task . '.effect', $task . "\n", \LOCK_EX);
 file_put_contents($directory . '/' . $task . '.identity.json', json_encode([
     'source' => realpath((string) getenv('SCHEDULER_ACCEPTANCE_SOURCE')) ?: '',
-    'schedule' => 'default',
     'task' => $task === 'external-effect' ? 'external-task' : 'cron-task',
 ], \JSON_THROW_ON_ERROR));
 

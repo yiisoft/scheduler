@@ -86,13 +86,12 @@ final class ExecutionAdmissionMaterialFactoryTest extends TestCase
         $ledger = $this->createMock(ExecutionLedgerInterface::class);
         $ledger->method('observe')->willReturn(null);
         $candidate = new ExecutionOccurrenceCandidate(
-            new ExecutionOccurrenceKey('schedule', 'task', 'occurrence'),
+            new ExecutionOccurrenceKey('task', 'occurrence'),
             new ExecutionBinding(
-                'schedule',
                 'task',
                 'occurrence',
                 10,
-                new ExecutionIdentity('schedule', 'task', 'occurrence', 'attempt-1', 'run-1', 'execution-1'),
+                new ExecutionIdentity('task', 'occurrence', 'attempt-1', 'run-1', 'execution-1'),
                 'manifest',
                 $this->policy('source-1', 'source-revision'),
                 ['sourceRevision' => 'source-revision'],
@@ -128,8 +127,8 @@ final class ExecutionAdmissionMaterialFactoryTest extends TestCase
     private function durableRecord(array $taskSnapshot, ?ExecutionOccurrenceCandidate $candidate = null): ExecutionLedgerRecord
     {
         return new ExecutionLedgerRecord(
-            new ExecutionOccurrenceKey('schedule', 'task', 'occurrence'),
-            new ExecutionIdentity('schedule', 'task', 'occurrence', 'attempt-1', 'run-1', 'execution-1'),
+            new ExecutionOccurrenceKey('task', 'occurrence'),
+            new ExecutionIdentity('task', 'occurrence', 'attempt-1', 'run-1', 'execution-1'),
             1,
             new ExecutionFence(3, 'durable-fence'),
             ExecutionLedgerState::LAUNCH_REQUIRED,
@@ -152,11 +151,11 @@ final class ExecutionAdmissionMaterialFactoryTest extends TestCase
     private function policy(string $sourceId = 'source-1', string $revision = 'source-revision', ?array $timeout = [3.0, 5.0]): array
     {
         return [
-            'format' => 3,
+            'format' => 4,
             'source' => [$sourceId, $revision],
             'task' => [
                 'id' => 'task', 'mode' => 'async', 'timeout' => $timeout, 'metadata' => [],
-                'schedule' => 'default', 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60]],
+                'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60]],
                 'overlap' => 'allow', 'missed' => ['skip', null],
             ],
         ];
@@ -165,13 +164,12 @@ final class ExecutionAdmissionMaterialFactoryTest extends TestCase
     private function candidate(?array $timeout = [3.0, 5.0], string $sourceId = 'source-1', string $revision = 'candidate-revision', string $fingerprint = 'candidate-manifest'): ExecutionOccurrenceCandidate
     {
         return new ExecutionOccurrenceCandidate(
-            new ExecutionOccurrenceKey('schedule', 'task', 'occurrence'),
+            new ExecutionOccurrenceKey('task', 'occurrence'),
             new ExecutionBinding(
-                'schedule',
                 'task',
                 'occurrence',
                 10,
-                new ExecutionIdentity('schedule', 'task', 'occurrence', 'attempt-1', 'run-1', 'execution-1'),
+                new ExecutionIdentity('task', 'occurrence', 'attempt-1', 'run-1', 'execution-1'),
                 $fingerprint,
                 $this->policy($sourceId, $revision, $timeout),
                 ['sourceRevision' => $revision],

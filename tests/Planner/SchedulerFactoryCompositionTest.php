@@ -28,8 +28,8 @@ final class SchedulerFactoryCompositionTest extends TestCase
     {
         $stateDirectory = $this->temporaryDirectory('schedule-planner-');
         $checkpoint = $this->createMock(ExecutionOccurrenceCheckpointInterface::class);
-        $checkpoint->expects(self::once())->method('read')->with('default', 'task')->willReturn(null);
-        $checkpoint->expects(self::once())->method('initialize')->with('default', 'task', 't1700000000');
+        $checkpoint->expects(self::once())->method('read')->with('task')->willReturn(null);
+        $checkpoint->expects(self::once())->method('initialize')->with('task', 't1700000000');
 
         try {
             $input = $this->plannerInput($checkpoint, $stateDirectory);
@@ -57,7 +57,7 @@ final class SchedulerFactoryCompositionTest extends TestCase
         $workerCommand = $workerConfiguration->task('task')->command;
         $workerTask = $workerConfiguration->tasks['task'];
         $capability = new ExecutionWorkerCapability(
-            new ExecutionOccurrenceKey('default', 'task', 'occurrence'),
+            new ExecutionOccurrenceKey('task', 'occurrence'),
             'attempt',
             'run',
             'execution',
@@ -72,7 +72,7 @@ final class SchedulerFactoryCompositionTest extends TestCase
         );
         $record = new ExecutionLedgerRecord(
             $capability->occurrence,
-            new ExecutionIdentity('default', 'task', 'occurrence', 'attempt', 'run', 'execution'),
+            new ExecutionIdentity('task', 'occurrence', 'attempt', 'run', 'execution'),
             1,
             new ExecutionFence(1, 'fence'),
             'launch-required',

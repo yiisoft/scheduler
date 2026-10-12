@@ -37,7 +37,7 @@ final class ExecutionLedgerRecord
         if ($attempt < 1 || $createdAt < 0 || $updatedAt < $createdAt) {
             throw new InvalidArgumentException('Execution ledger facts are invalid.');
         }
-        if ($occurrence->scheduleKey !== $correlation->scheduleKey || $occurrence->taskKey !== $correlation->taskKey || $occurrence->occurrenceId !== $correlation->occurrenceId) {
+        if ($occurrence->taskKey !== $correlation->taskKey || $occurrence->occurrenceId !== $correlation->occurrenceId) {
             throw new InvalidArgumentException('Execution ledger identity does not match its correlation.');
         }
         if ($launchIntent === '' || strlen($launchIntent) > 4096) {

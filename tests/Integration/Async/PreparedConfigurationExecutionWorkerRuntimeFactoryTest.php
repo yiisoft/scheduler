@@ -230,7 +230,6 @@ final class PreparedConfigurationExecutionWorkerRuntimeFactoryTest extends TestC
             $task->mode,
             $task->timeout,
             $task->metadata,
-            $task->scheduleId,
             $task->trigger,
             $task->missedOccurrences,
             'allow',
@@ -401,7 +400,7 @@ final class PreparedConfigurationExecutionWorkerRuntimeFactoryTest extends TestC
         $configuration = $this->source->prepare(new TestCommandExecutorRuntimeFactory($executors));
         $definition = $configuration->tasks['task'];
         $command = $definition->command;
-        $occurrence = new ExecutionOccurrenceKey('schedule', 'task', 'occurrence');
+        $occurrence = new ExecutionOccurrenceKey('task', 'occurrence');
         $policy = $configuration->taskPolicyProjection($definition);
         // Worker transport is always the admitted asynchronous policy shape; the selected
         // synchronous definition is rejected by the runtime factory after identity checks.
@@ -409,8 +408,8 @@ final class PreparedConfigurationExecutionWorkerRuntimeFactoryTest extends TestC
             $policy['task']['mode'] = 'async';
         }
         $taskVersion = hash('sha256', PreparedConfiguration::canonical($policy));
-        $capability = new ExecutionWorkerCapability($occurrence, 'attempt', 'run', 'execution', 1, 'fence', $configuration->fingerprint(), $taskVersion, 'ledger', 'runtime', $capabilityRevision ?? $this->source->revision(), $policy);
-        $record = new ExecutionLedgerRecord($occurrence, new ExecutionIdentity('schedule', 'task', 'occurrence', 'attempt', 'run', 'execution'), 1, new ExecutionFence(1, 'fence'), 'launch-required', 'dispatch', $capability->configurationFingerprint, $policy, metadata: $recordMetadata);
+        $capability = new ExecutionWorkerCapability($occurrence, 'attempt', 'run', 'execution', 4, 'fence-4', $configuration->fingerprint(), $taskVersion, 'ledger', 'runtime', $capabilityRevision ?? $this->source->revision(), $policy);
+        $record = new ExecutionLedgerRecord($occurrence, new ExecutionIdentity('task', 'occurrence', 'attempt', 'run', 'execution'), 1, new ExecutionFence(4, 'fence-4'), 'launch-required', 'dispatch', $capability->configurationFingerprint, $policy, metadata: $recordMetadata);
         return [new PreparedConfigurationExecutionWorkerRuntimeFactory($this->source, new TestCommandExecutorRuntimeFactory($executors)), $capability, $record];
     }
 }

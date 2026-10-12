@@ -225,7 +225,7 @@ final class BlackBoxShellProcessTest extends TestCase
 
     private function fixture(string $mode): array
     {
-        $occurrence = new ExecutionOccurrenceKey('fixture-schedule', 'fixture-task', 'shell-' . bin2hex(random_bytes(4)));
+        $occurrence = new ExecutionOccurrenceKey('fixture-task', 'shell-' . bin2hex(random_bytes(4)));
         $capability = BlackBoxApplication::capability($occurrence);
         $capability = new ExecutionWorkerCapability($capability->occurrence, $capability->attemptId, $capability->runId, $capability->executionId, $capability->generation, $capability->fenceToken, $capability->configurationFingerprint, hash('sha256', PreparedConfiguration::canonical($capability->policy)), $capability->ledgerLocator, $capability->runtimeLocator, $capability->sourceRevision, $capability->policy);
         $ledger = new FileExecutionLedger($this->directory . '/ledger');

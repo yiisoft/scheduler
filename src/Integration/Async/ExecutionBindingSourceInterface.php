@@ -7,5 +7,5 @@ namespace Yiisoft\Scheduler\Integration\Async;
 /** Application-owned port that creates the immutable binding for an occurrence. */
 interface ExecutionBindingSourceInterface
 {
-    public function map(string $scheduleKey, string $taskKey, string $occurrenceId, int $occurrenceTime): ExecutionBinding;
+    public function map(string $taskKey, string $occurrenceId, int $occurrenceTime): ExecutionBinding;
 }

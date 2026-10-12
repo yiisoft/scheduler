@@ -207,9 +207,9 @@ final class SymfonyExecutionWorkerLauncherTest extends TestCase
 
     private function request(): ExecutionWorkerLaunchRequest
     {
-        $policy = ['format' => 3, 'source' => [null, null], 'task' => ['id' => 'task', 'mode' => 'async', 'timeout' => null, 'metadata' => [], 'schedule' => 'schedule', 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null]]];
+        $policy = ['format' => 4, 'source' => [null, null], 'task' => ['id' => 'task', 'mode' => 'async', 'timeout' => null, 'metadata' => [], 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null]]];
         return new ExecutionWorkerLaunchRequest(new ExecutionWorkerCapability(
-            new ExecutionOccurrenceKey('schedule', 'task', 'occurrence'),
+            new ExecutionOccurrenceKey('task', 'occurrence'),
             'attempt',
             'run-1',
             'execution-1',

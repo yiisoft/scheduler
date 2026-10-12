@@ -218,8 +218,7 @@ final class AcceptanceScheduler
                 // encoding.  This prevents an older occurrence of the same task
                 // from being selected merely because its task and schedule match.
                 $timestamp = self::timestampFromOccurrence($occurrence['occurrenceId'] ?? null);
-                if ($occurrence['scheduleKey'] === 'default'
-                    && $occurrence['taskKey'] === $task
+                if ($occurrence['taskKey'] === $task
                     && $identity === array_replace($expected['identity'], [
                         'occurrence' => $occurrence['occurrenceId'],
                         'occurrenceTime' => $timestamp,
@@ -268,10 +267,10 @@ final class AcceptanceScheduler
     {
         $identity = $record['metadata']['taskMappingIdentity'] ?? null;
         Assert::assertIsArray($identity);
-        foreach (['schedule', 'task', 'occurrence', 'occurrenceTime', 'locator', 'runId', 'mode', 'timeout', 'supervisionRequested', 'context'] as $key) {
+        foreach (['task', 'occurrence', 'occurrenceTime', 'locator', 'runId', 'mode', 'timeout', 'supervisionRequested', 'context'] as $key) {
             Assert::assertArrayHasKey($key, $identity, 'ledger source identity is incomplete: ' . $key);
         }
-        Assert::assertSame($record['occurrence']['scheduleKey'], $identity['schedule']);
+        Assert::assertArrayNotHasKey('schedule', $identity);
         Assert::assertSame($record['occurrence']['taskKey'], $identity['task']);
         Assert::assertSame($record['occurrence']['occurrenceId'], $identity['occurrence']);
         Assert::assertSame($record['correlation']['runId'], $identity['runId']);
@@ -314,17 +313,17 @@ final class AcceptanceScheduler
             'runId' => $record['correlation']['runId'] ?? null,
         ]);
         Assert::assertSame($expectedIdentity, $identity);
-        Assert::assertSame($record['correlation']['scheduleKey'], $record['occurrence']['scheduleKey']);
+        Assert::assertSame($record['correlation']['taskKey'], $record['occurrence']['taskKey']);
         Assert::assertSame($record['correlation']['taskKey'], $record['occurrence']['taskKey']);
         Assert::assertSame($record['correlation']['occurrenceId'], $record['occurrence']['occurrenceId']);
-        foreach (['scheduleKey', 'taskKey', 'occurrenceId', 'attemptId', 'runId', 'executionId'] as $key) {
+        foreach (['taskKey', 'occurrenceId', 'attemptId', 'runId', 'executionId'] as $key) {
             Assert::assertArrayHasKey($key, $record['correlation']);
             Assert::assertIsString($record['correlation'][$key]);
             Assert::assertNotSame('', $record['correlation'][$key]);
         }
-        Assert::assertSame(5, $record['version'] ?? null);
+        Assert::assertSame(6, $record['version'] ?? null);
         Assert::assertIsString($record['configurationFingerprint'] ?? null);
-        Assert::assertSame(3, $record['taskSnapshot']['format'] ?? null);
+        Assert::assertSame(4, $record['taskSnapshot']['format'] ?? null);
     }
 
     /** Snapshot all durable planner/ownership/cursor/ledger observations. */
@@ -346,9 +345,8 @@ final class AcceptanceScheduler
     public static function capabilityFromRecord(array $record, string $ledger): string
     {
         $capability = [
-            'version' => 3,
+            'version' => 4,
             'occurrence' => [
-                'schedule' => $record['occurrence']['scheduleKey'],
                 'task' => $record['occurrence']['taskKey'],
                 'id' => $record['occurrence']['occurrenceId'],
             ],
@@ -452,15 +450,14 @@ final class AcceptanceScheduler
                 }
                 $occurrenceId = $occurrence['occurrenceId'] ?? null;
                 self::timestampFromOccurrence($occurrenceId);
-                if ($occurrence['scheduleKey'] === 'default'
-                    && $occurrence['taskKey'] === 'cron-task'
+                if ($occurrence['taskKey'] === 'cron-task'
                     && $correlation === self::fixtureCorrelationValues('cron-task', $occurrenceId, $sourceId, $sourceRevision)
                     && $correlation['runId'] === $runId
                     && $record['configurationFingerprint'] === $configurationFingerprint
                     && ($record['metadata']['sourceId'] ?? null) === $sourceId
                     && ($record['metadata']['sourceRevision'] ?? null) === $sourceRevision
                     && $identity === [
-                        'schedule' => 'default', 'task' => 'cron-task', 'occurrence' => $occurrenceId,
+                        'task' => 'cron-task', 'occurrence' => $occurrenceId,
                         'occurrenceTime' => self::timestampFromOccurrence($occurrenceId),
                         'locator' => $sourceId, 'runId' => $runId,
                         'mode' => 'async', 'timeout' => null, 'supervisionRequested' => false, 'context' => [
@@ -573,7 +570,7 @@ final class AcceptanceScheduler
      * record under test, so admission cannot make an arbitrary correlation
      * look valid.
      *
-     * @return array{scheduleKey:string,taskKey:string,occurrenceId:string,attemptId:string,runId:string,executionId:string}
+     * @return array{taskKey:string,occurrenceId:string,attemptId:string,runId:string,executionId:string}
      */
     private static function fixtureCorrelation(string $task, string $occurrence, string $source, ?string $revision = null): array
     {
@@ -589,12 +586,11 @@ final class AcceptanceScheduler
         $sourceId = realpath($source) ?: $source;
         $sourceRevisionKey = $sourceId . "\0" . $revision;
         return [
-            'scheduleKey' => 'default',
             'taskKey' => $task,
             'occurrenceId' => $occurrence,
             'attemptId' => 'attempt-1',
             'runId' => 'planner-' . substr(hash('sha256', $sourceRevisionKey), 0, 32),
-            'executionId' => 'e' . hash('sha256', $sourceRevisionKey . "\0default\0" . $task . "\0" . $occurrence),
+            'executionId' => 'e' . hash('sha256', $sourceRevisionKey . "\0" . $task . "\0" . $occurrence),
         ];
     }
 
@@ -632,7 +628,7 @@ final class AcceptanceScheduler
             'taskVersion' => $configuration->taskFingerprint($definition),
             'taskSnapshot' => $configuration->taskPolicyProjection($definition),
             'identity' => [
-                'schedule' => 'default', 'task' => $compiledTask, 'occurrence' => null,
+                'task' => $compiledTask, 'occurrence' => null,
                 'occurrenceTime' => null,
                 'locator' => $sourceId, 'runId' => null, 'mode' => $compiledMode,
                 'timeout' => null, 'supervisionRequested' => false, 'context' => [

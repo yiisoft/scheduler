@@ -38,7 +38,7 @@ final class PlannerStateFormat
 {
     public const FILE = 'runtime-format.json';
     public const VERSION = 1;
-    public const RUNTIME = 3;
+    public const RUNTIME = 4;
     private const MAX_SIZE = 4096;
 
     /** Initialize only a genuinely empty namespace, or validate its marker. */

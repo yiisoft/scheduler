@@ -34,24 +34,19 @@ final class FileExecutionLedger implements ExecutionLedgerInterface, ExecutionLe
         $this->codec = $codec ?? new FileExecutionLedgerCodec();
         $this->indexCodec = new FileExecutionLedgerIndexCodec();
         $this->writer = $writer ?? new NativeFileExecutionLedgerSnapshotWriter();
+        // Validate every durable component before any repair can replace legacy or
+        // malformed state. Rebuildable indexes are not compatibility boundaries.
+        $this->validateDurableState();
         $manifestPath = $this->manifestPath();
         $activePath = $this->indexPath('active');
         $ownershipPath = $this->indexPath('ownership');
         // Decode present indexes before any migration can replace them.
-        /** @var list<array{scheduleKey:string,taskKey:string,occurrenceId:string}>|null $decodedActive */
+        /** @var list<array{taskKey:string,occurrenceId:string}>|null $decodedActive */
         $decodedActive = is_file($activePath) ? $this->readExecutionIndex('active') : null;
-        /** @var list<array{scheduleKey:string,taskKey:string,occurrenceId:string}>|null $decodedOwnership */
-        $decodedOwnership = null;
-        if (is_file($ownershipPath)) {
-            try {
-                $decodedOwnership = $this->readExecutionIndex('ownership');
-            } catch (InvalidArgumentException) {
-                // Ownership is a rebuildable lookup aid; authoritative snapshots win.
-                $decodedOwnership = null;
-            }
-        }
+        /** @var list<array{taskKey:string,occurrenceId:string}>|null $decodedOwnership */
+        $decodedOwnership = is_file($ownershipPath) ? $this->readExecutionIndex('ownership') : null;
         if (is_file($manifestPath)) {
-            /** @var list<array{scheduleKey:string,taskKey:string}> $manifest */
+            /** @var list<array{taskKey:string}> $manifest */
             $manifest = $this->readManifest();
             /** @var array<string,true> $manifestTasks */
             $manifestTasks = [];
@@ -68,10 +63,10 @@ final class FileExecutionLedger implements ExecutionLedgerInterface, ExecutionLe
             if ($decodedActive === null || $decodedOwnership === null) {
                 $this->repairIndexes();
             } else {
-                /** @var list<array{scheduleKey:string,taskKey:string,occurrenceId:string}> $active */
+                /** @var list<array{taskKey:string,occurrenceId:string}> $active */
                 $active = $decodedActive;
                 foreach ($active as $entry) {
-                    $task = ['scheduleKey' => $entry['scheduleKey'], 'taskKey' => $entry['taskKey']];
+                    $task = ['taskKey' => $entry['taskKey']];
                     $markerPath = $this->markerPath($task);
                     if (is_file($markerPath)) {
                         $this->validateHistoryMarker($task, $markerPath);
@@ -82,14 +77,14 @@ final class FileExecutionLedger implements ExecutionLedgerInterface, ExecutionLe
                         $repair = true;
                     }
 
-                    $occurrence = new ExecutionOccurrenceKey($entry['scheduleKey'], $entry['taskKey'], $entry['occurrenceId']);
+                    $occurrence = new ExecutionOccurrenceKey($entry['taskKey'], $entry['occurrenceId']);
                     $record = $this->read($occurrence);
                     if ($record === null || !$this->isActive($record)) {
                         $repair = true;
                     }
                 }
                 foreach ($decodedOwnership as $entry) {
-                    $occurrence = new ExecutionOccurrenceKey($entry['scheduleKey'], $entry['taskKey'], $entry['occurrenceId']);
+                    $occurrence = new ExecutionOccurrenceKey($entry['taskKey'], $entry['occurrenceId']);
                     try {
                         $record = $this->read($occurrence);
                     } catch (InvalidArgumentException) {
@@ -104,7 +99,7 @@ final class FileExecutionLedger implements ExecutionLedgerInterface, ExecutionLe
                 // Ownership completeness is checked against authoritative snapshots at startup,
                 // but never by the per-transition index update path. If a snapshot cannot be
                 // decoded, completeness cannot be established, so retain the existing index.
-                /** @var list<array{scheduleKey:string,taskKey:string,occurrenceId:string}> $expectedOwnership */
+                /** @var list<array{taskKey:string,occurrenceId:string}> $expectedOwnership */
                 $expectedOwnership = [];
                 $ownershipCompletenessKnown = true;
                 foreach (glob($this->directory . '/record-*.json') ?: [] as $path) {
@@ -136,8 +131,9 @@ final class FileExecutionLedger implements ExecutionLedgerInterface, ExecutionLe
 
     public function admit(ExecutionLedgerRecord $record): ExecutionAdmission
     {
-        // Encode before taking any durable action: validation failures must leave no indexes.
+        // Encode and validate all existing durable state before taking any durable action.
         $encoded = $this->codec->encode($record);
+        $this->validateDurableState();
         return $this->withLock($record->occurrence, function () use ($record, $encoded): ExecutionAdmission {
             $old = $this->read($record->occurrence);
             if ($old !== null) {
@@ -174,20 +170,20 @@ final class FileExecutionLedger implements ExecutionLedgerInterface, ExecutionLe
 
     public function repairIndexes(): void
     {
+        // Never let repair turn an old or malformed component into a new snapshot.
+        $this->validateDurableState();
         $this->withIndexLock(function (): void {
-            /** @var list<array{scheduleKey:string,taskKey:string,occurrenceId:string}> $active */
+            /** @var list<array{taskKey:string,occurrenceId:string}> $active */
             $active = [];
-            /** @var list<array{scheduleKey:string,taskKey:string,occurrenceId:string}> $ownership */
+            /** @var list<array{taskKey:string,occurrenceId:string}> $ownership */
             $ownership = [];
-            /** @var array<string,array{scheduleKey:string,taskKey:string}> $entries */
+            /** @var array<string,array{taskKey:string}> $entries */
             $entries = [];
             foreach (glob($this->directory . '/record-*.json') ?: [] as $path) {
                 try {
                     $record = $this->codec->decode((string) @file_get_contents($path));
-                } catch (InvalidArgumentException) {
-                    // A malformed snapshot cannot safely be indexed. Omitting it is
-                    // fail-closed and preserves unrelated task history markers.
-                    continue;
+                } catch (InvalidArgumentException $e) {
+                    throw new InvalidArgumentException('Ledger snapshot is malformed during index repair.', 0, $e);
                 }
                 if ($this->isActive($record)) {
                     $active[] = $this->activeEntry($record);
@@ -215,7 +211,7 @@ final class FileExecutionLedger implements ExecutionLedgerInterface, ExecutionLe
                     $entries[$this->markerIdentity($entry)] = $entry;
                 }
             }
-            /** @var list<array{scheduleKey:string,taskKey:string}> $entries */
+            /** @var list<array{taskKey:string}> $entries */
             $entries = $this->uniqueSorted(array_values($entries));
             foreach ($entries as $entry) {
                 if (!is_file($this->markerPath($entry))) {
@@ -223,7 +219,7 @@ final class FileExecutionLedger implements ExecutionLedgerInterface, ExecutionLe
                 }
             }
             $this->writer->write($this->manifestPath(), $this->indexCodec->encodeManifest($entries));
-            /** @var list<array{scheduleKey:string,taskKey:string,occurrenceId:string}> $active */
+            /** @var list<array{taskKey:string,occurrenceId:string}> $active */
             $active = $this->uniqueSorted($active);
             $ownership = $this->uniqueSorted($ownership);
             $this->writer->write($this->indexPath('active'), $this->indexCodec->encodeActive($active));
@@ -231,9 +227,9 @@ final class FileExecutionLedger implements ExecutionLedgerInterface, ExecutionLe
         });
     }
 
-    public function hasTaskHistory(string $scheduleKey, string $taskKey): bool
+    public function hasTaskHistory(string $taskKey): bool
     {
-        $entry = ['scheduleKey' => $scheduleKey, 'taskKey' => $taskKey];
+        $entry = ['taskKey' => $taskKey];
         $path = $this->markerPath($entry);
         if (!is_file($path)) {
             return false;
@@ -403,7 +399,7 @@ final class FileExecutionLedger implements ExecutionLedgerInterface, ExecutionLe
         $result = [];
         $seen = [];
         foreach ($entries as $entry) {
-            $occurrence = new ExecutionOccurrenceKey($entry['scheduleKey'], $entry['taskKey'], $entry['occurrenceId']);
+            $occurrence = new ExecutionOccurrenceKey($entry['taskKey'], $entry['occurrenceId']);
             if (isset($seen[(string) $occurrence])) {
                 continue;
             }
@@ -438,6 +434,40 @@ final class FileExecutionLedger implements ExecutionLedgerInterface, ExecutionLe
         return $r->launchObservation?->closure?->isConfirmed() ?? false;
     }
 
+    private function validateDurableState(): void
+    {
+        foreach (glob($this->directory . '/record-*.json') ?: [] as $path) {
+            try {
+                $this->codec->decode((string) @file_get_contents($path));
+            } catch (InvalidArgumentException $e) {
+                throw new InvalidArgumentException('Ledger snapshot is malformed.', 0, $e);
+            }
+        }
+        foreach (['active', 'ownership'] as $name) {
+            if (is_file($this->indexPath($name))) {
+                $this->readExecutionIndex($name);
+            }
+        }
+        if (is_file($this->manifestPath())) {
+            $this->readManifest();
+        }
+        foreach (glob($this->directory . '/history-marker-*.json') ?: [] as $path) {
+            $json = @file_get_contents($path);
+            if ($json === false) {
+                throw new InvalidArgumentException('History marker cannot be read.');
+            }
+            try {
+                $entries = $this->indexCodec->decodeHistory($json);
+            } catch (InvalidArgumentException $e) {
+                throw new InvalidArgumentException('History marker is malformed.', 0, $e);
+            }
+            if (count($entries) !== 1) {
+                throw new InvalidArgumentException('History marker identity is invalid.');
+            }
+            $this->validateHistoryMarker($entries[0], $path);
+        }
+    }
+
     private function path(ExecutionOccurrenceKey $o): string
     {
         return $this->directory . '/record-' . hash('sha256', (string) $o) . '.json';
@@ -453,7 +483,7 @@ final class FileExecutionLedger implements ExecutionLedgerInterface, ExecutionLe
         return $this->directory . '/task-manifest.json';
     }
 
-    /** @return list<array{scheduleKey:string,taskKey:string}> */
+    /** @return list<array{taskKey:string}> */
     private function readManifest(): array
     {
         $json = @file_get_contents($this->manifestPath());
@@ -467,25 +497,25 @@ final class FileExecutionLedger implements ExecutionLedgerInterface, ExecutionLe
         }
     }
 
-    /** @param array{scheduleKey:string,taskKey:string} $entry */
+    /** @param array{taskKey:string} $entry */
     private function markerPath(array $entry): string
     {
         return $this->directory . '/history-marker-' . $this->markerIdentity($entry) . '.json';
     }
 
-    /** @param array{scheduleKey:string,taskKey:string} $entry */
+    /** @param array{taskKey:string} $entry */
     private function markerIdentity(array $entry): string
     {
-        return hash('sha256', $entry['scheduleKey'] . "\0" . $entry['taskKey']);
+        return hash('sha256', $entry['taskKey']);
     }
 
-    /** @param array{scheduleKey:string,taskKey:string} $entry */
+    /** @param array{taskKey:string} $entry */
     private function writeHistoryMarker(array $entry): void
     {
         $this->writer->write($this->markerPath($entry), $this->indexCodec->encodeHistory([$entry]));
     }
 
-    /** @param array{scheduleKey:string,taskKey:string} $entry */
+    /** @param array{taskKey:string} $entry */
     private function validateHistoryMarker(array $entry, string $path): void
     {
         $json = @file_get_contents($path);
@@ -513,23 +543,23 @@ final class FileExecutionLedger implements ExecutionLedgerInterface, ExecutionLe
             && (!$record->isTerminal() || !$this->hasConfirmedClosure($record));
     }
 
-    /** @return array{scheduleKey:string,taskKey:string,occurrenceId:string} */
+    /** @return array{taskKey:string,occurrenceId:string} */
     private function activeEntry(ExecutionLedgerRecord $record): array
     {
-        return ['scheduleKey' => $record->occurrence->scheduleKey, 'taskKey' => $record->occurrence->taskKey, 'occurrenceId' => $record->occurrence->occurrenceId];
+        return ['taskKey' => $record->occurrence->taskKey, 'occurrenceId' => $record->occurrence->occurrenceId];
     }
 
-    /** @return array{scheduleKey:string,taskKey:string} */
+    /** @return array{taskKey:string} */
     private function historyEntry(ExecutionLedgerRecord $record): array
     {
-        return ['scheduleKey' => $record->occurrence->scheduleKey, 'taskKey' => $record->occurrence->taskKey];
+        return ['taskKey' => $record->occurrence->taskKey];
     }
 
     /**
      * @param callable(
-     *     list<array{scheduleKey:string,taskKey:string,occurrenceId:string}>&,
-     *     list<array{scheduleKey:string,taskKey:string,occurrenceId:string}>&,
-     *     list<array{scheduleKey:string,taskKey:string}>&
+     *     list<array{taskKey:string,occurrenceId:string}>&,
+     *     list<array{taskKey:string,occurrenceId:string}>&,
+     *     list<array{taskKey:string}>&
      * ): void $change
      */
     private function changeIndexes(callable $change): void
@@ -540,7 +570,7 @@ final class FileExecutionLedger implements ExecutionLedgerInterface, ExecutionLe
             $history = [];
             $manifest = is_file($this->manifestPath()) ? $this->readManifest() : [];
             $change($active, $ownership, $history);
-            /** @var list<array{scheduleKey:string,taskKey:string}> $historyEntries */
+            /** @var list<array{taskKey:string}> $historyEntries */
             $historyEntries = $this->uniqueSorted($history);
             foreach ($historyEntries as $entry) {
                 $path = $this->markerPath($entry);
@@ -551,10 +581,10 @@ final class FileExecutionLedger implements ExecutionLedgerInterface, ExecutionLe
                 }
                 $manifest[] = $entry;
             }
-            /** @var list<array{scheduleKey:string,taskKey:string}> $manifest */
+            /** @var list<array{taskKey:string}> $manifest */
             $manifest = $this->uniqueSorted($manifest);
             $this->writer->write($this->manifestPath(), $this->indexCodec->encodeManifest($manifest));
-            /** @var list<array{scheduleKey:string,taskKey:string,occurrenceId:string}> $active */
+            /** @var list<array{taskKey:string,occurrenceId:string}> $active */
             $active = $this->uniqueSorted($active);
             $ownership = $this->uniqueSorted($ownership);
             $this->writer->write($this->indexPath('active'), $this->indexCodec->encodeActive($active));
@@ -563,7 +593,7 @@ final class FileExecutionLedger implements ExecutionLedgerInterface, ExecutionLe
     }
 
     /**
-     * @return list<array{scheduleKey:string,taskKey:string,occurrenceId:string}>
+     * @return list<array{taskKey:string,occurrenceId:string}>
      */
     private function readExecutionIndex(string $name): array
     {
@@ -628,18 +658,18 @@ final class FileExecutionLedger implements ExecutionLedgerInterface, ExecutionLe
         $encoded = $this->codec->encode($r);
         $this->writer->write($this->path($r->occurrence), $encoded);
         /**
-         * @param list<array{scheduleKey:string,taskKey:string,occurrenceId:string}> $active
-         * @param list<array{scheduleKey:string,taskKey:string,occurrenceId:string}> $ownership
-         * @param list<array{scheduleKey:string,taskKey:string}> $history
-         * @param-out list<array{scheduleKey:string,taskKey:string,occurrenceId:string}> $active
-         * @param-out list<array{scheduleKey:string,taskKey:string,occurrenceId:string}> $ownership
-         * @param-out list<array{scheduleKey:string,taskKey:string}> $history
+         * @param list<array{taskKey:string,occurrenceId:string}> $active
+         * @param list<array{taskKey:string,occurrenceId:string}> $ownership
+         * @param list<array{taskKey:string}> $history
+         * @param-out list<array{taskKey:string,occurrenceId:string}> $active
+         * @param-out list<array{taskKey:string,occurrenceId:string}> $ownership
+         * @param-out list<array{taskKey:string}> $history
          */
         /** @psalm-suppress ReferenceConstraintViolation Psalm cannot express this mutable tuple callback precisely. */
         $this->changeIndexes(function (array &$active, array &$ownership, array &$history) use ($r): void {
             $history[] = $this->historyEntry($r);
             $entry = $this->activeEntry($r);
-            $same = static fn(array $item): bool => $item['occurrenceId'] !== $entry['occurrenceId'] || $item['scheduleKey'] !== $entry['scheduleKey'] || $item['taskKey'] !== $entry['taskKey'];
+            $same = static fn(array $item): bool => $item['occurrenceId'] !== $entry['occurrenceId'] || $item['taskKey'] !== $entry['taskKey'];
             $active = array_values(array_filter($active, $same));
             $ownership = array_values(array_filter($ownership, $same));
             if ($this->isActive($r)) {

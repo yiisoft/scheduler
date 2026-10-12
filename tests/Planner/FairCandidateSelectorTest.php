@@ -6,7 +6,7 @@ namespace Yiisoft\Scheduler\Tests\Planner;
 
 use PHPUnit\Framework\TestCase;
 use Yiisoft\Scheduler\Config\TimeoutPolicy;
-use Yiisoft\Scheduler\Integration\Async\{ExecutionBinding,ExecutionIdentity,ExecutionOccurrenceCandidate,ExecutionOccurrenceKey};
+use Yiisoft\Scheduler\Integration\Async\{ExecutionBinding, ExecutionIdentity, ExecutionOccurrenceCandidate, ExecutionOccurrenceKey};
 use Yiisoft\Scheduler\Planner\FairCandidateSelector;
 use InvalidArgumentException;
 
@@ -67,11 +67,10 @@ final class FairCandidateSelectorTest extends TestCase
     private function candidate(string $task, string $occurrence): ExecutionOccurrenceCandidate
     {
         $mapping = new ExecutionBinding(
-            'schedule',
             $task,
             $occurrence,
             1,
-            new ExecutionIdentity('schedule', $task, $occurrence, 'attempt', 'run', 'execution'),
+            new ExecutionIdentity($task, $occurrence, 'attempt', 'run', 'execution'),
             'manifest',
             [],
             [],
@@ -82,6 +81,6 @@ final class FairCandidateSelectorTest extends TestCase
             'async',
         );
 
-        return new ExecutionOccurrenceCandidate(new ExecutionOccurrenceKey('schedule', $task, $occurrence), $mapping, $occurrence);
+        return new ExecutionOccurrenceCandidate(new ExecutionOccurrenceKey($task, $occurrence), $mapping, $occurrence);
     }
 }

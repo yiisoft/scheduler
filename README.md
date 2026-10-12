@@ -51,9 +51,9 @@ return static function (): SchedulerConfig {
 
 The planner and a fresh worker each evaluate the configuration source independently. A worker never receives a prepared configuration, planner services, command objects, callable bodies, or a parent container. It reconstructs its own process-local runtime, then resolves the direct command handle through an exact concrete-class `CommandExecutorMap`.
 
-The async boundary carries only bounded scalar records. Task transport is command-free format **3**: the task policy contains identity, mode, timeout, metadata, schedule, trigger, overlap, missed-occurrence policy, and source identity/revision. Callable declarations, their scalar inputs, and dependency resolution are rebuilt in the worker from its configuration factory. Shell `argv` remains literal and is not shell-parsed.
+The async boundary carries only bounded scalar records. Task transport is command-free format **4**: the task policy contains identity, mode, timeout, metadata, trigger, overlap, missed-occurrence policy, and source identity/revision. Callable declarations, their scalar inputs, and dependency resolution are rebuilt in the worker from its configuration factory. Shell `argv` remains literal and is not shell-parsed.
 
-Capability transport is version **3**. The durable file ledger format is version **5**, and the planner runtime state marker is runtime version **3**. These are independent compatibility fences; an unknown or mismatched fence fails closed rather than being silently upgraded.
+Capability transport is version **4**. The durable file ledger format is version **6**, the checkpoint schema is version **2**, and the planner runtime state marker is runtime version **4**. These are independent compatibility fences; an unknown or mismatched fence fails closed rather than being silently upgraded.
 
 Scheduling policy belongs to `TaskDefinition`, including execution mode, timeout, trigger, overlap, and missed-occurrence policy. Synchronous execution is local and cannot declare an enforced timeout. Asynchronous execution is supervised by the parent through `WorkerLifecyclePolicy`; a configured process timeout starts when the launched process starts, not during worker preparation. The command does not own a timeout policy.
 

@@ -45,13 +45,13 @@ final class WorkerAdapterTest extends TestCase
 
     public function testLaunchMetadataIsAbsentUntilInvocationThenContainsTypedMetadata(): void
     {
-        $occurrence = new ExecutionOccurrenceKey('schedule', 'send', 'occurrence');
+        $occurrence = new ExecutionOccurrenceKey('send', 'occurrence');
         $policy = [
-            'format' => 3,
+            'format' => 4,
             'source' => ['source', 'source-revision'],
             'task' => [
                 'id' => 'send', 'mode' => 'async', 'timeout' => null, 'metadata' => [],
-                'schedule' => 'default', 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60]],
+                'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60]],
                 'overlap' => 'allow', 'missed' => ['skip', null],
             ],
         ];
@@ -71,7 +71,7 @@ final class WorkerAdapterTest extends TestCase
         );
         $record = new ExecutionLedgerRecord(
             $occurrence,
-            new ExecutionIdentity('schedule', 'send', 'occurrence', 'attempt', 'run', 'execution'),
+            new ExecutionIdentity('send', 'occurrence', 'attempt', 'run', 'execution'),
             1,
             new ExecutionFence(1, 'fence'),
             'launch-required',

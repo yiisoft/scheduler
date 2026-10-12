@@ -27,7 +27,6 @@ final class ExecutionBinding
      * @param array<array-key, mixed> $context
      */
     public function __construct(
-        public readonly string $scheduleKey,
         public readonly string $taskKey,
         public readonly string $occurrenceId,
         public readonly int $occurrenceTime,
@@ -45,7 +44,7 @@ final class ExecutionBinding
         $this->timeout = $timeout;
         $this->supervisionRequested = $supervisionRequested;
         $this->mode = $mode;
-        foreach ([$scheduleKey, $taskKey, $occurrenceId] as $value) {
+        foreach ([$taskKey, $occurrenceId] as $value) {
             if (!self::isPortableIdentifier($value)) {
                 throw new InvalidArgumentException('Task mapping identifiers must be bounded and use portable characters.');
             }
@@ -53,7 +52,7 @@ final class ExecutionBinding
         if (!self::isPortableConfigurationFingerprint($configurationFingerprint)) {
             throw new InvalidArgumentException('Task mapping configuration fingerprint must be bounded and use portable characters.');
         }
-        if ($scheduleKey !== $correlation->scheduleKey || $taskKey !== $correlation->taskKey || $occurrenceId !== $correlation->occurrenceId) {
+        if ($taskKey !== $correlation->taskKey || $occurrenceId !== $correlation->occurrenceId) {
             throw new InvalidArgumentException('Task mapping identity does not match its correlation.');
         }
         if ($locator !== null && ($locator === '' || strlen($locator) > 2048)) {

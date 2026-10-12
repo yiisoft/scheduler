@@ -23,8 +23,7 @@ final class ExecutionOccurrenceCandidate
         public readonly string $cursor,
     ) {
         if (
-            $occurrence->scheduleKey !== $mapping->scheduleKey
-            || $occurrence->taskKey !== $mapping->taskKey
+            $occurrence->taskKey !== $mapping->taskKey
             || $occurrence->occurrenceId !== $mapping->occurrenceId
         ) {
             throw new InvalidArgumentException('Occurrence candidate identity does not match its task mapping.');
@@ -49,7 +48,6 @@ final class ExecutionOccurrenceCandidate
     {
         return $this->occurrence->equals($other->occurrence)
             && $this->cursor === $other->cursor
-            && $this->mapping->correlation->scheduleKey === $other->mapping->correlation->scheduleKey
             && $this->mapping->correlation->taskKey === $other->mapping->correlation->taskKey
             && $this->mapping->correlation->occurrenceId === $other->mapping->correlation->occurrenceId
             && $this->mapping->correlation->attemptId === $other->mapping->correlation->attemptId
@@ -93,7 +91,6 @@ final class ExecutionOccurrenceCandidate
     public function taskMappingIdentity(): array
     {
         return [
-            'schedule' => $this->mapping->scheduleKey,
             'task' => $this->mapping->taskKey,
             'occurrence' => $this->mapping->occurrenceId,
             'occurrenceTime' => $this->mapping->occurrenceTime,
@@ -113,8 +110,7 @@ final class ExecutionOccurrenceCandidate
 
     private static function sameCorrelation(ExecutionIdentity $left, ExecutionIdentity $right): bool
     {
-        return $left->scheduleKey === $right->scheduleKey
-            && $left->taskKey === $right->taskKey
+        return $left->taskKey === $right->taskKey
             && $left->occurrenceId === $right->occurrenceId
             && $left->attemptId === $right->attemptId
             && $left->runId === $right->runId

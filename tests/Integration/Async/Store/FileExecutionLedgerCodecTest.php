@@ -19,7 +19,7 @@ final class FileExecutionLedgerCodecTest extends TestCase
     {
         $value = json_decode((new FileExecutionLedgerCodec())->encode(self::record()), true, 64, JSON_THROW_ON_ERROR);
 
-        self::assertSame(5, $value['version']);
+        self::assertSame(6, $value['version']);
     }
 
     public function testCompleteRecordRoundTripPreservesEveryNestedFieldAndFloats(): void
@@ -44,14 +44,14 @@ final class FileExecutionLedgerCodecTest extends TestCase
     {
         $outcome = new ExecutionOutcome(ExecutionOutcome::SUCCEEDED, 'done', self::deepTree(32));
         $record = new ExecutionLedgerRecord(
-            new ExecutionOccurrenceKey('schedule', 'task', 'occurrence'),
-            new ExecutionIdentity('schedule', 'task', 'occurrence', 'attempt', 'run', 'execution'),
+            new ExecutionOccurrenceKey('task', 'occurrence'),
+            new ExecutionIdentity('task', 'occurrence', 'attempt', 'run', 'execution'),
             1,
             new ExecutionFence(1, 'fence-token'),
             ExecutionLedgerState::SUCCEEDED,
             'launch-intent',
             'manifest',
-            ['format' => 3, 'source' => [null, null], 'task' => ['id' => 'task', 'mode' => 'async', 'timeout' => [1.0, 2.0], 'metadata' => ['deep' => self::deepTree(20)], 'schedule' => 'schedule', 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null]]],
+            ['format' => 4, 'source' => [null, null], 'task' => ['id' => 'task', 'mode' => 'async', 'timeout' => [1.0, 2.0], 'metadata' => ['deep' => self::deepTree(20)], 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null]]],
             10,
             20,
             $outcome,
@@ -96,7 +96,7 @@ final class FileExecutionLedgerCodecTest extends TestCase
     public static function numericObjectShapeProvider(): array
     {
         return [
-            'occurrence tuple' => [self::json([], [], ['schedule', 'task', 'occurrence'], 'occurrence')],
+            'occurrence tuple' => [self::json([], [], ['task', 'occurrence'], 'occurrence')],
             'fence tuple' => [self::json([], [], [1, 'token'], 'fence')],
             'outcome tuple' => [self::json([], [], ['succeeded', null, []], 'outcome')],
             'reservation tuple' => [self::json([], [], ['dispatcher', 11, 15], 'dispatchReservation')],
@@ -114,7 +114,7 @@ final class FileExecutionLedgerCodecTest extends TestCase
     public static function invalidFactsProvider(): array
     {
         return [
-            'wrong occurrence identity' => [self::json(['occurrence' => ['scheduleKey' => 'other', 'taskKey' => 'task', 'occurrenceId' => 'occurrence']])],
+            'wrong occurrence identity' => [self::json(['occurrence' => ['taskKey' => 'other', 'occurrenceId' => 'occurrence']])],
             'non-terminal without outcome' => [self::json(['state' => ExecutionLedgerState::RUNNING, 'outcome' => self::record()->outcome])],
             'terminal with no outcome' => [self::json(['state' => ExecutionLedgerState::SUCCEEDED, 'outcome' => null])],
             'outcome status differs from state' => [self::json(['state' => ExecutionLedgerState::SUCCEEDED, 'outcome' => ['status' => ExecutionOutcome::FAILED, 'reason' => 'done', 'metadata' => []]])],
@@ -122,7 +122,7 @@ final class FileExecutionLedgerCodecTest extends TestCase
             'negative timestamp' => [self::json(['createdAt' => -1])],
             'empty launch intent' => [self::json(['launchIntent' => ''])],
             'oversized configuration fingerprint' => [self::json(['configurationFingerprint' => str_repeat('m', 4097)])],
-            'oversized identity' => [self::json(['occurrence' => ['scheduleKey' => 's', 'taskKey' => 't', 'occurrenceId' => 'o' . str_repeat('x', 127)]])],
+            'oversized identity' => [self::json(['occurrence' => ['taskKey' => 'task', 'occurrenceId' => 'o' . str_repeat('x', 127)]])],
             'invalid reservation deadline' => [self::json(['dispatchReservation' => ['dispatcherId' => 'dispatcher', 'reservedAt' => 11, 'deadline' => 10]])],
             'invalid observation pid' => [self::json(['launchObservation' => ['pid' => 0, 'error' => null, 'classification' => 'complete', 'observedAt' => 16, 'closure' => null]])],
             'oversized observation classification' => [self::json(['launchObservation' => ['pid' => 123, 'error' => null, 'classification' => str_repeat('x', 129), 'observedAt' => 16, 'closure' => null]])],
@@ -150,6 +150,8 @@ final class FileExecutionLedgerCodecTest extends TestCase
         $v3['version'] = 3;
         $v4 = $current;
         $v4['version'] = 4;
+        $v5 = $current;
+        $v5['version'] = 5;
         $unknown = $current;
         $unknown['version'] = 99;
 
@@ -158,6 +160,7 @@ final class FileExecutionLedgerCodecTest extends TestCase
             'version 2' => [json_encode($v2, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION)],
             'version 3' => [json_encode($v3, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION)],
             'version 4 legacy snapshot' => [json_encode($v4, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION)],
+            'version 5 legacy snapshot' => [json_encode($v5, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION)],
             'unknown version' => [json_encode($unknown, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION)],
         ];
     }
@@ -172,7 +175,7 @@ final class FileExecutionLedgerCodecTest extends TestCase
     }
 
     #[DataProvider('malformedPolicyProvider')]
-    public function testMalformedFormatThreePoliciesAreRejectedBeforeDecode(string $json): void
+    public function testMalformedFormatFourPoliciesAreRejectedBeforeDecode(string $json): void
     {
         $this->expectException(InvalidArgumentException::class);
         (new FileExecutionLedgerCodec())->decode($json);
@@ -184,7 +187,7 @@ final class FileExecutionLedgerCodecTest extends TestCase
         $base = json_decode($codec->encode(self::record()), true, 64, JSON_THROW_ON_ERROR);
 
         $formatFour = $base;
-        $formatFour['taskSnapshot']['format'] = 4;
+        $formatFour['taskSnapshot']['format'] = 3;
         $objectId = $base;
         $objectId['taskSnapshot']['task']['id'] = ['task'];
         $integerTimeout = $base;
@@ -273,14 +276,14 @@ final class FileExecutionLedgerCodecTest extends TestCase
     {
         $outcome = new ExecutionOutcome(ExecutionOutcome::SUCCEEDED, 'done', ['ratio' => 1.0]);
         return new ExecutionLedgerRecord(
-            new ExecutionOccurrenceKey('schedule', 'task', 'occurrence'),
-            new ExecutionIdentity('schedule', 'task', 'occurrence', 'attempt', 'run', 'execution'),
+            new ExecutionOccurrenceKey('task', 'occurrence'),
+            new ExecutionIdentity('task', 'occurrence', 'attempt', 'run', 'execution'),
             1,
             new ExecutionFence(1, 'fence-token'),
             ExecutionLedgerState::SUCCEEDED,
             'launch-intent',
             'manifest',
-            ['format' => 3, 'source' => [null, null], 'task' => ['id' => 'task', 'mode' => 'async', 'timeout' => [1.0, 2.0], 'metadata' => ['ratio' => 1.0, 'nested' => ['value' => 2.5]], 'schedule' => 'schedule', 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null]]],
+            ['format' => 4, 'source' => [null, null], 'task' => ['id' => 'task', 'mode' => 'async', 'timeout' => [1.0, 2.0], 'metadata' => ['ratio' => 1.0, 'nested' => ['value' => 2.5]], 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null]]],
             10,
             20,
             $outcome,

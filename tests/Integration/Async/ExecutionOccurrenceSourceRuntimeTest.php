@@ -81,7 +81,6 @@ final class ExecutionOccurrenceSourceRuntimeTest extends TestCase
         $from = new DateTimeImmutable('2000-01-01 00:00:00+00:00');
         $checkpoint = new RuntimeCheckpoint('t0946684799');
         $source = new ExecutionOccurrenceSource(
-            'schedule',
             'task',
             new CronExpressionTrigger('* * * * *', from: $from),
             new RuntimeBindingFactory(),
@@ -96,7 +95,6 @@ final class ExecutionOccurrenceSourceRuntimeTest extends TestCase
         // Simulate a crash after checkpoint initialization but before admission:
         // the replacement source must reconstruct the deliberate first anchor.
         $restarted = new ExecutionOccurrenceSource(
-            'schedule',
             'task',
             new CronExpressionTrigger('* * * * *', from: $from),
             new RuntimeBindingFactory(),
@@ -116,7 +114,6 @@ final class ExecutionOccurrenceSourceRuntimeTest extends TestCase
         $from = new DateTimeImmutable('2000-01-01 00:00:00+00:00');
         $ledger = new RuntimeLedger(true);
         $source = new ExecutionOccurrenceSource(
-            'schedule',
             'task',
             new CronExpressionTrigger('* * * * *', from: $from),
             new RuntimeBindingFactory(),
@@ -133,7 +130,6 @@ final class ExecutionOccurrenceSourceRuntimeTest extends TestCase
     public function testDefaultSkipPreservesUnanchoredPeriodicPhaseAtExactNow(): void
     {
         $source = new ExecutionOccurrenceSource(
-            'schedule',
             'task',
             new PeriodicTrigger(300),
             new RuntimeBindingFactory(),
@@ -148,7 +144,6 @@ final class ExecutionOccurrenceSourceRuntimeTest extends TestCase
     {
         $checkpoint = new RuntimeCheckpoint('t0000000000');
         $source = new ExecutionOccurrenceSource(
-            'schedule',
             'task',
             new PeriodicTrigger(300),
             new RuntimeBindingFactory(),
@@ -171,7 +166,6 @@ final class ExecutionOccurrenceSourceRuntimeTest extends TestCase
     {
         $trigger = new QuotaTrigger();
         $source = new ExecutionOccurrenceSource(
-            'schedule',
             'task',
             $trigger,
             new RuntimeBindingFactory(),
@@ -201,13 +195,12 @@ final class ExecutionOccurrenceSourceRuntimeTest extends TestCase
 
     private function source(MissedOccurrenceSetting|MissedOccurrencePolicy $policy, RuntimeLedger $ledger, RuntimeCheckpoint $checkpoint, ?TestClock $clock = null): ExecutionOccurrenceSource
     {
-        return new ExecutionOccurrenceSource('schedule', 'task', new PeriodicTrigger(300, new DateTimeImmutable('1970-01-01 10:00:00+00:00')), new RuntimeBindingFactory(), $clock ?? new TestClock(new DateTimeImmutable('1970-01-01 12:00:00+00:00')), $checkpoint, $ledger, $policy);
+        return new ExecutionOccurrenceSource('task', new PeriodicTrigger(300, new DateTimeImmutable('1970-01-01 10:00:00+00:00')), new RuntimeBindingFactory(), $clock ?? new TestClock(new DateTimeImmutable('1970-01-01 12:00:00+00:00')), $checkpoint, $ledger, $policy);
     }
 
     private function record(ExecutionOccurrenceCandidate $candidate): ExecutionLedgerRecord
     {
         return new ExecutionLedgerRecord($candidate->occurrence, new ExecutionIdentity(
-            $candidate->mapping->correlation->scheduleKey,
             $candidate->mapping->correlation->taskKey,
             $candidate->mapping->correlation->occurrenceId,
             $candidate->mapping->correlation->attemptId,
@@ -243,12 +236,12 @@ final class RuntimeCheckpoint implements ExecutionOccurrenceCheckpointInterface
 
     public function __construct(public string $value) {}
 
-    public function read(string $scheduleKey, string $taskKey): ?string
+    public function read(string $taskKey): ?string
     {
         return $this->value;
     }
 
-    public function initialize(string $scheduleKey, string $taskKey, string $cursor): void
+    public function initialize(string $taskKey, string $cursor): void
     {
         if ($this->value !== '') {
             throw new InvalidArgumentException('Checkpoint is already initialized.');
@@ -256,7 +249,7 @@ final class RuntimeCheckpoint implements ExecutionOccurrenceCheckpointInterface
         $this->value = $cursor;
     }
 
-    public function advance(string $scheduleKey, string $taskKey, string $expectedCursor, string $nextCursor): void
+    public function advance(string $taskKey, string $expectedCursor, string $nextCursor): void
     {
         if ($this->value !== $expectedCursor || $expectedCursor === $nextCursor) {
             throw new InvalidArgumentException('Checkpoint advancement is not an exact CAS.');
@@ -265,7 +258,7 @@ final class RuntimeCheckpoint implements ExecutionOccurrenceCheckpointInterface
         $this->value = $nextCursor;
     }
 
-    public function skip(string $scheduleKey, string $taskKey, string $expectedCursor, string $nextCursor, OccurrenceSkipReason $reason): void
+    public function skip(string $taskKey, string $expectedCursor, string $nextCursor, OccurrenceSkipReason $reason): void
     {
         if ($this->value !== $expectedCursor || $expectedCursor === $nextCursor) {
             throw new InvalidArgumentException('Checkpoint skip is invalid.');
@@ -276,9 +269,9 @@ final class RuntimeCheckpoint implements ExecutionOccurrenceCheckpointInterface
 
 final class RuntimeBindingFactory implements ExecutionBindingSourceInterface
 {
-    public function map(string $scheduleKey, string $taskKey, string $occurrenceId, int $occurrenceTime): ExecutionBinding
+    public function map(string $taskKey, string $occurrenceId, int $occurrenceTime): ExecutionBinding
     {
-        return new ExecutionBinding($scheduleKey, $taskKey, $occurrenceId, $occurrenceTime, new ExecutionIdentity($scheduleKey, $taskKey, $occurrenceId, 'attempt', 'run', 'execution'), 'manifest', payload: ['format' => 3, 'source' => [null, null], 'task' => ['id' => 'task', 'mode' => 'async', 'timeout' => [300.0, null], 'metadata' => [], 'schedule' => $scheduleKey, 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null]]], runId: 'run', timeout: new TimeoutPolicy(300.0), mode: 'async');
+        return new ExecutionBinding($taskKey, $occurrenceId, $occurrenceTime, new ExecutionIdentity($taskKey, $occurrenceId, 'attempt', 'run', 'execution'), 'manifest', payload: ['format' => 4, 'source' => [null, null], 'task' => ['id' => 'task', 'mode' => 'async', 'timeout' => [300.0, null], 'metadata' => [], 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null]]], runId: 'run', timeout: new TimeoutPolicy(300.0), mode: 'async');
     }
 }
 
@@ -299,7 +292,7 @@ final class RuntimeLedger implements ExecutionLedgerInterface
         return null;
     }
 
-    public function hasTaskHistory(string $scheduleKey, string $taskKey): bool
+    public function hasTaskHistory(string $taskKey): bool
     {
         return $this->history;
     }

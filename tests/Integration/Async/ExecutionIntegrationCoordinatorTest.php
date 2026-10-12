@@ -146,7 +146,7 @@ final class ExecutionIntegrationCoordinatorTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
         try {
             $this->coordinator($ledger, $source, $launcher)
-                ->dispatchNext($this->record(), new ExecutionWorkerCapability($this->occurrence(), 'wrong', 'run', 'execution', 1, 'fence', 'manifest', 'v1', 'ledger', 'runtime', 'source-revision', ['format' => 3, 'source' => [null, null], 'task' => ['id' => 'task', 'mode' => 'async', 'timeout' => null, 'metadata' => [], 'schedule' => 'schedule', 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null]]]), $this->reservation());
+                ->dispatchNext($this->record(), new ExecutionWorkerCapability($this->occurrence(), 'wrong', 'run', 'execution', 1, 'fence', 'manifest', 'v1', 'ledger', 'runtime', 'source-revision', ['format' => 4, 'source' => [null, null], 'task' => ['id' => 'task', 'mode' => 'async', 'timeout' => null, 'metadata' => [], 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null]]]), $this->reservation());
         } finally {
             self::assertSame(0, $ledger->admissions);
             self::assertSame(0, $source->acknowledgements);
@@ -272,7 +272,7 @@ final class ExecutionIntegrationCoordinatorTest extends TestCase
 
     private function occurrence(): ExecutionOccurrenceKey
     {
-        return new ExecutionOccurrenceKey('schedule', 'task', 'occurrence');
+        return new ExecutionOccurrenceKey('task', 'occurrence');
     }
 
     private function reservation(): ExecutionDispatchReservation
@@ -283,13 +283,12 @@ final class ExecutionIntegrationCoordinatorTest extends TestCase
     private function candidate(string $cursor = 'cursor-1'): ExecutionOccurrenceCandidate
     {
         $mapping = new ExecutionBinding(
-            'schedule',
             'task',
             'occurrence',
             1,
-            new ExecutionIdentity('schedule', 'task', 'occurrence', 'attempt', 'run', 'execution'),
+            new ExecutionIdentity('task', 'occurrence', 'attempt', 'run', 'execution'),
             'manifest',
-            ['format' => 3, 'source' => [null, null], 'task' => ['id' => 'task', 'mode' => 'async', 'timeout' => [1.0, null], 'metadata' => [], 'schedule' => 'schedule', 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null]]],
+            ['format' => 4, 'source' => [null, null], 'task' => ['id' => 'task', 'mode' => 'async', 'timeout' => [1.0, null], 'metadata' => [], 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null]]],
             [],
             null,
             'run',
@@ -302,14 +301,14 @@ final class ExecutionIntegrationCoordinatorTest extends TestCase
 
     private function capability(): ExecutionWorkerCapability
     {
-        $policy = ['format' => 3, 'source' => [null, null], 'task' => ['id' => 'task', 'mode' => 'async', 'timeout' => [1.0, null], 'metadata' => [], 'schedule' => 'schedule', 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null]]];
+        $policy = ['format' => 4, 'source' => [null, null], 'task' => ['id' => 'task', 'mode' => 'async', 'timeout' => [1.0, null], 'metadata' => [], 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null]]];
         return new ExecutionWorkerCapability($this->occurrence(), 'attempt', 'run', 'execution', 1, 'fence', 'manifest', hash('sha256', PreparedConfiguration::canonical($policy)), 'ledger', 'runtime', 'source-revision', $policy);
     }
 
     private function record(string $state = 'launch-required'): ExecutionLedgerRecord
     {
         $candidate = $this->candidate();
-        return new ExecutionLedgerRecord($this->occurrence(), new ExecutionIdentity('schedule', 'task', 'occurrence', 'attempt', 'run', 'execution'), 1, new ExecutionFence(1, 'fence'), $state, 'dispatch', 'manifest', ['format' => 3, 'source' => [null, null], 'task' => ['id' => 'task', 'mode' => 'async', 'timeout' => [1.0, null], 'metadata' => [], 'schedule' => 'schedule', 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null]]], 1, 1, $state === 'succeeded' ? new ExecutionOutcome('succeeded') : null, ['occurrenceCursor' => $candidate->cursor, 'taskMappingIdentity' => $candidate->taskMappingIdentity()], recoveryFence: new ExecutionRecoveryFence('recovery'));
+        return new ExecutionLedgerRecord($this->occurrence(), new ExecutionIdentity('task', 'occurrence', 'attempt', 'run', 'execution'), 1, new ExecutionFence(1, 'fence'), $state, 'dispatch', 'manifest', ['format' => 4, 'source' => [null, null], 'task' => ['id' => 'task', 'mode' => 'async', 'timeout' => [1.0, null], 'metadata' => [], 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null]]], 1, 1, $state === 'succeeded' ? new ExecutionOutcome('succeeded') : null, ['occurrenceCursor' => $candidate->cursor, 'taskMappingIdentity' => $candidate->taskMappingIdentity()], recoveryFence: new ExecutionRecoveryFence('recovery'));
     }
 }
 
@@ -397,7 +396,7 @@ final class CoordinatorTestLedger implements ExecutionLedgerInterface
         return $this->admitted;
     }
 
-    public function hasTaskHistory(string $scheduleKey, string $taskKey): bool
+    public function hasTaskHistory(string $taskKey): bool
     {
         return true;
     }
@@ -463,9 +462,9 @@ final class CoordinatorFaultLedger implements ExecutionLedgerInterface
         return $this->inner->observe($occurrence);
     }
 
-    public function hasTaskHistory(string $scheduleKey, string $taskKey): bool
+    public function hasTaskHistory(string $taskKey): bool
     {
-        return $this->inner->hasTaskHistory($scheduleKey, $taskKey);
+        return $this->inner->hasTaskHistory($taskKey);
     }
 
     public function claim(ExecutionOccurrenceKey $o, ExecutionFence $f, int $a, ?int $d): ExecutionClaimResult

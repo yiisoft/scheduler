@@ -141,7 +141,7 @@ final class ExecutionAdmissionMaterialFactory
     private function policyTimeout(array $policy): ?array
     {
         if (array_keys($policy) !== ['format', 'source', 'task'] || $policy['format'] !== PreparedConfiguration::TASK_FORMAT
-            || !is_array($policy['task']) || array_keys($policy['task']) !== ['id', 'mode', 'timeout', 'metadata', 'schedule', 'trigger', 'overlap', 'missed']) {
+            || !is_array($policy['task']) || array_keys($policy['task']) !== ['id', 'mode', 'timeout', 'metadata', 'trigger', 'overlap', 'missed']) {
             throw new InvalidArgumentException('Task policy shape is invalid.');
         }
         $timeout = $policy['task']['timeout'];

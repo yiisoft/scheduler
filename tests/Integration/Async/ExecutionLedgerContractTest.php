@@ -343,10 +343,10 @@ final class FakeExecutionLedger implements ExecutionLedgerInterface, ExecutionLe
         return $this->records[(string) $occurrence] ?? null;
     }
 
-    public function hasTaskHistory(string $scheduleKey, string $taskKey): bool
+    public function hasTaskHistory(string $taskKey): bool
     {
         foreach ($this->records as $record) {
-            if ($record->occurrence->scheduleKey === $scheduleKey && $record->occurrence->taskKey === $taskKey) {
+            if ($record->occurrence->taskKey === $taskKey && $record->occurrence->taskKey === $taskKey) {
                 return true;
             }
         }
@@ -524,6 +524,6 @@ final class FakeExecutionLedger implements ExecutionLedgerInterface, ExecutionLe
 
 function ledgerRecord(string $state = ExecutionLedgerState::LAUNCH_REQUIRED, string $configurationFingerprint = 'manifest-v1', array $metadata = [], string $occurrenceId = 'occurrence'): ExecutionLedgerRecord
 {
-    $key = new ExecutionOccurrenceKey('schedule', 'task', $occurrenceId);
-    return new ExecutionLedgerRecord($key, new ExecutionIdentity('schedule', 'task', $occurrenceId, 'attempt-1', 'run-1', 'execution-1'), 1, new ExecutionFence(1, 'fence-1'), $state, 'launch', $configurationFingerprint, ['format' => 3, 'source' => [null, null], 'task' => ['id' => 'task', 'mode' => 'async', 'timeout' => null, 'metadata' => [], 'schedule' => 'schedule', 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null]]], 10, 10, null, $metadata, null, null, new ExecutionRecoveryFence('recovery-1'));
+    $key = new ExecutionOccurrenceKey('task', $occurrenceId);
+    return new ExecutionLedgerRecord($key, new ExecutionIdentity('task', $occurrenceId, 'attempt-1', 'run-1', 'execution-1'), 1, new ExecutionFence(1, 'fence-1'), $state, 'launch', $configurationFingerprint, ['format' => 4, 'source' => [null, null], 'task' => ['id' => 'task', 'mode' => 'async', 'timeout' => null, 'metadata' => [], 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null]]], 10, 10, null, $metadata, null, null, new ExecutionRecoveryFence('recovery-1'));
 }

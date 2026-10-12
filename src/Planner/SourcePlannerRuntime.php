@@ -80,7 +80,6 @@ final class SourcePlannerRuntime
         $bindings = new PreparedConfigurationExecutionBindingSource($source, $configuration, $runId);
         foreach ($configuration->tasks as $taskKey => $task) {
             $trigger = $task->trigger;
-            $schedule = (string) $task->scheduleId;
             $definition = $trigger->definition;
             $initialAnchorCursor = null;
             if ($trigger->reference === 'cron' && isset($definition['from']) && is_string($definition['from'])) {
@@ -89,10 +88,10 @@ final class SourcePlannerRuntime
                 $anchor = (new DateTimeImmutable($definition['from']))->modify('-1 second');
                 $initialAnchorCursor = 't' . str_pad((string) $anchor->getTimestamp(), 10, '0', STR_PAD_LEFT);
             }
-            $cursor = $this->checkpoint->read($schedule, $taskKey);
+            $cursor = $this->checkpoint->read($taskKey);
             if ($cursor === null) {
                 $cursor = $initialAnchorCursor ?? 't' . str_pad((string) $this->wallClock->now()->getTimestamp(), 10, '0', STR_PAD_LEFT);
-                $this->checkpoint->initialize($schedule, $taskKey, $cursor);
+                $this->checkpoint->initialize($taskKey, $cursor);
             }
             // Equality with the persisted initialization cursor is the durable
             // first-run condition. Once admitted or skipped, the CAS moves it.
@@ -100,7 +99,6 @@ final class SourcePlannerRuntime
                 $initialAnchorCursor = null;
             }
             $this->sources[$taskKey] = new ExecutionOccurrenceSource(
-                $schedule,
                 $taskKey,
                 TriggerFactory::create($trigger),
                 $bindings,

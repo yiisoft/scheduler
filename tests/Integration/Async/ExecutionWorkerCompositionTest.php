@@ -45,15 +45,15 @@ final class ExecutionWorkerCompositionTest extends TestCase
     public function testCapabilityRoundTripPreservesFractionalPolicyAndNestedMetadata(): void
     {
         $policy = [
-            'format' => 3,
+            'format' => 4,
             'source' => ['source', 'revision'],
             'task' => [
                 'id' => 'task', 'mode' => 'async', 'timeout' => [1.0, 2.0],
                 'metadata' => ['nested' => ['policy' => ['leaf' => 'value']]],
-                'schedule' => 'schedule', 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null],
+                'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null],
             ],
         ];
-        $capability = new ExecutionWorkerCapability(new ExecutionOccurrenceKey('schedule', 'task', 'occurrence'), 'attempt', 'run-1', 'execution-1', 3, 'fence-3', 'manifest-v1', 'task-v1', 'ledger://one', 'runtime://one', 'source-revision', $policy);
+        $capability = new ExecutionWorkerCapability(new ExecutionOccurrenceKey('task', 'occurrence'), 'attempt', 'run-1', 'execution-1', 4, 'fence-4', 'manifest-v1', 'task-v1', 'ledger://one', 'runtime://one', 'source-revision', $policy);
 
         self::assertStringContainsString('1.0', $capability->encode());
         self::assertSame($capability->toArray(), ExecutionWorkerCapability::decode($capability->encode())->toArray());
@@ -146,9 +146,9 @@ final class ExecutionWorkerCompositionTest extends TestCase
         $capability = $this->capability();
         $record = new ExecutionLedgerRecord(
             $capability->occurrence,
-            new ExecutionIdentity('schedule', 'task', 'occurrence', 'attempt', 'run-1', 'execution-1'),
+            new ExecutionIdentity('task', 'occurrence', 'attempt', 'run-1', 'execution-1'),
             1,
-            new ExecutionFence(3, 'fence-3'),
+            new ExecutionFence(4, 'fence-4'),
             'launch-required',
             'dispatch',
             'manifest-v2',
@@ -181,9 +181,9 @@ final class ExecutionWorkerCompositionTest extends TestCase
         $capability = $this->capability();
         $record = new ExecutionLedgerRecord(
             $capability->occurrence,
-            new ExecutionIdentity('schedule', 'task', 'occurrence', 'attempt', 'run-1', 'execution-1'),
+            new ExecutionIdentity('task', 'occurrence', 'attempt', 'run-1', 'execution-1'),
             1,
-            new ExecutionFence(3, 'fence-3'),
+            new ExecutionFence(4, 'fence-4'),
             'launch-required',
             'dispatch',
             'manifest-v1',
@@ -211,18 +211,18 @@ final class ExecutionWorkerCompositionTest extends TestCase
 
     private function capability(?string $sourceRevision = null): ExecutionWorkerCapability
     {
-        return new ExecutionWorkerCapability(new ExecutionOccurrenceKey('schedule', 'task', 'occurrence'), 'attempt', 'run-1', 'execution-1', 3, 'fence-3', 'manifest-v1', hash('sha256', PreparedConfiguration::canonical($this->policy())), 'ledger://one', 'runtime://one', $sourceRevision ?? 'source-revision', $this->policy());
+        return new ExecutionWorkerCapability(new ExecutionOccurrenceKey('task', 'occurrence'), 'attempt', 'run-1', 'execution-1', 4, 'fence-4', 'manifest-v1', hash('sha256', PreparedConfiguration::canonical($this->policy())), 'ledger://one', 'runtime://one', $sourceRevision ?? 'source-revision', $this->policy());
     }
 
     private function policy(): array
     {
-        return ['format' => 3, 'source' => [null, null], 'task' => ['id' => 'task', 'mode' => 'async', 'timeout' => null, 'metadata' => [], 'schedule' => 'schedule', 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null]]];
+        return ['format' => 4, 'source' => [null, null], 'task' => ['id' => 'task', 'mode' => 'async', 'timeout' => null, 'metadata' => [], 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null]]];
     }
 
     private function record(): ExecutionLedgerRecord
     {
         $capability = $this->capability();
-        return new ExecutionLedgerRecord($capability->occurrence, new ExecutionIdentity('schedule', 'task', 'occurrence', 'attempt', 'run-1', 'execution-1'), 1, new ExecutionFence(3, 'fence-3'), 'launch-required', 'dispatch', 'manifest-v1', $this->policy());
+        return new ExecutionLedgerRecord($capability->occurrence, new ExecutionIdentity('task', 'occurrence', 'attempt', 'run-1', 'execution-1'), 1, new ExecutionFence(4, 'fence-4'), 'launch-required', 'dispatch', 'manifest-v1', $this->policy());
     }
 }
 
@@ -269,7 +269,7 @@ final class RecordingLedger implements ExecutionLedgerInterface
         return $this->claimResult->record;
     }
 
-    public function hasTaskHistory(string $scheduleKey, string $taskKey): bool
+    public function hasTaskHistory(string $taskKey): bool
     {
         return false;
     }

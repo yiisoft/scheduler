@@ -34,9 +34,9 @@ final class FileExecutionLedgerCodec
     public function encode(ExecutionLedgerRecord $r): string
     {
         $value = [
-            'version' => 5,
-            'occurrence' => ['scheduleKey' => $r->occurrence->scheduleKey, 'taskKey' => $r->occurrence->taskKey, 'occurrenceId' => $r->occurrence->occurrenceId],
-            'correlation' => ['scheduleKey' => $r->correlation->scheduleKey, 'taskKey' => $r->correlation->taskKey, 'occurrenceId' => $r->correlation->occurrenceId, 'attemptId' => $r->correlation->attemptId, 'runId' => $r->correlation->runId, 'executionId' => $r->correlation->executionId],
+            'version' => 6,
+            'occurrence' => ['taskKey' => $r->occurrence->taskKey, 'occurrenceId' => $r->occurrence->occurrenceId],
+            'correlation' => ['taskKey' => $r->correlation->taskKey, 'occurrenceId' => $r->correlation->occurrenceId, 'attemptId' => $r->correlation->attemptId, 'runId' => $r->correlation->runId, 'executionId' => $r->correlation->executionId],
             'attempt' => $r->attempt,
             'fence' => ['generation' => $r->fence->generation, 'token' => $r->fence->token],
             'state' => $r->state,
@@ -74,22 +74,22 @@ final class FileExecutionLedgerCodec
         try {
             $value = json_decode($json, true, self::JSON_DEPTH, JSON_BIGINT_AS_STRING | JSON_THROW_ON_ERROR);
             $a = $this->object($value, ['version', 'occurrence', 'correlation', 'attempt', 'fence', 'state', 'launchIntent', 'configurationFingerprint', 'taskSnapshot', 'createdAt', 'updatedAt', 'outcome', 'metadata', 'dispatchReservation', 'launchObservation', 'recoveryFence', 'revokedAt', 'claimLeaseDeadline']);
-            if (!is_int($a['version']) || $a['version'] !== 5) {
+            if (!is_int($a['version']) || $a['version'] !== 6) {
                 throw new InvalidArgumentException('Ledger snapshot version is unsupported.');
             }
 
-            $occurrence = $this->object($a['occurrence'], ['scheduleKey', 'taskKey', 'occurrenceId']);
-            $correlation = $this->object($a['correlation'], ['scheduleKey', 'taskKey', 'occurrenceId', 'attemptId', 'runId', 'executionId']);
+            $occurrence = $this->object($a['occurrence'], ['taskKey', 'occurrenceId']);
+            $correlation = $this->object($a['correlation'], ['taskKey', 'occurrenceId', 'attemptId', 'runId', 'executionId']);
             $fence = $this->object($a['fence'], ['generation', 'token']);
-            /** @var list{string, string, string} $occurrenceValues */
-            $occurrenceValues = $this->strings($occurrence, ['scheduleKey', 'taskKey', 'occurrenceId']);
-            [$occurrenceSchedule, $occurrenceTask, $occurrenceId] = $occurrenceValues;
-            /** @var list{string, string, string, string, string, string} $correlationValues */
-            $correlationValues = $this->strings($correlation, ['scheduleKey', 'taskKey', 'occurrenceId', 'attemptId', 'runId', 'executionId']);
-            [$correlationSchedule, $correlationTask, $correlationId, $attemptId, $runId, $executionId] = $correlationValues;
-            $o = new ExecutionOccurrenceKey($occurrenceSchedule, $occurrenceTask, $occurrenceId);
-            $c = new ExecutionIdentity($correlationSchedule, $correlationTask, $correlationId, $attemptId, $runId, $executionId);
-            if (!$o->equals(new ExecutionOccurrenceKey($c->scheduleKey, $c->taskKey, $c->occurrenceId))) {
+            /** @var list{string, string} $occurrenceValues */
+            $occurrenceValues = $this->strings($occurrence, ['taskKey', 'occurrenceId']);
+            [$occurrenceTask, $occurrenceId] = $occurrenceValues;
+            /** @var list{string, string, string, string, string} $correlationValues */
+            $correlationValues = $this->strings($correlation, ['taskKey', 'occurrenceId', 'attemptId', 'runId', 'executionId']);
+            [$correlationTask, $correlationId, $attemptId, $runId, $executionId] = $correlationValues;
+            $o = new ExecutionOccurrenceKey($occurrenceTask, $occurrenceId);
+            $c = new ExecutionIdentity($correlationTask, $correlationId, $attemptId, $runId, $executionId);
+            if (!$o->equals(new ExecutionOccurrenceKey($c->taskKey, $c->occurrenceId))) {
                 throw new InvalidArgumentException('Ledger identity mismatch.');
             }
             if (!is_int($a['attempt']) || !is_int($a['createdAt']) || !is_int($a['updatedAt']) || !is_string($a['state']) || !is_string($a['launchIntent']) || !is_string($a['configurationFingerprint']) || !is_array($a['taskSnapshot']) || !is_array($a['metadata'])) {

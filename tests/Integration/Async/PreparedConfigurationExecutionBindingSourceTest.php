@@ -23,8 +23,8 @@ final class PreparedConfigurationExecutionBindingSourceTest extends TestCase
         $configuration = $source->prepare(new BindingRuntimeFactory());
         $bindings = new PreparedConfigurationExecutionBindingSource($source, $configuration, 'owner-run');
 
-        $first = $bindings->map('default', 'task', 'o0000000001', 1_700_000_000);
-        $second = $bindings->map('default', 'task', 'o0000000001', 1_700_000_000);
+        $first = $bindings->map('task', 'o0000000001', 1_700_000_000);
+        $second = $bindings->map('task', 'o0000000001', 1_700_000_000);
 
         self::assertSame($first->correlation->executionId, $second->correlation->executionId);
         self::assertSame($configuration->fingerprint(), $first->configurationFingerprint);
@@ -39,10 +39,10 @@ final class PreparedConfigurationExecutionBindingSourceTest extends TestCase
         self::assertInstanceOf(TimeoutPolicy::class, $first->timeout);
         self::assertIsString($first->mode);
         self::assertFalse(property_exists($first, 'profile'));
-        self::assertSame('default', $first->scheduleKey);
+        self::assertSame('task', $first->taskKey);
     }
 
-    public function testRejectsUnknownTaskAndWrongSchedule(): void
+    public function testRejectsUnknownTask(): void
     {
         $path = tempnam(sys_get_temp_dir(), 'schedule-binding-');
         file_put_contents($path, '<?php return static function (): \\Yiisoft\\Scheduler\\Config\\SchedulerConfig { $config = new \\Yiisoft\\Scheduler\\Config\\SchedulerConfig(); $config->periodic(new \\Yiisoft\\Scheduler\\Executor\\CallableCommand(static fn(): \\Yiisoft\\Scheduler\\Integration\\Async\\ExecutionOutcome => new \\Yiisoft\\Scheduler\\Integration\\Async\\ExecutionOutcome("succeeded")))->every(60)->id("task"); return $config; };');
@@ -50,7 +50,7 @@ final class PreparedConfigurationExecutionBindingSourceTest extends TestCase
         $bindings = new PreparedConfigurationExecutionBindingSource($source, $source->prepare(new BindingRuntimeFactory()), 'owner-run');
 
         $this->expectException(InvalidArgumentException::class);
-        $bindings->map('other', 'unknown', 'occurrence', 1);
+        $bindings->map('other', 'unknown', 1);
     }
 }
 

@@ -8,11 +8,10 @@ use Yiisoft\Scheduler\Executor\Command;
 use Yiisoft\Scheduler\ExecutionMode;
 use Yiisoft\Scheduler\ScalarMetadata;
 use LogicException;
-use Yiisoft\Scheduler\Task\{ScheduleId, TaskId};
+use Yiisoft\Scheduler\Task\TaskId;
 
 final class TaskDefinition
 {
-    public readonly ScheduleId $scheduleId;
     public readonly TriggerDefinition $trigger;
     public readonly MissedOccurrenceSetting $missedOccurrences;
     public readonly OverlapPolicy $overlap;
@@ -23,7 +22,6 @@ final class TaskDefinition
         public readonly ExecutionMode $mode = ExecutionMode::ASYNC,
         public readonly ?TimeoutPolicy $timeout = null,
         public readonly array $metadata = [],
-        ?ScheduleId $scheduleId = null,
         ?TriggerDefinition $trigger = null,
         mixed $missedOccurrences = MissedOccurrencePolicy::SKIP,
         mixed $overlap = OverlapPolicy::ALLOW,
@@ -34,7 +32,6 @@ final class TaskDefinition
                 ? new MissedOccurrenceSetting($missedOccurrences)
                 : MissedOccurrenceSetting::fromScalar($missedOccurrences));
         $this->overlap = OverlapPolicy::fromScalar($overlap);
-        $this->scheduleId = $scheduleId ?? new ScheduleId('default');
         $this->trigger = $trigger ?? new TriggerDefinition('default');
         ScalarMetadata::assertAggregateSupported($this->metadata, $this->trigger->definition);
     }

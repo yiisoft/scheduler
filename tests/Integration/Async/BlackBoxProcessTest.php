@@ -132,7 +132,7 @@ final class BlackBoxProcessTest extends TestCase
         $ledgerPath = $this->directory . '/ledger';
         mkdir($ledgerPath, 0700);
         $ledger = new FileExecutionLedger($ledgerPath);
-        $occurrence = new ExecutionOccurrenceKey('fixture-schedule', 'fixture-task', 'occurrence-' . bin2hex(random_bytes(4)));
+        $occurrence = new ExecutionOccurrenceKey('fixture-task', 'occurrence-' . bin2hex(random_bytes(4)));
         $capability = BlackBoxApplication::capability($occurrence);
         $capability = new ExecutionWorkerCapability($capability->occurrence, $capability->attemptId, $capability->runId, $capability->executionId, $capability->generation, $capability->fenceToken, $capability->configurationFingerprint, hash('sha256', PreparedConfiguration::canonical($capability->policy)), $capability->ledgerLocator, $capability->runtimeLocator, $capability->sourceRevision, $capability->policy);
         self::assertTrue($ledger->admit(BlackBoxApplication::record($capability))->newlyAdmitted);

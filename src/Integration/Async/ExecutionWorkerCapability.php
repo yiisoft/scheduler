@@ -24,7 +24,7 @@ use const JSON_PRESERVE_ZERO_FRACTION;
  */
 final class ExecutionWorkerCapability
 {
-    public const VERSION = 3;
+    public const VERSION = 4;
     private const MAX_TEXT = 512;
     private const MAX_CONFIGURATION_FINGERPRINT = 4096;
 
@@ -63,7 +63,7 @@ final class ExecutionWorkerCapability
             throw new InvalidArgumentException('Worker capability requires an asynchronous task policy.');
         }
         new ExecutionFence($generation, $fenceToken);
-        new ExecutionIdentity($occurrence->scheduleKey, $occurrence->taskKey, $occurrence->occurrenceId, $attemptId, $runId, $executionId);
+        new ExecutionIdentity($occurrence->taskKey, $occurrence->occurrenceId, $attemptId, $runId, $executionId);
     }
 
     /** @return array<string, mixed> */
@@ -72,7 +72,6 @@ final class ExecutionWorkerCapability
         $result = [
             'version' => self::VERSION,
             'occurrence' => [
-                'schedule' => $this->occurrence->scheduleKey,
                 'task' => $this->occurrence->taskKey,
                 'id' => $this->occurrence->occurrenceId,
             ],
@@ -116,7 +115,7 @@ final class ExecutionWorkerCapability
             throw new InvalidArgumentException('Worker capability shape is invalid.');
         }
         $occurrence = $value['occurrence'];
-        if (array_keys($occurrence) !== ['schedule', 'task', 'id']) {
+        if (array_keys($occurrence) !== ['task', 'id']) {
             throw new InvalidArgumentException('Worker capability occurrence is invalid.');
         }
         foreach ($value as $key => $item) {
@@ -139,11 +138,10 @@ final class ExecutionWorkerCapability
         }
         /** @var array<string, mixed> $policy */
         $policy = $value['policy'];
-        $schedule = (string) $occurrence['schedule'];
         $task = (string) $occurrence['task'];
         $id = (string) $occurrence['id'];
         return new self(
-            new ExecutionOccurrenceKey($schedule, $task, $id),
+            new ExecutionOccurrenceKey($task, $id),
             $value['attempt'],
             $value['run'],
             $value['execution'],

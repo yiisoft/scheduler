@@ -34,10 +34,8 @@ final class PlannerProcessTest extends TestCase
             $external = array_values(array_filter($records, static fn(array $record): bool
                 => ($record['occurrence'] ?? null) === ($externalAdmission['occurrence'] ?? null)
                 && ($record['correlation'] ?? null) === ($externalAdmission['correlation'] ?? null)
-                && ($record['occurrence']['scheduleKey'] ?? null) === ($record['correlation']['scheduleKey'] ?? null)
                 && ($record['occurrence']['taskKey'] ?? null) === ($record['correlation']['taskKey'] ?? null)
                 && ($record['occurrence']['occurrenceId'] ?? null) === ($record['correlation']['occurrenceId'] ?? null)
-                && ($record['occurrence']['scheduleKey'] ?? null) === 'default'
                 && ($record['occurrence']['taskKey'] ?? null) === 'external-task'
                 && ($record['state'] ?? null) === 'succeeded'
                 && ($record['outcome']['status'] ?? null) === 'succeeded'));
@@ -45,10 +43,9 @@ final class PlannerProcessTest extends TestCase
             AcceptanceScheduler::assertCompleteSourceIdentity($external[0], $config, $externalAdmission, $directory);
             self::assertIsString($external[0]['metadata']['occurrenceCursor'] ?? null);
             self::assertSame([
-                'schedule' => 'default',
                 'task' => 'external-task',
                 'occurrence' => $external[0]['occurrence']['occurrenceId'],
-            ], array_intersect_key($external[0]['metadata']['taskMappingIdentity'] ?? [], array_flip(['schedule', 'task', 'occurrence'])));
+            ], array_intersect_key($external[0]['metadata']['taskMappingIdentity'] ?? [], array_flip(['task', 'occurrence'])));
             $cronAdmission = AcceptanceScheduler::admittedRecord($directory, 'cron-task', $config);
             AcceptanceScheduler::assertTerminalRecord($directory, $cronAdmission, $config);
             // The admission snapshot predates terminalization; read the ledger
@@ -71,7 +68,7 @@ final class PlannerProcessTest extends TestCase
             foreach (['external-effect' => 'external-task', 'cron-effect' => 'cron-task'] as $effect => $task) {
                 $identity = json_decode((string) file_get_contents($directory . '/' . $effect . '.identity.json'), true, 8, JSON_THROW_ON_ERROR);
                 self::assertSame(realpath($config), $identity['source']);
-                self::assertSame('default', $identity['schedule']);
+                self::assertArrayNotHasKey('schedule', $identity);
                 self::assertSame($task, $identity['task']);
             }
 

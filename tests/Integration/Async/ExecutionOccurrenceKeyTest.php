@@ -12,16 +12,16 @@ final class ExecutionOccurrenceKeyTest extends TestCase
 {
     public function testEncodingIsStableAndOccurrencesDoNotCollide(): void
     {
-        $first = new ExecutionOccurrenceKey('schedule', 'task', 'occurrence-1');
-        $second = new ExecutionOccurrenceKey('schedule', 'task', 'occurrence-2');
-        self::assertSame('schedule:task:occurrence-1', (string) $first);
+        $first = new ExecutionOccurrenceKey('task', 'occurrence-1');
+        $second = new ExecutionOccurrenceKey('task', 'occurrence-2');
+        self::assertSame('task:occurrence-1', (string) $first);
         self::assertFalse($first->equals($second));
-        self::assertTrue($first->equals(new ExecutionOccurrenceKey('schedule', 'task', 'occurrence-1')));
+        self::assertTrue($first->equals(new ExecutionOccurrenceKey('task', 'occurrence-1')));
     }
 
     public function testPartsAreBoundedPortableIdentifiers(): void
     {
         $this->expectException(InvalidArgumentException::class);
-        new ExecutionOccurrenceKey('bad/key', 'task', 'occurrence');
+        new ExecutionOccurrenceKey('bad/key', 'occurrence');
     }
 }

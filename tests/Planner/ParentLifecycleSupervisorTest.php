@@ -424,7 +424,7 @@ final class ParentLifecycleSupervisorTest extends TestCase
     private function capability(): ExecutionWorkerCapability
     {
         return new ExecutionWorkerCapability(
-            new ExecutionOccurrenceKey('s', 't', 'o'),
+            new ExecutionOccurrenceKey('t', 'o'),
             'a',
             'r',
             'e',
@@ -436,11 +436,11 @@ final class ParentLifecycleSupervisorTest extends TestCase
             'runtime',
             'source-revision',
             [
-                'format' => 3,
+                'format' => 4,
                 'source' => ['source', 'source-revision'],
                 'task' => [
                     'id' => 't', 'mode' => 'async', 'timeout' => null, 'metadata' => [],
-                    'schedule' => 's', 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60]],
+                    'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]],
                     'overlap' => 'allow', 'missed' => ['skip', null],
                 ],
             ],

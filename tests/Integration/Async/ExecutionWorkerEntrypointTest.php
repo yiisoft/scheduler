@@ -121,7 +121,7 @@ final class ExecutionWorkerEntrypointTest extends TestCase
         self::assertTrue($factory->called);
         self::assertSame([100, 777], $ledger->claimArgs);
         self::assertSame([100, 'succeeded'], $ledger->terminalArgs);
-        self::assertSame('fence-3', $ledger->terminalFence?->token);
+        self::assertSame('fence-4', $ledger->terminalFence?->token);
         self::assertEquals($capability->occurrence, $ledger->terminalOccurrence);
     }
 
@@ -244,14 +244,14 @@ final class ExecutionWorkerEntrypointTest extends TestCase
         $source = new PhpConfigurationSource($path);
         $configuration = $source->prepare(new TestCommandExecutorRuntimeFactory());
         $definition = $configuration->tasks['task'];
-        $occurrence = new ExecutionOccurrenceKey('schedule', 'task', 'occurrence');
+        $occurrence = new ExecutionOccurrenceKey('task', 'occurrence');
         $capability = new ExecutionWorkerCapability(
             $occurrence,
             'attempt',
             'run-1',
             'execution-1',
-            1,
-            'fence-1',
+            4,
+            'fence-4',
             $configuration->fingerprint(),
             $configuration->taskFingerprint($definition),
             'ledger://allow-listed',
@@ -261,9 +261,9 @@ final class ExecutionWorkerEntrypointTest extends TestCase
         );
         $record = new ExecutionLedgerRecord(
             $occurrence,
-            new ExecutionIdentity('schedule', 'task', 'occurrence', 'attempt', 'run-1', 'execution-1'),
+            new ExecutionIdentity('task', 'occurrence', 'attempt', 'run-1', 'execution-1'),
             1,
-            new ExecutionFence(1, 'fence-1'),
+            new ExecutionFence(4, 'fence-4'),
             'launch-required',
             'dispatch',
             $capability->configurationFingerprint,
@@ -299,7 +299,7 @@ final class ExecutionWorkerEntrypointTest extends TestCase
         self::assertSame('failed', $ledger->terminalArgs[1]);
         self::assertSame(ExecutionOutcome::FAILED, $ledger->terminalOutcome?->status);
         self::assertSame('worker.runtime_factory_failed', $ledger->terminalOutcome?->reason);
-        self::assertSame('fence-1', $ledger->terminalFence?->token);
+        self::assertSame('fence-4', $ledger->terminalFence?->token);
         self::assertFalse($invoked);
         self::assertStringNotContainsString('secret-config-detail', $result->reason);
         self::assertStringNotContainsString('secret-config-detail', (string) $result->outcome?->reason);
@@ -371,19 +371,19 @@ final class ExecutionWorkerEntrypointTest extends TestCase
 
     private function capability(): ExecutionWorkerCapability
     {
-        return new ExecutionWorkerCapability(new ExecutionOccurrenceKey('schedule', 'task', 'occurrence'), 'attempt', 'run-1', 'execution-1', 3, 'fence-3', 'manifest-v1', hash('sha256', PreparedConfiguration::canonical($this->policy())), 'ledger://allow-listed', 'runtime://one', 'source-revision', $this->policy());
+        return new ExecutionWorkerCapability(new ExecutionOccurrenceKey('task', 'occurrence'), 'attempt', 'run-1', 'execution-1', 4, 'fence-4', 'manifest-v1', hash('sha256', PreparedConfiguration::canonical($this->policy())), 'ledger://allow-listed', 'runtime://one', 'source-revision', $this->policy());
     }
 
     private function policy(): array
     {
-        return ['format' => 3, 'source' => [null, null], 'task' => ['id' => 'task', 'mode' => 'async', 'timeout' => null, 'metadata' => [], 'schedule' => 'schedule', 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null]]];
+        return ['format' => 4, 'source' => [null, null], 'task' => ['id' => 'task', 'mode' => 'async', 'timeout' => null, 'metadata' => [], 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null]]];
     }
 
     private function record(ExecutionWorkerCapability $capability, string $configurationFingerprint = 'manifest-v1', string $taskVersion = '', string $state = 'launch-required', ?ExecutionOutcome $outcome = null): ExecutionLedgerRecord
     {
         $taskVersion = $taskVersion === '' ? $capability->taskVersion : $taskVersion;
         $snapshot = $taskVersion === $capability->taskVersion ? $capability->policy : array_replace($capability->policy, ['task' => array_replace($capability->policy['task'], ['metadata' => ['version' => $taskVersion]])]);
-        return new ExecutionLedgerRecord($capability->occurrence, new ExecutionIdentity('schedule', 'task', 'occurrence', 'attempt', 'run-1', 'execution-1'), 1, new ExecutionFence(3, 'fence-3'), $state, 'dispatch', $configurationFingerprint, $snapshot, 1, 1, $outcome);
+        return new ExecutionLedgerRecord($capability->occurrence, new ExecutionIdentity('task', 'occurrence', 'attempt', 'run-1', 'execution-1'), 1, new ExecutionFence(4, 'fence-4'), $state, 'dispatch', $configurationFingerprint, $snapshot, 1, 1, $outcome);
     }
 
     private function entrypoint(EntrypointLedger $ledger, ExecutionWorkerRuntimeFactoryInterface $factory, bool &$resolved = false, array $times = [10, 20]): ExecutionWorkerEntrypoint
@@ -469,7 +469,7 @@ final class EntrypointLedger implements ExecutionLedgerInterface
         return $this->observeCalls > 1 ? ($this->terminalObservation ?? $this->observedRecord) : $this->observedRecord;
     }
 
-    public function hasTaskHistory(string $scheduleKey, string $taskKey): bool
+    public function hasTaskHistory(string $taskKey): bool
     {
         return false;
     }
@@ -523,6 +523,6 @@ final class EntrypointLedger implements ExecutionLedgerInterface
         $this->terminalOccurrence = $o;
         if ($this->terminalThrows) {
             throw new RuntimeException();
-        } return $this->terminalResult ?? ExecutionTerminalResult::accepted(new ExecutionLedgerRecord($o, new ExecutionIdentity('schedule', 'task', 'occurrence', 'attempt', 'run-1', 'execution-1'), 1, $f, $outcome->status, 'dispatch', 'manifest-v1', $this->observedRecord?->taskSnapshot ?? [], 1, 1, $outcome));
+        } return $this->terminalResult ?? ExecutionTerminalResult::accepted(new ExecutionLedgerRecord($o, new ExecutionIdentity('task', 'occurrence', 'attempt', 'run-1', 'execution-1'), 1, $f, $outcome->status, 'dispatch', 'manifest-v1', $this->observedRecord?->taskSnapshot ?? [], 1, 1, $outcome));
     }
 }
