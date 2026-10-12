@@ -42,7 +42,11 @@ final class Schedule
             $id = $item->getId();
 
             if (array_key_exists($id, $this->tasks)) {
-                throw new Exception\LogicException(sprintf('A task with id "%s" already exists in the schedule.', $id));
+                throw new Exception\LogicException(sprintf(
+                    'A task with id "%s" already exists in the schedule. Tasks sharing a trigger and a target need'
+                    . ' identifiers of their own, see RecurringTask::withId().',
+                    $id,
+                ));
             }
 
             $this->tasks[$id] = $item;

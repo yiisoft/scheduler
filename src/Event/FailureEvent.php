@@ -28,6 +28,11 @@ final class FailureEvent
         return $this->ignored;
     }
 
+    /**
+     * Keeps the error from being rethrown. The daemon loop, Scheduler::run(), does not rethrow
+     * it either way, so that one failing task does not stop the whole schedule. An error that
+     * is not rethrown is logged.
+     */
     public function ignore(): void
     {
         $this->ignored = true;
