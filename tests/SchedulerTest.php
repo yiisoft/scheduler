@@ -18,6 +18,9 @@ use Yiisoft\Scheduler\TaskContext;
 use Yiisoft\Scheduler\Tests\Support\InMemoryCache;
 use Yiisoft\Scheduler\Tests\Support\TestClock;
 use Psr\EventDispatcher\EventDispatcherInterface;
+use Psr\Log\AbstractLogger;
+use Psr\Log\LogLevel;
+use Stringable;
 use Yiisoft\Scheduler\Exception\LogicException;
 use Yiisoft\Scheduler\Exception\RuntimeException as SchedulerRuntimeException;
 use Yiisoft\Scheduler\Tests\Support\InMemoryMutex;
@@ -638,6 +641,113 @@ final class SchedulerTest extends TestCase
         $scheduler = new Scheduler([new Schedule()], new CallableTaskHandler(), new TestClock());
 
         $this->assertNull($scheduler->nextRunDate());
+    }
+
+    public function testTaskFailureDoesNotEndTheLoop(): void
+    {
+        $clock = new TestClock();
+        $scheduler = null;
+
+        $schedule = (new Schedule())->task(
+            RecurringTask::cron('* * * * *', static function (): void {
+                throw new RuntimeException('Task failed.');
+            }),
+            RecurringTask::cron('* * * * *', static function () use (&$scheduler): void {
+                $scheduler?->stop();
+            }),
+        );
+
+        $logger = new class extends AbstractLogger {
+            /** @var list<string> */
+            public array $errors = [];
+
+            public function log($level, string|Stringable $message, array $context = []): void
+            {
+                if (LogLevel::ERROR === $level) {
+                    $this->errors[] = (string) ($context['error'] ?? '');
+                }
+            }
+        };
+
+        $scheduler = new Scheduler([$schedule], new CallableTaskHandler(), $clock, null, $logger);
+
+        $scheduler->tick();
+        $clock->advance('+1 minute');
+
+        // The task behind the failing one stops the loop, which it only gets to do if the
+        // failure was not thrown out of it.
+        $scheduler->run(0.01, false);
+
+        $this->assertSame(['Task failed.'], $logger->errors);
+    }
+
+    public function testTaskFailureIsThrownAgainOnceTheLoopHasEnded(): void
+    {
+        $clock = new TestClock();
+        $scheduler = null;
+        $fail = false;
+
+        $schedule = (new Schedule())->task(
+            RecurringTask::cron('* * * * *', static function () use (&$scheduler, &$fail): void {
+                $scheduler?->stop();
+
+                if ($fail) {
+                    throw new RuntimeException('Task failed.');
+                }
+            }),
+        );
+
+        $scheduler = new Scheduler([$schedule], new CallableTaskHandler(), $clock);
+
+        $scheduler->tick();
+        $clock->advance('+1 minute');
+        $scheduler->run(0.01, false);
+
+        $fail = true;
+        $clock->advance('+1 minute');
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('Task failed.');
+
+        $scheduler->tick();
+    }
+
+    #[RequiresPhpExtension('pcntl')]
+    public function testForkedTaskFailureDoesNotEndTheLoop(): void
+    {
+        $clock = new TestClock();
+
+        $schedule = (new Schedule())->task(
+            RecurringTask::cron('* * * * *', static function (): void {
+                throw new RuntimeException('Task failed.');
+            }),
+        );
+
+        $dispatcher = new class implements EventDispatcherInterface {
+            public ?Scheduler $scheduler = null;
+            /** @var list<string> */
+            public array $failures = [];
+
+            public function dispatch(object $event): object
+            {
+                // Not ignored: the loop has to cope with the failure by itself.
+                if ($event instanceof FailureEvent) {
+                    $this->failures[] = $event->error->getMessage();
+                    $this->scheduler?->stop();
+                }
+
+                return $event;
+            }
+        };
+
+        $scheduler = new Scheduler([$schedule], new CallableTaskHandler(), $clock, $dispatcher);
+        $dispatcher->scheduler = $scheduler;
+
+        $scheduler->tick();
+        $clock->advance('+1 minute');
+        $scheduler->run(0.01);
+
+        $this->assertSame(['The task process exited with code 1.'], $dispatcher->failures);
     }
 
     public function testNextRunDateReflectsTheSoonestPendingRun(): void
