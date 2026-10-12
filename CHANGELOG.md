@@ -2,20 +2,36 @@
 
 ## 1.0.0 under development
 
-- Bug #3: Fix `schedule:work` crashing on Windows, where `time_nanosleep()` is not available (@KalimeroMK)
-- Bug #3: Fix a `SIGCHLD` arriving between the fork and the bookkeeping leaving a task process uncollected (@KalimeroMK)
-- Bug #3: Reset the inherited signal handlers in a forked task, so it stops on `SIGTERM` instead of ignoring it and no longer reaps the subprocesses it starts itself (@KalimeroMK)
-- Bug #3: Wait only on the scheduler's own child processes, leaving those of the host application to their owner (@KalimeroMK)
-- Bug #3: Keep starting the remaining due tasks when one of them fails to start, instead of dropping their already checkpointed runs (@KalimeroMK)
-- Bug #3: Keep a failing task from unwinding the `schedule:work` loop out of its `SIGCHLD` handler, stranding the other task processes (@KalimeroMK)
-- Bug #3: Fix the shutdown of `schedule:work` hanging without `ext-posix` (@KalimeroMK)
-- Bug #3: Skip PHP's shutdown sequence in a forked task, so it no longer runs destructors and shutdown functions over what it inherited from the scheduler (@KalimeroMK)
-- New #3: Add a `--max-processes` option to `schedule:work`, capping how many task processes run at once (@KalimeroMK)
-- Enh #3: Skip a due run of a task whose previous run is still going, instead of starting a second process for it (@KalimeroMK)
-- Enh #3: Collect finished task processes during a long sleep as well, not only when a signal interrupts it (@KalimeroMK)
-- New #2: Run due tasks of `schedule:work` concurrently, forking a child process per task when ext-pcntl is available, with a `--sequential` opt-out (@KalimeroMK)
-- Enh #2: Sleep until the next scheduled run in `schedule:work` instead of polling every second (@KalimeroMK)
-- New #1: Add scheduling core: triggers (cron, periodic, callback), schedules with mutex and stateful checkpoints, missed-run catch-up, and `schedule:run`, `schedule:work` and `schedule:list` commands (@KalimeroMK)
-- Bug #1: Fix checkpoint position moving backwards when a re-discovered run is skipped (@KalimeroMK)
-- Bug #1: Fix PHP 8.1 compatibility and falsable date arithmetic (@KalimeroMK)
-- Initial release.
+This release is a breaking rewrite of the scheduling contracts, CLI, local state, and
+execution model. It is not a drop-in update for the previous API or runtime.
+
+### Delivered
+
+- Add the standalone `bin/scheduler` planner default, `run` worker mode, and read-only
+  `healthcheck` mode with strict state-directory precedence and explicit failure.
+- Define source-scoped local filesystem state, one local owner per source identity, and a
+  separate raw pinned configuration revision. Version changes fail closed.
+- Make async execution the default, with explicit local sync, literal shell `argv`, fresh
+  worker bootstrap/resolver boundaries, allow-overlap defaults, and per-source capacity 16.
+- Add fenced admission, lifecycle supervision, recovery, unresolved/ambiguous outcomes,
+  and application-owned retention with no automatic deletion.
+- Add cursor-based missed-occurrence handling: `skip` is the default, `last` requires
+  history, and bounded `all` replay retains the newest missed occurrences.
+- Define the 15-second health threshold, its synchronous blocking limitation, and stable
+  worker exit classes (`0` success, `1` execution failure, `2` argument/protocol/catch
+  failure, `3` unresolved or ambiguous completion).
+- Keep framework-neutral application bootstrap and service resolution application-owned;
+  no framework adapter or queue/distributed backend is implied.
+- Remove the deprecated `MAX_AGE` compatibility constant in favor of `DEFAULT_MAX_AGE` or an
+  explicit probe threshold.
+
+### Explicit non-goals
+
+Status/history commands, `--once`, detach mode, framework adapters, queue integration,
+distributed backends, legacy restoration, and destructive retention cleanup are not part
+of this contract.
+
+### Release validation status
+
+The documentation contract is recorded here. This entry does not claim that release,
+packaging, static-analysis, mutation, or full end-to-end gates have been run.

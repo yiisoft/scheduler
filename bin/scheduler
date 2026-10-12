@@ -1,0 +1,97 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+require \dirname(__DIR__) . '/vendor/autoload.php';
+
+use Yiisoft\Schedule\Binary\{CliArgumentParser,ExecutionWorkerExitCodeMapper,StateDirectoryResolver,WorkerArgumentParser,WorkerCompositionInput};
+use Yiisoft\Schedule\Config\PhpConfigurationSource;
+use Yiisoft\Schedule\Executor\ShellVariableOverrides;
+use Yiisoft\Schedule\Integration\Async\ExecutionWorkerInvocationResult;
+use Yiisoft\Schedule\Planner\{PlannerCompositionInput,PlannerHealthSnapshot,PlannerStateFormat};
+use Yiisoft\Schedule\SchedulerFactory;
+
+try {
+    $arguments = \array_slice($argv, 1);
+    $cli = (new CliArgumentParser())->parse($arguments);
+    if ($cli->mode === 'healthcheck') {
+        $source = new PhpConfigurationSource($cli->config);
+        $state = (new StateDirectoryResolver())->resolve($cli->state);
+        $reason = PlannerHealthSnapshot::probe($source, $state, time());
+        if ($reason !== null) {
+            fwrite(\STDERR, $reason . "\n");
+            exit(1);
+        }
+        exit(0);
+    }
+    if ($cli->mode !== 'run') {
+        // Standard scheduler run
+        $state = (new StateDirectoryResolver())->resolve($cli->state);
+        try {
+            $runtime = (new SchedulerFactory())->createPlanner(new PlannerCompositionInput(
+                configurationPath: $cli->config,
+                stateDirectory: $state,
+                workerExecutable: __FILE__,
+            ));
+        } catch (RuntimeException $e) {
+            if ($e->getMessage() === 'Planner source is already owned.') {
+                fwrite(\STDERR, "planner.owner_conflict\n");
+                exit(ExecutionWorkerExitCodeMapper::CATCH_OR_ARGUMENT_FAILURE);
+            }
+            throw $e;
+        }
+        $ready = getenv('SCHEDULER_ACCEPTANCE_READY');
+        try {
+            $runtime->tick();
+            if ($ready !== false && $ready !== '') {
+                $handle = fopen($ready, 'wb');
+                if ($handle !== false) {
+                    fwrite($handle, "ready\n");
+                    fclose($handle);
+                }
+            }
+            while (true) {
+                sleep(1);
+                $runtime->tick();
+            }
+        } finally {
+            $runtime->shutdown();
+        }
+        exit(0);
+    }
+
+    // Trying to run a dedicated job
+    $metadata = (new WorkerArgumentParser())->parse($arguments);
+    $input = stream_get_contents(\STDIN, 8193);
+    if ($input === false) {
+        throw new RuntimeException('Worker input cannot be read.');
+    }
+    if ($input === '') {
+        $result = new ExecutionWorkerInvocationResult(ExecutionWorkerInvocationResult::CLAIM_REJECTED, 'worker.claim_rejected');
+        $exitCode = (new ExecutionWorkerExitCodeMapper())->map($result);
+        fwrite(\STDERR, $result->reason . "\n");
+        exit($exitCode);
+    }
+    if (!PlannerStateFormat::isCompatible($metadata->state)) {
+        throw new InvalidArgumentException('Planner state format marker is incompatible.');
+    }
+    $adapter = (new SchedulerFactory())->createFreshWorker(new WorkerCompositionInput(
+        configurationPath: $metadata->config,
+        stateDirectory: $metadata->state,
+        shellVariableOverrides: new ShellVariableOverrides($metadata->overrides->values),
+    ));
+    $result = $adapter->invoke($arguments, $input);
+    $exitCode = (new ExecutionWorkerExitCodeMapper())->map($result);
+    if ($exitCode !== ExecutionWorkerExitCodeMapper::SUCCESS && $result->reason !== null) {
+        fwrite(\STDERR, $result->reason . "\n");
+    }
+    exit($exitCode);
+} catch (Throwable $e) {
+    if ($e instanceof InvalidArgumentException && str_starts_with($e->getMessage(), 'Unsupported command:')) {
+        fwrite(\STDERR, $e->getMessage() . "\n");
+    } else {
+        fwrite(\STDERR, "Worker failed: " . ($e instanceof InvalidArgumentException ? $e->getMessage() : 'internal worker error') . "\n");
+    }
+    exit(ExecutionWorkerExitCodeMapper::CATCH_OR_ARGUMENT_FAILURE);
+}

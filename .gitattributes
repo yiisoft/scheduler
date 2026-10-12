@@ -26,6 +26,8 @@
 *               export-ignore
 /config/       -export-ignore
 /config/**     -export-ignore
+/bin/          -export-ignore
+/bin/**        -export-ignore
 /src/          -export-ignore
 /src/**        -export-ignore
 /composer.json -export-ignore

@@ -8,9 +8,8 @@ use ShipMonk\ComposerDependencyAnalyser\Config\ErrorType;
 return (new Configuration())
     ->disableComposerAutoloadPathScan()
     ->setFileExtensions(['php'])
-    ->addPathToScan(__DIR__ . '/config', isDev: false)
     ->addPathToScan(__DIR__ . '/src', isDev: false)
     ->addPathToScan(__DIR__ . '/tests', isDev: true)
-    // Optional integrations, guarded at runtime and listed in "suggest".
-    ->ignoreErrorsOnPackages(['yiisoft/mutex', 'yiisoft/queue'], [ErrorType::DEV_DEPENDENCY_IN_PROD])
-    ->ignoreErrorsOnExtensions(['ext-pcntl', 'ext-posix'], [ErrorType::SHADOW_DEPENDENCY]);
+    // ctype is covered by Symfony's polyfill when unavailable; POSIX is an
+    // optional capability checked at runtime by the owned-process adapter.
+    ->ignoreErrorsOnExtensions(['ext-ctype', 'ext-posix'], [ErrorType::SHADOW_DEPENDENCY]);

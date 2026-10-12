@@ -1,0 +1,148 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Yiisoft\Schedule\Tests\Planner;
+
+use InvalidArgumentException;
+use PHPUnit\Framework\TestCase;
+use Yiisoft\Schedule\Config\ConfigurationSourceInterface;
+use Yiisoft\Schedule\Planner\FilePlannerOwner;
+use Yiisoft\Schedule\Planner\PlannerHealthSnapshot;
+use FilesystemIterator;
+use RecursiveDirectoryIterator;
+use RecursiveIteratorIterator;
+
+final class PlannerHealthSnapshotTest extends TestCase
+{
+    private string $root;
+
+    protected function setUp(): void
+    {
+        $this->root = sys_get_temp_dir() . '/yii-schedule-health-' . bin2hex(random_bytes(8));
+        mkdir($this->root, 0700, true);
+    }
+
+    protected function tearDown(): void
+    {
+        $files = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($this->root, FilesystemIterator::SKIP_DOTS),
+            RecursiveIteratorIterator::CHILD_FIRST,
+        );
+        foreach ($files as $file) {
+            $file->isDir() ? rmdir($file->getPathname()) : unlink($file->getPathname());
+        }
+        rmdir($this->root);
+    }
+
+    public function testConfiguredStalenessThresholdUsesInclusiveHealthyBoundary(): void
+    {
+        $source = new MutableHealthSource('revision-one');
+        $owner = (new FilePlannerOwner($this->root))->acquire($source->sourceId());
+        try {
+            (new PlannerHealthSnapshot($source->sourceId(), $source->revision, $owner->ownerToken(), (int) getmypid(), 100, 100))
+                ->write($owner->stateDirectory());
+
+            self::assertNull(PlannerHealthSnapshot::probe($source, $this->root, 115, 15));
+            self::assertSame('planner.snapshot_stale', PlannerHealthSnapshot::probe($source, $this->root, 116, 15));
+            self::assertSame('planner.snapshot_stale', PlannerHealthSnapshot::probe($source, $this->root, 116));
+            self::assertNull(PlannerHealthSnapshot::probe($source, $this->root, 120, 20));
+            self::assertSame('planner.snapshot_stale', PlannerHealthSnapshot::probe($source, $this->root, 121, 20));
+        } finally {
+            $owner->release();
+        }
+    }
+
+    public function testInvalidStalenessThresholdIsRejected(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        PlannerHealthSnapshot::probe(new MutableHealthSource('revision-one'), $this->root, 100, 0);
+    }
+
+    public function testPinnedRevisionRemainsStaleAfterSourceReplacement(): void
+    {
+        $source = new MutableHealthSource('revision-one');
+        $owner = (new FilePlannerOwner($this->root))->acquire($source->sourceId());
+        try {
+            $snapshot = new PlannerHealthSnapshot($source->sourceId(), 'revision-one', $owner->ownerToken(), (int) getmypid(), 10, 10);
+            $snapshot->write($owner->stateDirectory());
+            $source->revision = 'revision-two';
+
+            self::assertSame('planner.source_stale', PlannerHealthSnapshot::probe($source, $this->root, 10));
+        } finally {
+            $owner->release();
+        }
+    }
+
+    public function testMismatchedMarkerTokenIsNotHealthy(): void
+    {
+        $source = new MutableHealthSource('revision-one');
+        $owner = (new FilePlannerOwner($this->root))->acquire($source->sourceId());
+        try {
+            (new PlannerHealthSnapshot($source->sourceId(), $source->revision, $owner->ownerToken(), (int) getmypid(), 10, 10))
+                ->write($owner->stateDirectory());
+            file_put_contents($owner->stateDirectory() . '/planner-owner', "owner-" . str_repeat('0', 32) . "\n" . getmypid() . "\n");
+
+            self::assertSame('planner.owner_absent', PlannerHealthSnapshot::probe($source, $this->root, 10));
+        } finally {
+            $owner->release();
+        }
+    }
+
+    public function testStaleMarkerWithoutLockIsNotHealthy(): void
+    {
+        $source = new MutableHealthSource('revision-one');
+        $namespace = hash('sha256', $source->sourceId());
+        $directory = $this->root . '/sources/' . $namespace;
+        mkdir($directory, 0700, true);
+        file_put_contents($directory . '/planner-owner', "owner-" . str_repeat('0', 32) . "\n" . getmypid() . "\n");
+
+        self::assertSame('planner.owner_absent', PlannerHealthSnapshot::probe($source, $this->root, 10));
+    }
+
+    public function testProbeDoesNotRewriteOwnerMarker(): void
+    {
+        $source = new MutableHealthSource('revision-one');
+        $owner = (new FilePlannerOwner($this->root))->acquire($source->sourceId());
+        try {
+            (new PlannerHealthSnapshot($source->sourceId(), $source->revision, $owner->ownerToken(), (int) getmypid(), 10, 10))
+                ->write($owner->stateDirectory());
+            $marker = $owner->stateDirectory() . '/planner-owner';
+            $before = file_get_contents($marker);
+            self::assertNull(PlannerHealthSnapshot::probe($source, $this->root, 10));
+            self::assertSame($before, file_get_contents($marker));
+        } finally {
+            $owner->release();
+        }
+    }
+
+    public function testStoppingAndFailedPhasesAreNeverHealthy(): void
+    {
+        $source = new MutableHealthSource('revision-one');
+        $owner = (new FilePlannerOwner($this->root))->acquire($source->sourceId());
+        try {
+            foreach ([PlannerHealthSnapshot::PHASE_STOPPING, PlannerHealthSnapshot::PHASE_FAILED] as $phase) {
+                (new PlannerHealthSnapshot($source->sourceId(), $source->revision, $owner->ownerToken(), (int) getmypid(), 10, 10, $phase, 'planner.runtime_failed'))
+                    ->write($owner->stateDirectory());
+                self::assertNotNull(PlannerHealthSnapshot::probe($source, $this->root, 10));
+            }
+        } finally {
+            $owner->release();
+        }
+    }
+}
+
+final class MutableHealthSource implements ConfigurationSourceInterface
+{
+    public function __construct(public string $revision) {}
+
+    public function sourceId(): string
+    {
+        return 'health-source';
+    }
+
+    public function revision(): string
+    {
+        return $this->revision;
+    }
+}

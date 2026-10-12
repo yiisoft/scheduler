@@ -1,87 +1,53 @@
-# Proposal: yiisoft/schedule — recurring tasks for Yii 3
+# Yii Schedule: approved command/task redesign
 
-> Draft for https://github.com/orgs/yiisoft/discussions (new package proposal)
+This package uses a framework-neutral typed DSL. A configuration factory creates a
+`SchedulerConfig`; conversion produces an in-process `PreparedConfiguration`.
 
-## Motivation
+## Command and task model
 
-Yii 3 has no way to define recurring tasks in PHP. Every Yii 3 application that needs cron-like behavior falls back to the system crontab plus hand-rolled logging, locking, and missed-run handling.
+A task contains a direct immutable `Command` handle. `ShellCommand` contains its literal
+executable, `argv`, and variables; other command implementations may carry their own
+process-local declaration. The executor is selected in the process that runs the task by
+an exact concrete-class `CommandExecutorMap`.
 
-The demand is proven by the Yii 2 ecosystem:
+`TaskDefinition` owns scheduling policy: execution mode, timeout policy, trigger, overlap,
+and missed-occurrence policy. A synchronous task runs locally and cannot declare an
+enforced timeout. An asynchronous task is supervised by its parent through
+`WorkerLifecyclePolicy`; any process timeout starts at launched-process start and is part
+of the task scheduling policy.
 
-- [omnilight/yii2-scheduling](https://github.com/omnilight/yii2-scheduling) — 316 stars, **1.16M downloads** (~18k/month)
-- [yii2tech/crontab](https://github.com/yii2tech/crontab) — 184 stars, 287k downloads
-- yiisoft/docs#235 (open) asks for a crontab recipe in the app templates
-- yiisoft/yii-sentry#38 (by @samdark) sketched crontab monitoring — a scheduler with check-ins support closes that loop
+## Process boundary
 
-Prior art outside Yii: Laravel's scheduler and Symfony's Scheduler component (stable since 6.4, heavily iterated through 8.2).
+`PreparedConfiguration` is non-serializable. The planner and fresh worker independently
+run the configuration factory and build their own runtime graphs. No planner object,
+prepared configuration, command object, callable body, or container crosses the boundary.
+`SchedulerFactory::createPlanner()` and `createFreshWorker()` are separate typed
+composition paths; the latter creates independent runtime factories and executor maps.
 
-## Proposal
+The admitted task transport is scalar-only and command-free. Format **3** contains the
+task policy and source identity/revision. Callable declarations and their scalar inputs
+are reconstructed from the source in the worker, which resolves its process-local
+dependencies. Shell argument vectors are reconstructed and remain literal.
 
-A new framework-agnostic package, **`yiisoft/schedule`** (per the packages guide, it has no Yii-specific dependencies in its core), plus console integration through `yiisoft/yii-console` params.
+Three independent durable compatibility fences are part of this boundary:
 
-### Core concepts (adapted from Symfony Scheduler, mapped onto Yii packages)
+- worker capability format **3**;
+- file execution ledger format **5**;
+- planner runtime marker **3**.
 
-```php
-interface TriggerInterface extends \Stringable
-{
-    /**
-     * Returns the next run date strictly after $run. Null means the trigger is exhausted.
-     */
-    public function getNextRunDate(\DateTimeImmutable $run): ?\DateTimeImmutable;
-}
-```
+A fence mismatch is rejected or fails closed. The source identity and source revision are
+also distinct: identity selects local state ownership, while the revision pins a run.
+Revision calculation and stability are caller-owned by the configuration source; the
+scheduler can compare a revision, but cannot make an unstable caller revision stable.
 
-The trigger as a **pure function** (`last run → next run`, strictly-after invariant) is the key design decision worth imitating: no mutable state, trivially testable, calendar bugs contained.
+## Composition and ownership
 
-```php
-final class Schedule
-{
-    public function task(RecurringTask $task, RecurringTask ...$tasks): static;
-    public function lock(MutexInterface $mutex): static;        // yiisoft/mutex — multi-process safety
-    public function stateful(CacheInterface $cache): static;    // PSR-16 — survive restarts, catch up missed runs
-    public function processOnlyLastMissedRun(bool $onlyLast = true): static;
-}
+The standalone binary delegates graph assembly to `SchedulerFactory`. The planner owns
+local source ownership, occurrence admission, checkpoints, ledger coordination, and
+parent worker supervision. A fresh worker claims its fenced ledger record before
+bootstrapping application runtime and writes a fenced terminal outcome. Unresolved
+ownership and ambiguous process closure are never treated as success.
 
-RecurringTask::cron('0 5 * * *', new GenerateDailyReport());
-RecurringTask::every('10 minutes', new PurgeExpiredTokens());
-RecurringTask::trigger($myTrigger, $message);
-```
-
-- `CronExpressionTrigger` builds on `dragonmantank/cron-expression` (the de-facto standard, 559M downloads)
-- A due task either runs a handler directly or is **pushed into yiisoft/queue** (`QueueProducerInterface::push()`, with `DelayEnvelope` already available for delay semantics) — so heavy tasks run on queue workers, and the scheduler stays light
-- Next-run ordering via a min-heap keyed by `[time, index]`; a `(time, index)` checkpoint gives crash-resume and missed-run catch-up without storing occurrences
-- Optional PSR-14 events (`PreRunEvent` / `PostRunEvent` / `FailureEvent`) — this is where Sentry cron check-ins attach naturally
-- PSR-20 clock everywhere, so tests can simulate days of runs
-
-### Console commands (registered via `config/params.php`, zero app wiring)
-
-```php
-return [
-    'yiisoft/yii-console' => [
-        'commands' => [
-            'schedule:run' => RunCommand::class,   // one tick — for classic system cron: * * * * * yii schedule:run
-            'schedule:work' => WorkCommand::class, // daemon loop with 1s granularity
-            'schedule:list' => ListCommand::class, // show tasks, triggers, next run dates
-        ],
-    ],
-];
-```
-
-`schedule:run` keeps the familiar Yii 2 workflow (omnilight users migrate by changing one crontab line); `schedule:work` gives the modern single-process option.
-
-### Config-first task definition (Yii style)
-
-Tasks can be declared in `config/params.php` under `yiisoft/schedule` or provided by a `ScheduleProviderInterface` service for dynamic (DB-driven) schedules — both feed the same `Schedule`.
-
-## What the MVP includes / excludes
-
-**In:** triggers (cron, periodic, callback), schedule collection, heap + checkpoint engine, direct handlers and queue push, mutex locking, PSR-16 statefulness, the three commands, PSR-14 events.
-
-**Out (later or never):** hashed cron expressions (`#daily`), jitter/exclusion decorators, sub-second granularity (the loop ticks once per second, like Symfony).
-
-## Notes
-
-- I have working context from both sides: recent contributions to Symfony (incl. its Console) and to yiisoft (db, router, http-middleware, yii-sentry cron check-ins).
-- If you prefer, I'm happy to build this as a community package first (per the yii3-symfony-messenger precedent in discussion #496) and transfer it to the yiisoft org once it proves itself. Either way I can start immediately.
-
-Looking forward to your feedback — especially on naming (`yiisoft/schedule`), the queue integration boundary, and whether the config-first task definition matches how you'd want apps to declare schedules.
+The package remains framework-neutral. Application bootstrap, service resolution, worker
+launch, and any configuration-source adapter beyond the PHP source are application
+responsibilities.

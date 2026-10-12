@@ -8,7 +8,7 @@ use DateInterval;
 use DateTimeImmutable;
 use PHPUnit\Framework\TestCase;
 use Yiisoft\Schedule\Exception\LogicException;
-use Yiisoft\Schedule\Trigger\PeriodicTrigger;
+use Yiisoft\Schedule\Trigger\{PeriodicTrigger, TriggerRangeInterface};
 
 final class PeriodicTriggerTest extends TestCase
 {
@@ -18,6 +18,87 @@ final class PeriodicTriggerTest extends TestCase
         $lastRun = new DateTimeImmutable('2026-01-01 00:00:00+00:00');
 
         $this->assertSame('2026-01-01 00:05:00', $trigger->getNextRunDate($lastRun)->format('Y-m-d H:i:s'));
+    }
+
+    public function testRangeSeeksNewestBoundedDatesWithoutChangingAnchor(): void
+    {
+        $trigger = new PeriodicTrigger(300, new DateTimeImmutable('2026-01-01 00:00:00+00:00'));
+        $after = new DateTimeImmutable('2026-01-01 00:07:00+00:00');
+        $before = new DateTimeImmutable('2026-01-01 00:23:00+00:00');
+
+        self::assertInstanceOf(TriggerRangeInterface::class, $trigger);
+        self::assertSame('2026-01-01 00:10:00', $trigger->getNextRunDateAtOrAfter($after)->format('Y-m-d H:i:s'));
+        self::assertSame(
+            ['00:15', '00:20'],
+            array_map(static fn(DateTimeImmutable $date): string => $date->format('H:i'), $trigger->getRunDates($after, $before, 2)),
+        );
+    }
+
+    public function testAnchoredRangeUsesAnchorPhase(): void
+    {
+        $trigger = new PeriodicTrigger(300, new DateTimeImmutable('2026-01-01 10:00:00Z'));
+
+        self::assertSame(
+            ['10:00', '10:05'],
+            array_map(
+                static fn(DateTimeImmutable $date): string => $date->format('H:i'),
+                $trigger->getRunDates(
+                    new DateTimeImmutable('2026-01-01 09:59:00Z'),
+                    new DateTimeImmutable('2026-01-01 10:10:00Z'),
+                    10,
+                ),
+            ),
+        );
+    }
+
+    public function testAnchoredRangePreservesFractionalAnchor(): void
+    {
+        $trigger = new PeriodicTrigger(5, new DateTimeImmutable('2026-01-01 00:00:00.500000Z'));
+
+        self::assertSame(
+            ['00:00:00.500000', '00:00:05.500000'],
+            array_map(
+                static fn(DateTimeImmutable $date): string => $date->format('H:i:s.u'),
+                $trigger->getRunDates(
+                    new DateTimeImmutable('2026-01-01 00:00:00Z'),
+                    new DateTimeImmutable('2026-01-01 00:00:06Z'),
+                    10,
+                ),
+            ),
+        );
+        self::assertSame(
+            '00:00:05.500000',
+            $trigger->getNextRunDateAtOrAfter(new DateTimeImmutable('2026-01-01 00:00:01Z'))->format('H:i:s.u'),
+        );
+    }
+
+    public function testUnanchoredRangeUsesSuppliedPhaseAndIncludesExactNow(): void
+    {
+        $trigger = new PeriodicTrigger(300);
+        $phase = new DateTimeImmutable('2026-01-01 00:00:00+00:00');
+        $now = new DateTimeImmutable('2026-01-01 00:10:00+00:00');
+
+        self::assertSame('00:10', $trigger->getNextRunDateAtOrAfter($now, $phase)->format('H:i'));
+        self::assertSame(['00:05'], array_map(
+            static fn(DateTimeImmutable $date): string => $date->format('H:i'),
+            $trigger->getRunDates(new DateTimeImmutable('2026-01-01 00:00:00+00:00'), $now, 10, $phase),
+        ));
+    }
+
+    public function testCalendarIntervalRangeRemainsAnchored(): void
+    {
+        $trigger = new PeriodicTrigger(new DateInterval('P1M'), new DateTimeImmutable('2026-01-01 00:00:00+00:00'));
+        $dates = $trigger->getRunDates(new DateTimeImmutable('2026-01-15 00:00:00+00:00'), new DateTimeImmutable('2026-04-15 00:00:00+00:00'), 10);
+
+        self::assertSame(['2026-02-01', '2026-03-01', '2026-04-01'], array_map(static fn(DateTimeImmutable $date): string => $date->format('Y-m-d'), $dates));
+    }
+
+    public function testRangeStopsAtUntil(): void
+    {
+        $trigger = new PeriodicTrigger(300, new DateTimeImmutable('2026-01-01 00:00:00+00:00'), new DateTimeImmutable('2026-01-01 00:10:00+00:00'));
+
+        self::assertSame([], $trigger->getRunDates(new DateTimeImmutable('2026-01-01 00:10:00+00:00'), new DateTimeImmutable('2026-01-01 00:30:00+00:00'), 10));
+        self::assertNull($trigger->getNextRunDateAtOrAfter(new DateTimeImmutable('2026-01-01 00:11:00+00:00')));
     }
 
     public function testSecondsIntervalStaysAnchored(): void

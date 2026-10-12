@@ -1,30 +1,19 @@
 <p align="center">
-    <a href="https://github.com/yiisoft" target="_blank">
-        <img src="https://yiisoft.github.io/docs/images/yii_logo.svg" height="100px" alt="Yii">
-    </a>
+    <a href="https://github.com/yiisoft" target="_blank"><img src="https://yiisoft.github.io/docs/images/yii_logo.svg" height="100px" alt="Yii"></a>
     <h1 align="center">Yii Schedule</h1>
-    <br>
 </p>
 
 [![Latest Stable Version](https://poser.pugx.org/yiisoft/schedule/v)](https://packagist.org/packages/yiisoft/schedule)
-[![Total Downloads](https://poser.pugx.org/yiisoft/schedule/downloads)](https://packagist.org/packages/yiisoft/schedule)
-[![Build status](https://github.com/yiisoft/schedule/actions/workflows/build.yml/badge.svg)](https://github.com/yiisoft/schedule/actions/workflows/build.yml)
-[![Code Coverage](https://codecov.io/gh/yiisoft/schedule/graph/badge.svg)](https://codecov.io/gh/yiisoft/schedule)
-[![Mutation testing badge](https://img.shields.io/endpoint?style=flat&url=https%3A%2F%2Fbadge-api.stryker-mutator.io%2Fgithub.com%2Fyiisoft%2Fschedule%2Fmaster)](https://dashboard.stryker-mutator.io/reports/github.com/yiisoft/schedule/master)
-[![static analysis](https://github.com/yiisoft/schedule/actions/workflows/static.yml/badge.svg?branch=master)](https://github.com/yiisoft/schedule/actions/workflows/static.yml?query=branch%3Amaster)
 
-Recurring tasks and cron-style scheduling for PHP applications: define the tasks in code,
-and let a single cron entry or a long-running worker run them when due — with missed-run
-catch-up, overlap prevention and failure handling included.
+Recurring task scheduling for PHP applications. Define schedules in a package-neutral typed PHP DSL and prepare them for execution.
 
 ## Features
 
-- Cron expressions and fixed intervals through a single `TriggerInterface` contract
-- Tasks as callables, console commands, or queue messages (via [yiisoft/queue](https://github.com/yiisoft/queue))
-- Catch-up of missed runs and crash-resume through persisted checkpoints (any PSR-16 cache)
-- Overlap prevention across processes through [yiisoft/mutex](https://github.com/yiisoft/mutex)
-- PSR-14 events and per-schedule listeners (before / after / onFailure)
-- `schedule:run` (single tick, for system cron), `schedule:work` (daemon), `schedule:list` commands
+- Immutable, direct `Command` handles and typed task definitions
+- Cron-style and periodic scheduling primitives
+- Scalar-only policy and protocol data across the async boundary
+- Explicit synchronous and asynchronous execution modes
+- Fenced checkpoints, overlap prevention, and execution integration
 
 ## Requirements
 
@@ -36,91 +25,60 @@ catch-up, overlap prevention and failure handling included.
 composer require yiisoft/schedule
 ```
 
-## General usage
+## Configuration
 
-Declare tasks in the configuration:
-
-```php
-// config/params.php
-use Yiisoft\Schedule\RecurringTask;
-
-return [
-    'yiisoft/schedule' => [
-        'tasks' => [
-            RecurringTask::cron('0 5 * * *', 'report:daily'),
-            RecurringTask::every('10 minutes', static fn () => $cleaner->purgeExpiredTokens()),
-            RecurringTask::cron('*/5 * * * *', GenericMessage::fromPayload('metrics.collect', [])),
-        ],
-    ],
-];
-```
-
-and run them, either with a single system cron entry:
-
-```shell
-* * * * * php yii schedule:run
-```
-
-or as a daemon:
-
-```shell
-php yii schedule:work
-```
-
-The daemon sleeps until the next scheduled run instead of polling on a fixed interval, and
-(with `ext-pcntl`) forks a child process per due task, so tasks sharing a due time run in
-parallel instead of blocking one another. Pass `--sequential` to run due tasks one after
-another as before, or `--max-processes` to cap how many run at once.
-
-A few things to know about the forked mode:
-
-- a task's return value cannot cross the process boundary, so `PostRunEvent` and the `after`
-  listeners receive `null` as the result; a failure is reported as the child's exit status;
-- a child inherits the parent's open connections and sockets, so a task that talks to a
-  database or similar should acquire its own connection rather than reuse one opened before
-  the fork — or push the work to the queue, which is fast enough to do in the parent. To keep
-  the parent's own resources out of it, the child does not go through PHP's shutdown at all:
-  no destructors, no `register_shutdown_function` callbacks, its own included, so a task that
-  needs to clean up after itself should do so before it returns;
-- a task whose previous run is still going is skipped instead of being started a second time,
-  so one that takes longer than its own interval cannot pile up a process per due time.
-  `--max-processes` caps the total as well: once that many are running, the next due task
-  waits for a slot instead of being started alongside them;
-- stopping the daemon asks the running tasks to stop with `SIGTERM` and waits five seconds for
-  them before resorting to `SIGKILL`. That needs `ext-posix`; without it they are left running,
-  to finish on their own.
-
-`schedule:run` exits between runs, so a persisted checkpoint is the only way for it to tell
-which runs already happened: it requires a stateful schedule and reports an error without one.
-The bundled configuration makes the schedule stateful automatically when the application has a
-PSR-16 cache. `schedule:work` keeps the position in memory and works either way, though a
-checkpoint also lets it compensate the runs missed while it was down.
-
-When building a schedule by hand, persist its checkpoint, and add a mutex to prevent
-overlapping runs across processes:
+A PHP configuration file returns a zero-argument factory that creates `SchedulerConfig`. A task owns its scheduling policy; its `Command` is an immutable, process-local handle.
 
 ```php
-use Yiisoft\Schedule\Schedule;
+<?php
 
-$schedule = (new Schedule())
-    ->stateful($cache) // any PSR-16 implementation
-    ->lock($mutex)     // any yiisoft/mutex implementation
-    ->task(...);
+use Yiisoft\Schedule\Config\SchedulerConfig;
+use Yiisoft\Schedule\Executor\ShellCommand;
+
+return static function (): SchedulerConfig {
+    $config = new SchedulerConfig();
+    $config->periodic(new ShellCommand('/usr/bin/php', ['bin/console', 'cache:clear']))
+        ->every(3600)
+        ->id('clear-cache')
+        ->async();
+    return $config;
+};
 ```
+
+`PhpConfigurationLoader::loadFile()` evaluates this factory. `ConfigurationConverter::convert()` produces a `PreparedConfiguration`, an in-process and non-serializable result that may retain command objects, callables, and a container provider. Applications must provide a configuration source with a stable identity and revision; the source owns how `sourceRevision` is computed.
+
+## Execution model
+
+The planner and a fresh worker each evaluate the configuration source independently. A worker never receives a prepared configuration, planner services, command objects, callable bodies, or a parent container. It reconstructs its own process-local runtime, then resolves the direct command handle through an exact concrete-class `CommandExecutorMap`.
+
+The async boundary carries only bounded scalar records. Task transport is command-free format **3**: the task policy contains identity, mode, timeout, metadata, schedule, trigger, overlap, missed-occurrence policy, and source identity/revision. Callable declarations, their scalar inputs, and dependency resolution are rebuilt in the worker from its configuration factory. Shell `argv` remains literal and is not shell-parsed.
+
+Capability transport is version **3**. The durable file ledger format is version **5**, and the planner runtime state marker is runtime version **3**. These are independent compatibility fences; an unknown or mismatched fence fails closed rather than being silently upgraded.
+
+Scheduling policy belongs to `TaskDefinition`, including execution mode, timeout, trigger, overlap, and missed-occurrence policy. Synchronous execution is local and cannot declare an enforced timeout. Asynchronous execution is supervised by the parent through `WorkerLifecyclePolicy`; a configured process timeout starts when the launched process starts, not during worker preparation. The command does not own a timeout policy.
+
+`SchedulerFactory` provides separate typed planner and fresh-worker factories. Each builds independent process-local graphs, including runtime factories and executor maps; the fresh-worker path does not accept planner graph objects and is not a service locator. Application bootstrap, worker launch, and service resolution remain application-owned and framework-neutral.
+
+## CLI and state
+
+```shell
+bin/scheduler --config /app/config/scheduler.php
+bin/scheduler run --config /app/config/scheduler.php --state-dir /var/lib/scheduler
+bin/scheduler healthcheck --config /app/config/scheduler.php --state-dir /var/lib/scheduler
+```
+
+The default command is the planner; `run` is the worker protocol entrypoint and `healthcheck` is read-only. State resolution is `--state-dir`, `SCHEDULER_STATE_DIR`, `$XDG_STATE_HOME/scheduler`, then `$HOME/.local/state/scheduler`. State is local and source-scoped: source identity selects the namespace, while the caller-owned revision pins a run. A revision change is fatal to the planner and rejects workers using the old revision.
+
+## Healthcheck
+
+Progress is healthy through 15 seconds by default (`PlannerHealthSnapshot::DEFAULT_MAX_AGE`). Blocking synchronous user code can make progress stale, so long-running work should be asynchronous. Worker exit classes are stable: `0` success, `1` execution failure, `2` argument/protocol/catch failure, and `3` unresolved ownership or ambiguous completion.
+
+The CLI does not provide status/history commands, `--once`, detach mode, framework adapters, queue integration, distributed backends, legacy runtime restoration, or destructive retention cleanup.
 
 ## Documentation
 
 - [Internals](docs/internals.md)
 
-If you need help or have questions, [contact us](https://www.yiiframework.com/community/).
-
 ## License
 
-The Yii Schedule is free software. It is released under the terms of the BSD License.
-Please see [`LICENSE`](./LICENSE.md) for more information.
-
-Maintained by [Yii Software](https://www.yiiframework.com/).
-
-## Support the project
-
-[![Open Collective](https://img.shields.io/badge/Open%20Collective-sponsor-7eadf1?logo=open%20collective&logoColor=7eadf1&labelColor=555555)](https://opencollective.com/yiisoft)
+The Yii Schedule is free software. It is released under the terms of the BSD License. See [`LICENSE.md`](./LICENSE.md).
