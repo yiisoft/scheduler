@@ -78,6 +78,13 @@ final class Scheduler
     /** @var array<int, array{RecurringTask, TaskContext}> Child process id to its task and context. */
     private array $children = [];
     private bool $terminating = false;
+    /**
+     * Whether run() is driving the ticks. A task failure is then only logged, not thrown:
+     * thrown, it would end the loop and with it every other task of the schedule. Dropped by
+     * terminateChildren(), the last thing run() does: a child failing while the loop is on its
+     * way out is still the loop's to log, not something to throw at whoever stopped it.
+     */
+    private bool $looping = false;
     private readonly LoggerInterface $logger;
 
     /**
@@ -200,6 +207,10 @@ final class Scheduler
      * fixed interval, so an idle daemon costs a couple of syscalls per run instead of a full
      * schedule evaluation per second.
      *
+     * A task failure does not end the loop. The failure event and the schedule's failure
+     * listeners are told about it as usual and it is logged as an error, whether a listener
+     * ignored it or not; the other tasks, running or due later, are not affected.
+     *
      * @param float $sleepSeconds The fallback sleep when no task has a pending run.
      * @param bool $concurrent Fork a child process per due task (see tick()). Falls back to
      * sequential execution when ext-pcntl is not available.
@@ -211,6 +222,7 @@ final class Scheduler
     public function run(float $sleepSeconds = 1.0, bool $concurrent = true, ?int $maxProcesses = null): void
     {
         $concurrent = $concurrent && self::supportsForking();
+        $this->looping = true;
 
         try {
             while (!$this->shouldStop) {
@@ -252,10 +264,12 @@ final class Scheduler
      * Collects the outcome of every finished child process, dispatching its post-run or
      * failure event. Safe to call from a SIGCHLD handler; does nothing without ext-pcntl.
      *
-     * A failure that no listener ignored is thrown once the whole batch is reaped, so one
-     * broken task neither kills its siblings nor goes silently unnoticed. Called from a
-     * signal handler, that throw lands wherever the main loop happens to be, so the handler
-     * should catch it and let the loop finish instead of unwinding it from there.
+     * Outside of run(), a failure that no listener ignored is thrown once the whole batch is
+     * reaped, so one broken task neither kills its siblings nor goes silently unnoticed.
+     * Inside of run() nothing is thrown for it; it is logged as an error instead, the way an
+     * ignored failure is everywhere. A listener may still throw, though, and called from a
+     * signal handler that lands wherever the main loop happens to be, so the handler should
+     * catch it and let the loop finish instead of unwinding it from there.
      */
     public function reapChildren(): void
     {
@@ -427,7 +441,7 @@ final class Scheduler
                 $listener($context, $task, $error);
             }
 
-            if (!$failureEvent->isIgnored()) {
+            if (!$failureEvent->isIgnored() && !$this->looping) {
                 throw $error;
             }
 
@@ -623,7 +637,7 @@ final class Scheduler
             $listener($context, $task, $error);
         }
 
-        if (!$failureEvent->isIgnored()) {
+        if (!$failureEvent->isIgnored() && !$this->looping) {
             throw $error;
         }
 
@@ -641,6 +655,8 @@ final class Scheduler
     private function terminateChildren(): void
     {
         if ([] === $this->children || !self::supportsForking()) {
+            $this->looping = false;
+
             return;
         }
 
@@ -653,6 +669,7 @@ final class Scheduler
             $this->stopChildren();
         } finally {
             $this->terminating = false;
+            $this->looping = false;
         }
     }
 

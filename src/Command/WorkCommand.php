@@ -33,7 +33,7 @@ use const SIGTERM;
 final class WorkCommand extends Command implements SignalableCommandInterface
 {
     /**
-     * A task failure caught in the signal handler, rethrown once the loop has finished.
+     * An error caught in the signal handler, rethrown once the loop has finished.
      */
     private ?Throwable $failure = null;
 
@@ -74,10 +74,11 @@ final class WorkCommand extends Command implements SignalableCommandInterface
     public function handleSignal(int $signal, int|false $previousExitCode = 0): int|false
     {
         if (SIGCHLD === $signal) {
-            // A task process finished; collect its outcome without leaving the loop. The
-            // handler runs at an arbitrary point of that loop, so a failing task must not
-            // throw from here: it would abort a shutdown halfway through, stranding the
-            // remaining children. Remember it and let the loop end on its own terms.
+            // A task process finished; collect its outcome without leaving the loop. A failing
+            // task is not thrown while the loop runs, but a listener told about it may throw.
+            // The handler runs at an arbitrary point of that loop, so nothing must be thrown
+            // from here: it would abort a shutdown halfway through, stranding the remaining
+            // children. Remember the error and let the loop end on its own terms.
             try {
                 $this->scheduler->reapChildren();
             } catch (Throwable $error) {
