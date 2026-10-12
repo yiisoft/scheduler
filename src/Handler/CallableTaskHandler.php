@@ -8,6 +8,7 @@ use Symfony\Component\Console\Application;
 use Symfony\Component\Console\Input\StringInput;
 use Symfony\Component\Console\Output\NullOutput;
 use Yiisoft\Scheduler\Exception\LogicException;
+use Yiisoft\Scheduler\Exception\RuntimeException;
 use Yiisoft\Scheduler\TaskContext;
 
 use function is_callable;
@@ -16,7 +17,8 @@ use function sprintf;
 
 /**
  * The default task handler: invokes callables and, when the console application is
- * available, runs tasks named as console commands.
+ * available, runs tasks named as console commands. A command exiting with a non-zero code is
+ * a failed task.
  */
 final class CallableTaskHandler implements TaskHandlerInterface
 {
@@ -53,6 +55,17 @@ final class CallableTaskHandler implements TaskHandlerInterface
         $input = new StringInput($command);
         $input->setInteractive(false);
 
-        return $this->application->doRun($input, new NullOutput());
+        $exitCode = $this->application->doRun($input, new NullOutput());
+
+        // A command reports a failure through its exit code rather than by throwing, and the
+        // code alone would pass for the result of a successful run. Only the name goes into
+        // the message: it ends up in logs, where the arguments and options may not belong.
+        if (0 !== $exitCode) {
+            throw new RuntimeException(
+                sprintf('The "%s" console command exited with code %d.', $input->getFirstArgument() ?? $command, $exitCode),
+            );
+        }
+
+        return $exitCode;
     }
 }
