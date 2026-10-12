@@ -2,6 +2,7 @@
 
 ## 1.0.0 under development
 
+- Bug #3: Fix a cron expression without an explicit timezone being evaluated in UTC once the schedule had a persisted checkpoint; it is now read in the default timezone (@samdark)
 - Bug #5: Fix console command tasks not finding their command with the bundled configuration, by passing the running `yiisoft/yii-console` application to the task handler (@samdark)
 - Bug #6: Fix a single failing task stopping `schedule:work` and terminating the other running tasks; the daemon now logs the failure and carries on (@samdark)
 - Bug #7: Fix a console command task that exits with a non-zero code being reported as a successful run (@samdark)

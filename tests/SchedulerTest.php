@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Yiisoft\Scheduler\Tests;
 
+use DateTimeImmutable;
 use PHPUnit\Framework\Attributes\RequiresPhpExtension;
 use PHPUnit\Framework\TestCase;
 use Yiisoft\Scheduler\Event\FailureEvent;
@@ -13,6 +14,7 @@ use Yiisoft\Scheduler\Handler\CallableTaskHandler;
 use Yiisoft\Scheduler\RecurringTask;
 use Yiisoft\Scheduler\Schedule;
 use Yiisoft\Scheduler\Scheduler;
+use Yiisoft\Scheduler\TaskContext;
 use Yiisoft\Scheduler\Tests\Support\InMemoryCache;
 use Yiisoft\Scheduler\Tests\Support\TestClock;
 use Psr\EventDispatcher\EventDispatcherInterface;
@@ -24,6 +26,8 @@ use Yiisoft\Scheduler\Exception\RuntimeException as SchedulerRuntimeException;
 use Yiisoft\Scheduler\Tests\Support\InMemoryMutex;
 use RuntimeException;
 
+use function date_default_timezone_get;
+use function date_default_timezone_set;
 use function sprintf;
 
 use const FILE_APPEND;
@@ -148,6 +152,33 @@ final class SchedulerTest extends TestCase
         $scheduler->tick();
 
         $this->assertSame(2, $ran);
+    }
+
+    public function testCronExpressionKeepsItsTimezoneWhenResumedFromACheckpoint(): void
+    {
+        $default = date_default_timezone_get();
+        date_default_timezone_set('Europe/Moscow');
+
+        try {
+            $cache = new InMemoryCache();
+            $clock = new TestClock(new DateTimeImmutable('2026-01-01 00:00:30'));
+            $ran = [];
+
+            $task = RecurringTask::cron('0 5 * * *', static function (TaskContext $context) use (&$ran): void {
+                $ran[] = $context->triggeredAt->format('c');
+            });
+
+            // Every tick is a separate process, so all but the first resume from the checkpoint.
+            for ($minute = 0; $minute < 24 * 60; ++$minute) {
+                $schedule = (new Schedule())->stateful($cache)->task($task);
+                (new Scheduler([$schedule], new CallableTaskHandler(), $clock))->tick();
+                $clock->advance('+1 minute');
+            }
+
+            $this->assertSame(['2026-01-01T05:00:00+03:00'], $ran);
+        } finally {
+            date_default_timezone_set($default);
+        }
     }
 
     public function testPreRunEventCancelsTheRun(): void
