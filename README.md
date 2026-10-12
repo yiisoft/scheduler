@@ -84,6 +84,10 @@ The daemon sleeps until the next scheduled run instead of polling on a fixed int
 parallel instead of blocking one another. Pass `--sequential` to run due tasks one after
 another as before, or `--max-processes` to cap how many run at once.
 
+A failing task does not stop the daemon: the failure goes to the `FailureEvent` listeners
+and to the log as an error, while the other tasks carry on. Make sure the application has a
+PSR-3 logger, or handle `FailureEvent`, to hear about it.
+
 A few things to know about the forked mode:
 
 - a task's return value cannot cross the process boundary, so `PostRunEvent` and the `after`
