@@ -141,13 +141,13 @@ final class Scheduler
                         try {
                             $this->runTask($task, $context);
                         } catch (Throwable $error) {
-                            $failure ??= $error;
+                            $failure = $this->firstFailure($failure, $error);
                         }
                     }
                 } catch (Throwable $error) {
                     // The schedule itself failed, e.g. its checkpoint could not be persisted.
-                    // A task failure collected before it stays the one reported.
-                    $failure ??= $error;
+                    // A task failure collected before it stays the one thrown.
+                    $failure = $this->firstFailure($failure, $error);
                 }
             }
 
@@ -169,7 +169,7 @@ final class Scheduler
                     $due[] = [$task, $context];
                 }
             } catch (Throwable $error) {
-                $failure ??= $error;
+                $failure = $this->firstFailure($failure, $error);
             }
         }
 
@@ -189,7 +189,7 @@ final class Scheduler
 
                 $this->forkTask($task, $context);
             } catch (Throwable $error) {
-                $failure ??= $error;
+                $failure = $this->firstFailure($failure, $error);
             }
         }
 
@@ -301,7 +301,7 @@ final class Scheduler
             try {
                 $this->handleChildOutcome($task, $context, $status);
             } catch (Throwable $error) {
-                $failure ??= $error;
+                $failure = $this->firstFailure($failure, $error);
             }
         }
 
@@ -395,6 +395,25 @@ final class Scheduler
         }
 
         usleep($microseconds);
+    }
+
+    /**
+     * Keeps the first failure of a batch as the one to throw once it is through. A later one
+     * cannot be thrown along with it, so it is logged: dropped, it would reach nobody but the
+     * failure listeners, and an error of a schedule itself would not even reach them.
+     */
+    private function firstFailure(?Throwable $first, Throwable $error): Throwable
+    {
+        if (null === $first) {
+            return $error;
+        }
+
+        $this->logger->error(
+            'A failure is not rethrown because an earlier one is: {error}',
+            ['error' => $error->getMessage(), 'exception' => $error],
+        );
+
+        return $first;
     }
 
     private function runTask(RecurringTask $task, TaskContext $context): void

@@ -16,6 +16,9 @@ use Yiisoft\Scheduler\Scheduler;
 use Yiisoft\Scheduler\Tests\Support\InMemoryCache;
 use Yiisoft\Scheduler\Tests\Support\TestClock;
 use Psr\EventDispatcher\EventDispatcherInterface;
+use Psr\Log\AbstractLogger;
+use Psr\Log\LogLevel;
+use Stringable;
 use Yiisoft\Scheduler\Exception\LogicException;
 use Yiisoft\Scheduler\Exception\RuntimeException as SchedulerRuntimeException;
 use Yiisoft\Scheduler\Tests\Support\InMemoryMutex;
@@ -256,6 +259,46 @@ final class SchedulerTest extends TestCase
         }
 
         $this->assertSame(1, $ran);
+    }
+
+    public function testFailuresAfterTheFirstAreLogged(): void
+    {
+        $clock = new TestClock();
+
+        $schedule = (new Schedule())->task(
+            RecurringTask::cron('* * * * *', static function (): void {
+                throw new RuntimeException('First failed.');
+            }),
+            RecurringTask::cron('* * * * *', static function (): void {
+                throw new RuntimeException('Second failed.');
+            }),
+        );
+
+        $logger = new class extends AbstractLogger {
+            /** @var list<string> */
+            public array $errors = [];
+
+            public function log($level, string|Stringable $message, array $context = []): void
+            {
+                if (LogLevel::ERROR === $level) {
+                    $this->errors[] = (string) ($context['error'] ?? '');
+                }
+            }
+        };
+
+        $scheduler = new Scheduler([$schedule], new CallableTaskHandler(), $clock, null, $logger);
+
+        $scheduler->tick();
+        $clock->advance('+1 minute');
+
+        try {
+            $scheduler->tick();
+            $this->fail('The task failure was not reported.');
+        } catch (RuntimeException $error) {
+            $this->assertSame('First failed.', $error->getMessage());
+        }
+
+        $this->assertSame(['Second failed.'], $logger->errors);
     }
 
     public function testFailedRunIsNotRepeatedByTheNextProcess(): void
