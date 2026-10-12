@@ -60,11 +60,12 @@ return [
 A task is one of:
 
 - the name of a console command, with its arguments and options if any;
-- a callable, which is called with the `TaskContext` of the run. It is called as is, without
-  the container resolving its arguments, and a configuration file has no services to capture
-  in a closure — so a task that needs them is better off as a console command;
-- a queue message, pushed to the queue when [yiisoft/queue](https://github.com/yiisoft/queue)
-  is installed.
+- a callable other than a string, since a string is always read as a command. It is called
+  with the `TaskContext` of the run, as is: the container does not resolve its arguments, and
+  a configuration file has no services to capture in a closure — so a task that needs them
+  is better off as a console command;
+- a queue message, pushed to the queue when the container has a
+  [yiisoft/queue](https://github.com/yiisoft/queue) producer (`QueueProducerInterface`).
 
 Run them either with a single system cron entry:
 
