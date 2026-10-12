@@ -48,8 +48,11 @@ final class PeriodicTrigger implements TriggerInterface
      * `schedule:run` cron entry is, would push the run one interval ahead of itself forever.
      *
      * This one is a Monday and the first day of a year, so weeks are counted from Mondays and
-     * months from the first; and it is recent enough for the timezone to be at the offset it
-     * has today, which it was not necessarily in 1970.
+     * months from the first. It is also recent enough for most timezones to be at the offset
+     * they have today, which many were not in 1970; where the offset has changed since, or
+     * changes with the season, an interval counted in seconds is off the local hour by that
+     * much. It is read in the default timezone of the moment the trigger is asked, like the
+     * cron expression of a CronExpressionTrigger.
      */
     private const DEFAULT_FROM = '2001-01-01 00:00:00';
 
@@ -67,7 +70,6 @@ final class PeriodicTrigger implements TriggerInterface
      * Such an interval is counted on the timestamp rather than on the wall clock.
      */
     private readonly ?int $step;
-    private readonly DateTimeImmutable $from;
 
     /**
      * @param int|DateInterval $interval The interval between runs, in seconds or as a date interval.
@@ -77,11 +79,9 @@ final class PeriodicTrigger implements TriggerInterface
      */
     public function __construct(
         int|DateInterval $interval,
-        ?DateTimeImmutable $from = null,
+        private readonly ?DateTimeImmutable $from = null,
         private readonly ?DateTimeImmutable $until = null,
     ) {
-        $this->from = $from ?? new DateTimeImmutable(self::DEFAULT_FROM);
-
         if (is_int($interval)) {
             if ($interval <= 0) {
                 throw new LogicException(sprintf('The interval must be greater than zero, "%d" given.', $interval));
@@ -118,18 +118,20 @@ final class PeriodicTrigger implements TriggerInterface
             return null;
         }
 
-        if ($lastRun < $this->from) {
-            $next = $this->from;
+        $from = $this->from ?? new DateTimeImmutable(self::DEFAULT_FROM);
+
+        if ($lastRun < $from) {
+            $next = $from;
         } elseif (null !== $this->step) {
-            $elapsed = $lastRun->getTimestamp() - $this->from->getTimestamp();
-            $timestamp = $this->from->getTimestamp() + intdiv($elapsed, $this->step) * $this->step;
-            $next = $this->atTimestamp($timestamp, $lastRun);
+            $elapsed = $lastRun->getTimestamp() - $from->getTimestamp();
+            $timestamp = $from->getTimestamp() + intdiv($elapsed, $this->step) * $this->step;
+            $next = self::atTimestamp($timestamp, $from, $lastRun);
 
             if ($next <= $lastRun) {
-                $next = $this->atTimestamp($timestamp + $this->step, $lastRun);
+                $next = self::atTimestamp($timestamp + $this->step, $from, $lastRun);
             }
         } else {
-            $next = $this->firstMultipleAfter($this->from, $lastRun);
+            $next = $this->firstMultipleAfter($from, $lastRun);
         }
 
         if (null !== $this->until && $next > $this->until) {
@@ -144,9 +146,9 @@ final class PeriodicTrigger implements TriggerInterface
      * timezone of the date asked about. Whole seconds apart from the anchor, a run shares its
      * fraction, which setting a timestamp alone would drop.
      */
-    private function atTimestamp(int $timestamp, DateTimeImmutable $lastRun): DateTimeImmutable
+    private static function atTimestamp(int $timestamp, DateTimeImmutable $from, DateTimeImmutable $lastRun): DateTimeImmutable
     {
-        $date = DateTimeImmutable::createFromFormat('U.u', sprintf('%d.%s', $timestamp, $this->from->format('u')));
+        $date = DateTimeImmutable::createFromFormat('U.u', sprintf('%d.%s', $timestamp, $from->format('u')));
 
         // The spec is built here from an integer and six digits, so this only guards against
         // an impossible state.

@@ -195,6 +195,18 @@ final class PeriodicTriggerTest extends TestCase
         }
     }
 
+    public function testDefaultAnchorIsReadInTheDefaultTimezoneOfTheMomentTheTriggerIsAsked(): void
+    {
+        // Declared before the application has set its timezone, as a configuration file may be.
+        $trigger = new PeriodicTrigger(new DateInterval('P1D'));
+
+        $this->inTimezone('Europe/Moscow', function () use ($trigger): void {
+            $next = $trigger->getNextRunDate(new DateTimeImmutable('2026-01-14 09:03:00'));
+
+            $this->assertSame('2026-01-15T00:00:00+03:00', $next->format('c'));
+        });
+    }
+
     public function testIntervalOfDaysKeepsItsLocalTimeAcrossAClockChange(): void
     {
         $this->inTimezone('Europe/Berlin', function (): void {
