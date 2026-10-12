@@ -2,6 +2,7 @@
 
 ## 1.0.0 under development
 
+- Bug #7: Fix a console command task that exits with a non-zero code being reported as a successful run (@samdark)
 - New #8: Add `RecurringTask::withId()` and include the message type in the generated id of a queue message task, so tasks sharing a trigger and a target can be in one schedule (@samdark)
 - Bug #9: Fix `Scheduler::run()` returning at once when called again after `stop()` (@samdark)
 - Bug #10: Fix the schedule mutex staying locked when the persisted checkpoint cannot be read (@samdark)
