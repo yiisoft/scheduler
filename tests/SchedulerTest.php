@@ -17,6 +17,7 @@ use Yiisoft\Scheduler\Tests\Support\InMemoryCache;
 use Yiisoft\Scheduler\Tests\Support\TestClock;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Yiisoft\Scheduler\Exception\LogicException;
+use Yiisoft\Scheduler\Exception\RuntimeException as SchedulerRuntimeException;
 use Yiisoft\Scheduler\Tests\Support\InMemoryMutex;
 use RuntimeException;
 
@@ -451,6 +452,30 @@ final class SchedulerTest extends TestCase
         $scheduler->tick();
     }
 
+    public function testMutexIsReleasedWhenTheCheckpointCannotBeRead(): void
+    {
+        $cache = new InMemoryCache();
+        $mutex = new InMemoryMutex();
+
+        $schedule = (new Schedule())
+            ->stateful($cache)
+            ->lock($mutex)
+            ->task(RecurringTask::cron('* * * * *', static fn() => null));
+
+        $scheduler = new Scheduler([$schedule], new CallableTaskHandler(), new TestClock());
+
+        $cache->set('yii_schedule_checkpoint_default', 'garbage');
+
+        try {
+            $scheduler->tick();
+            $this->fail('The unreadable checkpoint was not reported.');
+        } catch (SchedulerRuntimeException $error) {
+            $this->assertStringContainsString('unexpected payload', $error->getMessage());
+        }
+
+        $this->assertTrue($mutex->acquire());
+    }
+
     public function testDuplicateScheduleNameIsRejected(): void
     {
         $clock = new TestClock();
@@ -550,6 +575,31 @@ final class SchedulerTest extends TestCase
         $scheduler->run(0.0);
 
         $this->assertSame(0, $ran);
+    }
+
+    public function testLoopCanBeRunAgainAfterItWasStopped(): void
+    {
+        $clock = new TestClock();
+        $ran = 0;
+        $scheduler = null;
+
+        $schedule = (new Schedule())->task(
+            RecurringTask::cron('* * * * *', static function () use (&$ran, &$scheduler): void {
+                ++$ran;
+                $scheduler?->stop();
+            }),
+        );
+
+        $scheduler = new Scheduler([$schedule], new CallableTaskHandler(), $clock);
+
+        $scheduler->tick();
+        $clock->advance('+1 minute');
+        $scheduler->run(0.01, false);
+
+        $clock->advance('+1 minute');
+        $scheduler->run(0.01, false);
+
+        $this->assertSame(2, $ran);
     }
 
     public function testNextRunDateIsNullWithoutTasks(): void
