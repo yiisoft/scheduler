@@ -37,6 +37,7 @@
         "friendsofphp/php-cs-fixer": "^3.92.5",
         "phpunit/phpunit": "^10.5.46",
         "rector/rector": "^2.0.17",
+        "roave/infection-static-analysis-plugin": "^1.35",
         "shipmonk/composer-dependency-analyser": "^1.8",
         "spatie/phpunit-watcher": "^1.24.0",
         "vimeo/psalm": "6.16.1"
@@ -53,7 +54,10 @@
     },
     "config": {
         "sort-packages": true,
-        "allow-plugins": {"composer/package-versions-deprecated": false}
+        "allow-plugins": {
+            "composer/package-versions-deprecated": false,
+            "infection/extension-installer": true
+        }
     },
     "extra": {"branch-alias": {"dev-master": "1.0.x-dev"}},
     "scripts": {
