@@ -577,6 +577,31 @@ final class SchedulerTest extends TestCase
         $this->assertSame(0, $ran);
     }
 
+    public function testLoopCanBeRunAgainAfterItWasStopped(): void
+    {
+        $clock = new TestClock();
+        $ran = 0;
+        $scheduler = null;
+
+        $schedule = (new Schedule())->task(
+            RecurringTask::cron('* * * * *', static function () use (&$ran, &$scheduler): void {
+                ++$ran;
+                $scheduler?->stop();
+            }),
+        );
+
+        $scheduler = new Scheduler([$schedule], new CallableTaskHandler(), $clock);
+
+        $scheduler->tick();
+        $clock->advance('+1 minute');
+        $scheduler->run(0.01, false);
+
+        $clock->advance('+1 minute');
+        $scheduler->run(0.01, false);
+
+        $this->assertSame(2, $ran);
+    }
+
     public function testNextRunDateIsNullWithoutTasks(): void
     {
         $scheduler = new Scheduler([new Schedule()], new CallableTaskHandler(), new TestClock());
