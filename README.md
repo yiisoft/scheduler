@@ -42,20 +42,32 @@ Declare tasks in the configuration:
 
 ```php
 // config/params.php
+use App\Token\TokenStorage; // a class of your application
+use Yiisoft\Queue\Message\GenericMessage;
 use Yiisoft\Scheduler\RecurringTask;
 
 return [
     'yiisoft/scheduler' => [
         'tasks' => [
             RecurringTask::cron('0 5 * * *', 'report:daily'),
-            RecurringTask::every('10 minutes', static fn () => $cleaner->purgeExpiredTokens()),
+            RecurringTask::every('10 minutes', [TokenStorage::class, 'purgeExpired']), // a static method
             RecurringTask::cron('*/5 * * * *', GenericMessage::fromPayload('metrics.collect', [])),
         ],
     ],
 ];
 ```
 
-and run them, either with a single system cron entry:
+A task is one of:
+
+- the name of a console command, with its arguments and options if any;
+- a callable other than a string, since a string is always read as a command. It is called
+  with the `TaskContext` of the run, as is: the container does not resolve its arguments, and
+  a configuration file has no services to capture in a closure — so a task that needs them
+  is better off as a console command;
+- a queue message, pushed to the queue when the container has a
+  [yiisoft/queue](https://github.com/yiisoft/queue) producer (`QueueProducerInterface`).
+
+Run them either with a single system cron entry:
 
 ```shell
 * * * * * php yii schedule:run
