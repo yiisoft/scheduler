@@ -35,7 +35,8 @@ final class CallableTaskHandlerTest extends TestCase
         $handler = new CallableTaskHandler($this->application(Command::FAILURE));
 
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('The "app:task --force" console command exited with code 1.');
+        // The options stay out of the message: it is logged, and they may carry a secret.
+        $this->expectExceptionMessage('The "app:task" console command exited with code 1.');
 
         $handler->handle('app:task --force', $this->context());
     }

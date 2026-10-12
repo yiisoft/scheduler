@@ -58,10 +58,11 @@ final class CallableTaskHandler implements TaskHandlerInterface
         $exitCode = $this->application->doRun($input, new NullOutput());
 
         // A command reports a failure through its exit code rather than by throwing, and the
-        // code alone would pass for the result of a successful run.
+        // code alone would pass for the result of a successful run. Only the name goes into
+        // the message: it ends up in logs, where the arguments and options may not belong.
         if (0 !== $exitCode) {
             throw new RuntimeException(
-                sprintf('The "%s" console command exited with code %d.', $command, $exitCode),
+                sprintf('The "%s" console command exited with code %d.', $input->getFirstArgument() ?? $command, $exitCode),
             );
         }
 
