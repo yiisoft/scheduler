@@ -3,6 +3,10 @@
 ## 1.0.0 under development
 
 - Bug #2: Fix `RecurringTask::every()` never running under `schedule:run` when the interval is longer than the time between invocations, by anchoring an interval without a `from` date to a fixed point in time (@samdark)
+- Bug #5: Fix console command tasks not finding their command with the bundled configuration, by passing the running `yiisoft/yii-console` application to the task handler (@samdark)
+- Bug #6: Fix a single failing task stopping `schedule:work` and terminating the other running tasks; the daemon now logs the failure and carries on (@samdark)
+- Bug #7: Fix a console command task that exits with a non-zero code being reported as a successful run (@samdark)
+- New #8: Add `RecurringTask::withId()` and include the message type in the generated id of a queue message task, so tasks sharing a trigger and a target can be in one schedule (@samdark)
 - Bug #9: Fix `Scheduler::run()` returning at once when called again after `stop()` (@samdark)
 - Bug #10: Fix the schedule mutex staying locked when the persisted checkpoint cannot be read (@samdark)
 - Docs: Document the multi-server setup: a shared mutex driver and a shared checkpoint cache let every application server run the schedule without duplicate runs or a single point of failure (@KalimeroMK)

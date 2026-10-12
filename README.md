@@ -84,6 +84,10 @@ The daemon sleeps until the next scheduled run instead of polling on a fixed int
 parallel instead of blocking one another. Pass `--sequential` to run due tasks one after
 another as before, or `--max-processes` to cap how many run at once.
 
+A failing task does not stop the daemon: the failure goes to the `FailureEvent` listeners
+and to the log as an error, while the other tasks carry on. Make sure the application has a
+PSR-3 logger, or handle `FailureEvent`, to hear about it.
+
 A few things to know about the forked mode:
 
 - a task's return value cannot cross the process boundary, so `PostRunEvent` and the `after`
@@ -123,6 +127,24 @@ $schedule = (new Schedule())
     ->stateful($cache) // any PSR-16 implementation
     ->lock($mutex)     // any yiisoft/mutex implementation
     ->task(...);
+```
+
+## Task identifiers
+
+Every task gets an identifier generated from the cron expression or the interval of its
+trigger and from what it runs: the command name, the class of an object, the type of a queue
+message, or the file and line a closure is declared at. Two tasks alike in all of that cannot
+share a schedule until they are given identifiers of their own. Such are closures created in a
+loop, queue messages differing only in their payload, and tasks whose triggers differ only in
+their timezone or the date they count from:
+
+```php
+$tasks = [];
+
+foreach (['eu', 'us'] as $region) {
+    $tasks[] = RecurringTask::cron('*/5 * * * *', GenericMessage::fromPayload('metrics.collect', ['region' => $region]))
+        ->withId('metrics-' . $region);
+}
 ```
 
 ## Running on multiple servers
