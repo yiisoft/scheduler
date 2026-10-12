@@ -80,7 +80,9 @@ final class Scheduler
     private bool $terminating = false;
     /**
      * Whether run() is driving the ticks. A task failure is then only logged, not thrown:
-     * thrown, it would end the loop and with it every other task of the schedule.
+     * thrown, it would end the loop and with it every other task of the schedule. Dropped by
+     * terminateChildren(), the last thing run() does: a child failing while the loop is on its
+     * way out is still the loop's to log, not something to throw at whoever stopped it.
      */
     private bool $looping = false;
     private readonly LoggerInterface $logger;
@@ -239,7 +241,6 @@ final class Scheduler
                 $this->reapChildren();
             }
         } finally {
-            $this->looping = false;
             $this->terminateChildren();
         }
     }
@@ -256,10 +257,9 @@ final class Scheduler
      * Outside of run(), a failure that no listener ignored is thrown once the whole batch is
      * reaped, so one broken task neither kills its siblings nor goes silently unnoticed.
      * Inside of run() nothing is thrown for it; it is logged as an error instead, the way an
-     * ignored failure is everywhere. A listener may still
-     * throw, though, and called from a signal handler that lands wherever the main loop happens
-     * to be, so the handler should catch it and let the loop finish instead of unwinding it
-     * from there.
+     * ignored failure is everywhere. A listener may still throw, though, and called from a
+     * signal handler that lands wherever the main loop happens to be, so the handler should
+     * catch it and let the loop finish instead of unwinding it from there.
      */
     public function reapChildren(): void
     {
@@ -645,6 +645,8 @@ final class Scheduler
     private function terminateChildren(): void
     {
         if ([] === $this->children || !self::supportsForking()) {
+            $this->looping = false;
+
             return;
         }
 
@@ -657,6 +659,7 @@ final class Scheduler
             $this->stopChildren();
         } finally {
             $this->terminating = false;
+            $this->looping = false;
         }
     }
 

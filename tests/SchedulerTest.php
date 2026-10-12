@@ -555,6 +555,13 @@ final class SchedulerTest extends TestCase
         $this->assertSame(0, $ran);
     }
 
+    public function testNextRunDateIsNullWithoutTasks(): void
+    {
+        $scheduler = new Scheduler([new Schedule()], new CallableTaskHandler(), new TestClock());
+
+        $this->assertNull($scheduler->nextRunDate());
+    }
+
     public function testTaskFailureDoesNotEndTheLoop(): void
     {
         $clock = new TestClock();
@@ -660,13 +667,6 @@ final class SchedulerTest extends TestCase
         $scheduler->run(0.01);
 
         $this->assertSame(['The task process exited with code 1.'], $dispatcher->failures);
-    }
-
-    public function testNextRunDateIsNullWithoutTasks(): void
-    {
-        $scheduler = new Scheduler([new Schedule()], new CallableTaskHandler(), new TestClock());
-
-        $this->assertNull($scheduler->nextRunDate());
     }
 
     public function testNextRunDateReflectsTheSoonestPendingRun(): void

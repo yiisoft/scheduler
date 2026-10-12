@@ -10,8 +10,7 @@ use Yiisoft\Scheduler\TaskContext;
 
 /**
  * Dispatched when a task throws. Ignoring lets the scheduler continue with the next tasks;
- * otherwise the error is rethrown. The daemon loop is the exception: it does not rethrow,
- * so one failing task does not stop the whole schedule. An error that is not rethrown is logged.
+ * otherwise the error is rethrown.
  */
 final class FailureEvent
 {
@@ -28,6 +27,11 @@ final class FailureEvent
         return $this->ignored;
     }
 
+    /**
+     * Keeps the error from being rethrown. The daemon loop, Scheduler::run(), does not rethrow
+     * it either way, so that one failing task does not stop the whole schedule. An error that
+     * is not rethrown is logged.
+     */
     public function ignore(): void
     {
         $this->ignored = true;
