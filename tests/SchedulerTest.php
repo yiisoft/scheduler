@@ -17,6 +17,7 @@ use Yiisoft\Scheduler\Tests\Support\InMemoryCache;
 use Yiisoft\Scheduler\Tests\Support\TestClock;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Yiisoft\Scheduler\Exception\LogicException;
+use Yiisoft\Scheduler\Exception\RuntimeException as SchedulerRuntimeException;
 use Yiisoft\Scheduler\Tests\Support\InMemoryMutex;
 use RuntimeException;
 
@@ -451,6 +452,30 @@ final class SchedulerTest extends TestCase
         $scheduler->tick();
     }
 
+    public function testMutexIsReleasedWhenTheCheckpointCannotBeRead(): void
+    {
+        $cache = new InMemoryCache();
+        $mutex = new InMemoryMutex();
+
+        $schedule = (new Schedule())
+            ->stateful($cache)
+            ->lock($mutex)
+            ->task(RecurringTask::cron('* * * * *', static fn() => null));
+
+        $scheduler = new Scheduler([$schedule], new CallableTaskHandler(), new TestClock());
+
+        $cache->set('yii_schedule_checkpoint_default', 'garbage');
+
+        try {
+            $scheduler->tick();
+            $this->fail('The unreadable checkpoint was not reported.');
+        } catch (SchedulerRuntimeException $error) {
+            $this->assertStringContainsString('unexpected payload', $error->getMessage());
+        }
+
+        $this->assertTrue($mutex->acquire());
+    }
+
     public function testDuplicateScheduleNameIsRejected(): void
     {
         $clock = new TestClock();
@@ -652,7 +677,7 @@ final class SchedulerTest extends TestCase
             // The result cannot cross the process boundary, so the events carry null.
             $this->assertSame([null, null], $dispatcher->results);
         } finally {
-            array_map('unlink', glob("$dir/*") ?: []);
+            array_map(unlink(...), glob("$dir/*") ?: []);
             rmdir($dir);
         }
     }
@@ -769,7 +794,7 @@ final class SchedulerTest extends TestCase
             $this->assertFalse($scheduler->hasRunningChildren());
             $this->assertCount(1, file("$dir/runs", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: []);
         } finally {
-            array_map('unlink', glob("$dir/*") ?: []);
+            array_map(unlink(...), glob("$dir/*") ?: []);
             rmdir($dir);
         }
     }
@@ -849,7 +874,7 @@ final class SchedulerTest extends TestCase
         } finally {
             pcntl_signal(SIGTERM, SIG_DFL);
             pcntl_async_signals($asyncSignals);
-            array_map('unlink', glob("$dir/*") ?: []);
+            array_map(unlink(...), glob("$dir/*") ?: []);
             rmdir($dir);
         }
     }
@@ -908,7 +933,7 @@ final class SchedulerTest extends TestCase
                 $this->assertSame('end ' . substr($order[$index], 6), $order[$index + 1]);
             }
         } finally {
-            array_map('unlink', glob("$dir/*") ?: []);
+            array_map(unlink(...), glob("$dir/*") ?: []);
             rmdir($dir);
         }
     }
