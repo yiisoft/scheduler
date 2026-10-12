@@ -117,7 +117,12 @@ messages differing only in their payload, cannot share a schedule until they are
 identifiers of their own:
 
 ```php
-RecurringTask::every('10 minutes', $syncTenant)->withId('sync-' . $tenantId);
+$tasks = [];
+
+foreach (['eu', 'us'] as $region) {
+    $tasks[] = RecurringTask::cron('*/5 * * * *', GenericMessage::fromPayload('metrics.collect', ['region' => $region]))
+        ->withId('metrics-' . $region);
+}
 ```
 
 ## Running on multiple servers
