@@ -122,11 +122,11 @@ final class PeriodicTrigger implements TriggerInterface
             $next = $this->from;
         } elseif (null !== $this->step) {
             $elapsed = $lastRun->getTimestamp() - $this->from->getTimestamp();
-            $next = $this->from->getTimestamp() + intdiv($elapsed, $this->step) * $this->step;
-            $next = (new DateTimeImmutable())->setTimestamp($next)->setTimezone($lastRun->getTimezone());
+            $timestamp = $this->from->getTimestamp() + intdiv($elapsed, $this->step) * $this->step;
+            $next = $this->atTimestamp($timestamp, $lastRun);
 
             if ($next <= $lastRun) {
-                $next = $next->setTimestamp($next->getTimestamp() + $this->step);
+                $next = $this->atTimestamp($timestamp + $this->step, $lastRun);
             }
         } else {
             $next = $this->firstMultipleAfter($this->from, $lastRun);
@@ -137,6 +137,24 @@ final class PeriodicTrigger implements TriggerInterface
         }
 
         return $next;
+    }
+
+    /**
+     * The date at the given timestamp and at the fraction of a second the anchor is at, in the
+     * timezone of the date asked about. Whole seconds apart from the anchor, a run shares its
+     * fraction, which setting a timestamp alone would drop.
+     */
+    private function atTimestamp(int $timestamp, DateTimeImmutable $lastRun): DateTimeImmutable
+    {
+        $date = DateTimeImmutable::createFromFormat('U.u', sprintf('%d.%s', $timestamp, $this->from->format('u')));
+
+        // The spec is built here from an integer and six digits, so this only guards against
+        // an impossible state.
+        if (false === $date) {
+            throw new LogicException(sprintf('The run date at timestamp %d could not be created.', $timestamp));
+        }
+
+        return $date->setTimezone($lastRun->getTimezone());
     }
 
     /**

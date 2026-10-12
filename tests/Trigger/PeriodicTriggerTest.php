@@ -171,6 +171,30 @@ final class PeriodicTriggerTest extends TestCase
         });
     }
 
+    public function testRunsKeepTheFractionOfASecondOfTheAnchor(): void
+    {
+        $from = new DateTimeImmutable('2026-01-01 00:00:00.500000+00:00');
+
+        foreach ([new PeriodicTrigger(10, $from), new PeriodicTrigger(new DateInterval('PT10S'), $from)] as $trigger) {
+            $run = new DateTimeImmutable('2025-12-31 23:59:59+00:00');
+            $runs = [];
+
+            for ($i = 0; $i < 3; ++$i) {
+                $run = $trigger->getNextRunDate($run);
+                $runs[] = $run->format('H:i:s.u');
+            }
+
+            $this->assertSame(['00:00:00.500000', '00:00:10.500000', '00:00:20.500000'], $runs);
+
+            // Asked between two runs, before and after the fraction within the second.
+            foreach (['00:00:10.200000' => '00:00:10.500000', '00:00:10.700000' => '00:00:20.500000'] as $lastRun => $expected) {
+                $next = $trigger->getNextRunDate(new DateTimeImmutable('2026-01-01 ' . $lastRun . '+00:00'));
+
+                $this->assertSame($expected, $next->format('H:i:s.u'));
+            }
+        }
+    }
+
     public function testIntervalOfDaysKeepsItsLocalTimeAcrossAClockChange(): void
     {
         $this->inTimezone('Europe/Berlin', function (): void {
