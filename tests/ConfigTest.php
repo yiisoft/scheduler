@@ -103,6 +103,29 @@ final class ConfigTest extends TestCase
         $this->assertSame(1, $command->ran);
     }
 
+    public function testConsoleCommandTaskRunsInASymfonyApplicationOfTheContainer(): void
+    {
+        $command = new class ('report:daily') extends Command {
+            public int $ran = 0;
+
+            protected function execute(InputInterface $input, OutputInterface $output): int
+            {
+                ++$this->ran;
+
+                return Command::SUCCESS;
+            }
+        };
+
+        $application = new Application();
+        $application->setAutoExit(false);
+        $application->setCommandLoader(new FactoryCommandLoader(['report:daily' => static fn() => $command]));
+
+        $handler = $this->handlerFactory()(new StubContainer([Application::class => $application]));
+        $handler->handle('report:daily', $this->context());
+
+        $this->assertSame(1, $command->ran);
+    }
+
     public function testHandlerHasNoApplicationWithoutOneInTheContainer(): void
     {
         $handler = $this->handlerFactory()(new StubContainer());

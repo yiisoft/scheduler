@@ -24,11 +24,19 @@ return [
 
     TaskHandlerInterface::class => static function (ContainerInterface $container): TaskHandlerInterface {
         // The application running the commands is registered under the yiisoft/yii-console class
-        // name. Asking the container for the Symfony class it extends would not find it: where
-        // undefined classes are autowired, that builds a new application without any command.
-        $application = $container->has('Yiisoft\\Yii\\Console\\Application')
-            ? $container->get('Yiisoft\\Yii\\Console\\Application')
-            : null;
+        // name. Asking the container for the Symfony class it extends first would not find it:
+        // where undefined classes are autowired, that builds a new application without any
+        // command. The Symfony class is the fallback, for an application registered as one.
+        $application = null;
+
+        foreach (['Yiisoft\\Yii\\Console\\Application', Application::class] as $id) {
+            if ($container->has($id)) {
+                /** @var mixed $application */
+                $application = $container->get($id);
+
+                break;
+            }
+        }
 
         $handler = new CallableTaskHandler($application instanceof Application ? $application : null);
 
