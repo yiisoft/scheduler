@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Trigger;
+namespace Yiisoft\Scheduler\Trigger;
 
 use DateTimeImmutable;
 use DateTimeZone;
 use InvalidArgumentException;
-use Yiisoft\Schedule\Config\TriggerDefinition;
-use Yiisoft\Schedule\ScalarMetadata;
+use Yiisoft\Scheduler\Config\TriggerDefinition;
+use Yiisoft\Scheduler\ScalarMetadata;
 
 use function array_key_exists;
 use function in_array;

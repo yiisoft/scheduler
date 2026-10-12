@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Integration\Async;
+namespace Yiisoft\Scheduler\Integration\Async;
 
 /** The application chooses how and where to launch; this port receives no process policy. */
 interface ExecutionWorkerLauncherInterface

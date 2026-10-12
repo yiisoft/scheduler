@@ -2,16 +2,16 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Planner;
+namespace Yiisoft\Scheduler\Tests\Planner;
 
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use RuntimeException;
-use Yiisoft\Schedule\Config\TimeoutPolicy;
-use Yiisoft\Schedule\Integration\Async\{ExecutionOccurrenceKey, ExecutionWorkerCapability, ExecutionWorkerLaunchRequest, MonotonicClockInterface, PollWaiterInterface, WorkerLifecyclePolicy};
-use Yiisoft\Schedule\Integration\Async\Process\ProcessHandleInterface;
-use Yiisoft\Schedule\Integration\Async\Process\ProcessResult;
-use Yiisoft\Schedule\Planner\ParentLifecycleSupervisor;
+use Yiisoft\Scheduler\Config\TimeoutPolicy;
+use Yiisoft\Scheduler\Integration\Async\{ExecutionOccurrenceKey, ExecutionWorkerCapability, ExecutionWorkerLaunchRequest, MonotonicClockInterface, PollWaiterInterface, WorkerLifecyclePolicy};
+use Yiisoft\Scheduler\Integration\Async\Process\ProcessHandleInterface;
+use Yiisoft\Scheduler\Integration\Async\Process\ProcessResult;
+use Yiisoft\Scheduler\Planner\ParentLifecycleSupervisor;
 use Closure;
 
 final class ParentLifecycleSupervisorTest extends TestCase

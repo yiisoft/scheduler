@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Config;
+namespace Yiisoft\Scheduler\Config;
 
 /** Result of preparation together with the fence that verified it. */
 final class ConfigurationPreparationResult

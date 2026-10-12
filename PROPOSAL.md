@@ -1,4 +1,4 @@
-# Yii Schedule: approved command/task redesign
+# Yii Scheduler: approved command/task redesign
 
 This package uses a framework-neutral typed DSL. A configuration factory creates a
 `SchedulerConfig`; conversion produces an in-process `PreparedConfiguration`.

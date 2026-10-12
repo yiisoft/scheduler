@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Binary;
+namespace Yiisoft\Scheduler\Binary;
 
 use InvalidArgumentException;
-use Yiisoft\Schedule\Executor\ShellVariableOverrides;
+use Yiisoft\Scheduler\Executor\ShellVariableOverrides;
 
 use function strlen;
 

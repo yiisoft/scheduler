@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Integration\Async;
+namespace Yiisoft\Scheduler\Integration\Async;
 
 use DateTimeImmutable;
 use InvalidArgumentException;
 use Psr\Clock\ClockInterface;
-use Yiisoft\Schedule\Config\{MissedOccurrencePolicy, MissedOccurrenceSetting};
-use Yiisoft\Schedule\Trigger\{TriggerInterface, TriggerRangeInterface};
+use Yiisoft\Scheduler\Config\{MissedOccurrencePolicy, MissedOccurrenceSetting};
+use Yiisoft\Scheduler\Trigger\{TriggerInterface, TriggerRangeInterface};
 use DateTimeZone;
 
 use function count;

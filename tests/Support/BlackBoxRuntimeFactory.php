@@ -2,15 +2,15 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Support;
+namespace Yiisoft\Scheduler\Tests\Support;
 
 use Closure;
 use RuntimeException;
-use Yiisoft\Schedule\Integration\Async\ExecutionLedgerRecord;
-use Yiisoft\Schedule\Integration\Async\ExecutionOutcome;
-use Yiisoft\Schedule\Integration\Async\ExecutionWorkerCapability;
-use Yiisoft\Schedule\Integration\Async\ExecutionWorkerRuntimeFactoryInterface;
-use Yiisoft\Schedule\Integration\Async\ExecutionWorkerRuntimeInterface;
+use Yiisoft\Scheduler\Integration\Async\ExecutionLedgerRecord;
+use Yiisoft\Scheduler\Integration\Async\ExecutionOutcome;
+use Yiisoft\Scheduler\Integration\Async\ExecutionWorkerCapability;
+use Yiisoft\Scheduler\Integration\Async\ExecutionWorkerRuntimeFactoryInterface;
+use Yiisoft\Scheduler\Integration\Async\ExecutionWorkerRuntimeInterface;
 
 use function file_put_contents;
 use function getenv;

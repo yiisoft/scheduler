@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Binary;
+namespace Yiisoft\Scheduler\Tests\Binary;
 
 use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
-use Yiisoft\Schedule\Binary\{CliArgumentParser, CliInvocation};
+use Yiisoft\Scheduler\Binary\{CliArgumentParser, CliInvocation};
 
 final class CliArgumentParserTest extends TestCase
 {
@@ -33,7 +33,7 @@ final class CliArgumentParserTest extends TestCase
         $result = $this->parserResult();
         self::assertInstanceOf(CliInvocation::class, $result);
         $type = new ReflectionClass($result);
-        self::assertSame('Yiisoft\\Schedule\\Binary\\CliInvocation', $type->getName());
+        self::assertSame('Yiisoft\\Scheduler\\Binary\\CliInvocation', $type->getName());
         self::assertTrue($type->isFinal());
         self::assertSame(['mode', 'config', 'state'], array_map(
             static fn($property): string => $property->getName(),

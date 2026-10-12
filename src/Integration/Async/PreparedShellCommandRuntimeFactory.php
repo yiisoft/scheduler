@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Integration\Async;
+namespace Yiisoft\Scheduler\Integration\Async;
 
-use Yiisoft\Schedule\Config\TimeoutPolicy;
-use Yiisoft\Schedule\Executor\{ShellCommandSpecification,ShellVariableOverrides,ShellVariableResolver};
-use Yiisoft\Schedule\Integration\Async\Process\ProcessLauncherInterface;
+use Yiisoft\Scheduler\Config\TimeoutPolicy;
+use Yiisoft\Scheduler\Executor\{ShellCommandSpecification,ShellVariableOverrides,ShellVariableResolver};
+use Yiisoft\Scheduler\Integration\Async\Process\ProcessLauncherInterface;
 
 /** Creates a fresh process-local runtime for one shell command execution. */
 final class PreparedShellCommandRuntimeFactory implements ShellCommandRuntimeFactoryInterface

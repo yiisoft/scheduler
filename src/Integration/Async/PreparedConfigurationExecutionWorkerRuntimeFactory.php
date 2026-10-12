@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Integration\Async;
+namespace Yiisoft\Scheduler\Integration\Async;
 
 use Closure;
 use InvalidArgumentException;
-use Yiisoft\Schedule\Config\{PreparedConfiguration,RuntimeConfigurationSourceInterface};
-use Yiisoft\Schedule\Executor\{CallableCommand,CallableExecutor,CommandExecutorRuntimeFactory,ExecutionContext,ExecutorInterface,ShellCommand,ShellCommandExecutor};
-use Yiisoft\Schedule\ExecutionMode;
-use Yiisoft\Schedule\Executor\Command;
+use Yiisoft\Scheduler\Config\{PreparedConfiguration,RuntimeConfigurationSourceInterface};
+use Yiisoft\Scheduler\Executor\{CallableCommand,CallableExecutor,CommandExecutorRuntimeFactory,ExecutionContext,ExecutorInterface,ShellCommand,ShellCommandExecutor};
+use Yiisoft\Scheduler\ExecutionMode;
+use Yiisoft\Scheduler\Executor\Command;
 
 use function array_key_exists;
 use function hash;

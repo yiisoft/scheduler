@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Planner;
+namespace Yiisoft\Scheduler\Planner;
 
-use Yiisoft\Schedule\Integration\Async\{ExecutionDispatchReservation,ExecutionFence,ExecutionLedgerRecord,ExecutionRecoveryFence,ExecutionWorkerCapability};
+use Yiisoft\Scheduler\Integration\Async\{ExecutionDispatchReservation,ExecutionFence,ExecutionLedgerRecord,ExecutionRecoveryFence,ExecutionWorkerCapability};
 
 /** The immutable facts shared by durable admission and worker dispatch. */
 final class ExecutionAdmissionMaterial

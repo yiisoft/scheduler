@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Support;
+namespace Yiisoft\Scheduler\Tests\Support;
 
-use Yiisoft\Schedule\Integration\Async\ExecutionWorkerLaunchHandle;
-use Yiisoft\Schedule\Integration\Async\ExecutionWorkerLaunchRequest;
-use Yiisoft\Schedule\Integration\Async\Process\ExecutionWorkerProcessHandleObserverInterface;
-use Yiisoft\Schedule\Integration\Async\Process\ProcessHandleInterface;
+use Yiisoft\Scheduler\Integration\Async\ExecutionWorkerLaunchHandle;
+use Yiisoft\Scheduler\Integration\Async\ExecutionWorkerLaunchRequest;
+use Yiisoft\Scheduler\Integration\Async\Process\ExecutionWorkerProcessHandleObserverInterface;
+use Yiisoft\Scheduler\Integration\Async\Process\ProcessHandleInterface;
 
 final class BlackBoxObserver implements ExecutionWorkerProcessHandleObserverInterface
 {

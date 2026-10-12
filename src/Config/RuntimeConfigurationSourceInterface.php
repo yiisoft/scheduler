@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Config;
+namespace Yiisoft\Scheduler\Config;
 
-use Yiisoft\Schedule\Executor\CommandExecutorRuntimeFactory;
+use Yiisoft\Scheduler\Executor\CommandExecutorRuntimeFactory;
 
 /** Configuration source which can produce prepared process-local configuration. */
 interface RuntimeConfigurationSourceInterface extends ConfigurationSourceInterface

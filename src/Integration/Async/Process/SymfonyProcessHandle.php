@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Integration\Async\Process;
+namespace Yiisoft\Scheduler\Integration\Async\Process;
 
 use DateTimeImmutable;
 use Symfony\Component\Process\Process;
-use Yiisoft\Schedule\Integration\Async\MonotonicClockInterface;
+use Yiisoft\Scheduler\Integration\Async\MonotonicClockInterface;
 
 use function constant;
 use function ctype_digit;

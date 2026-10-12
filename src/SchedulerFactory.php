@@ -2,17 +2,17 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule;
+namespace Yiisoft\Scheduler;
 
-use Yiisoft\Schedule\Binary\{WorkerAdapter,WorkerCompositionInput};
-use Yiisoft\Schedule\Clock\SystemClock;
-use Yiisoft\Schedule\Config\PhpConfigurationSource;
-use Yiisoft\Schedule\Executor\ProcessLocalCommandExecutorRuntimeFactory;
+use Yiisoft\Scheduler\Binary\{WorkerAdapter,WorkerCompositionInput};
+use Yiisoft\Scheduler\Clock\SystemClock;
+use Yiisoft\Scheduler\Config\PhpConfigurationSource;
+use Yiisoft\Scheduler\Executor\ProcessLocalCommandExecutorRuntimeFactory;
 use InvalidArgumentException;
-use Yiisoft\Schedule\Integration\Async\{ExecutionWorkerEntrypoint,PreparedConfigurationExecutionWorkerRuntimeFactory,PreparedShellCommandRuntimeFactory,SystemMonotonicClock,UsleepPollWaiter};
-use Yiisoft\Schedule\Integration\Async\Process\{SameFileExecutionWorkerProcessCommandBuilder,SymfonyExecutionWorkerLauncher,SymfonyProcessLauncher};
-use Yiisoft\Schedule\Integration\Async\Store\{FileExecutionLedger,FileExecutionLedgerLocator,FileExecutionOccurrenceCheckpoint};
-use Yiisoft\Schedule\Planner\{FilePlannerOwner,ParentLifecycleSupervisor,PlannerCompositionInput,SourcePlannerRuntime};
+use Yiisoft\Scheduler\Integration\Async\{ExecutionWorkerEntrypoint,PreparedConfigurationExecutionWorkerRuntimeFactory,PreparedShellCommandRuntimeFactory,SystemMonotonicClock,UsleepPollWaiter};
+use Yiisoft\Scheduler\Integration\Async\Process\{SameFileExecutionWorkerProcessCommandBuilder,SymfonyExecutionWorkerLauncher,SymfonyProcessLauncher};
+use Yiisoft\Scheduler\Integration\Async\Store\{FileExecutionLedger,FileExecutionLedgerLocator,FileExecutionOccurrenceCheckpoint};
+use Yiisoft\Scheduler\Planner\{FilePlannerOwner,ParentLifecycleSupervisor,PlannerCompositionInput,SourcePlannerRuntime};
 
 /** Process-local composition root for the planner and fresh-worker graphs. */
 final class SchedulerFactory

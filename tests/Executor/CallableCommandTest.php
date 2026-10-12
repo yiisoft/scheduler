@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Executor;
+namespace Yiisoft\Scheduler\Tests\Executor;
 
 use LogicException;
 use PHPUnit\Framework\TestCase;
-use Yiisoft\Schedule\Executor\CallableCommand;
+use Yiisoft\Scheduler\Executor\CallableCommand;
 
 final class CallableCommandTest extends TestCase
 {

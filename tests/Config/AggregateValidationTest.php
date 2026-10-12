@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Config;
+namespace Yiisoft\Scheduler\Tests\Config;
 
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
-use Yiisoft\Schedule\Config\{PreparedConfiguration,TaskDefinition};
-use Yiisoft\Schedule\Executor\ShellCommand;
-use Yiisoft\Schedule\Task\TaskId;
+use Yiisoft\Scheduler\Config\{PreparedConfiguration,TaskDefinition};
+use Yiisoft\Scheduler\Executor\ShellCommand;
+use Yiisoft\Scheduler\Task\TaskId;
 use stdClass;
 
 final class AggregateValidationTest extends TestCase

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Config;
+namespace Yiisoft\Scheduler\Config;
 
 use function array_is_list;
 use function get_debug_type;

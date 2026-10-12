@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Planner;
+namespace Yiisoft\Scheduler\Planner;
 
-use Yiisoft\Schedule\Config\ConfigurationSourceInterface;
+use Yiisoft\Scheduler\Config\ConfigurationSourceInterface;
 use InvalidArgumentException;
 use RuntimeException;
 use Throwable;

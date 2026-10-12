@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Integration\Async;
+namespace Yiisoft\Scheduler\Integration\Async;
 
 use InvalidArgumentException;
 use Throwable;
-use Yiisoft\Schedule\Config\PreparedConfiguration;
+use Yiisoft\Scheduler\Config\PreparedConfiguration;
 
 use function hash;
 use function in_array;

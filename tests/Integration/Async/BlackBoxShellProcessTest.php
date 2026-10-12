@@ -2,17 +2,17 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Integration\Async;
+namespace Yiisoft\Scheduler\Tests\Integration\Async;
 
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
-use Yiisoft\Schedule\Config\PreparedConfiguration;
+use Yiisoft\Scheduler\Config\PreparedConfiguration;
 use Symfony\Component\Process\Process;
-use Yiisoft\Schedule\Executor\ShellCommandExecutor;
-use Yiisoft\Schedule\Integration\Async\{ExecutionOccurrenceKey,ExecutionWorkerCapability,ExecutionWorkerLaunchRequest,UsleepPollWaiter};
-use Yiisoft\Schedule\Integration\Async\Process\{ProcessLaunchRequest,ProcessResult,SymfonyExecutionWorkerLauncher,SymfonyProcessLauncher};
-use Yiisoft\Schedule\Integration\Async\Store\FileExecutionLedger;
-use Yiisoft\Schedule\Tests\Support\{BlackBoxApplication,BlackBoxObserver,BlackBoxShellCommandBuilder};
+use Yiisoft\Scheduler\Executor\ShellCommandExecutor;
+use Yiisoft\Scheduler\Integration\Async\{ExecutionOccurrenceKey,ExecutionWorkerCapability,ExecutionWorkerLaunchRequest,UsleepPollWaiter};
+use Yiisoft\Scheduler\Integration\Async\Process\{ProcessLaunchRequest,ProcessResult,SymfonyExecutionWorkerLauncher,SymfonyProcessLauncher};
+use Yiisoft\Scheduler\Integration\Async\Store\FileExecutionLedger;
+use Yiisoft\Scheduler\Tests\Support\{BlackBoxApplication,BlackBoxObserver,BlackBoxShellCommandBuilder};
 
 use function file_get_contents;
 use function file_put_contents;
@@ -55,15 +55,15 @@ final class BlackBoxShellProcessTest extends TestCase
     public function testShellUsesOneTypedExecutorRuntimeFactoryBoundary(): void
     {
         $executor = new ReflectionClass(ShellCommandExecutor::class);
-        self::assertTrue($executor->implementsInterface('Yiisoft\\Schedule\\Executor\\ExecutorInterface'));
+        self::assertTrue($executor->implementsInterface('Yiisoft\\Scheduler\\Executor\\ExecutorInterface'));
 
-        $factory = new ReflectionClass('Yiisoft\\Schedule\\Integration\\Async\\ShellCommandRuntimeFactoryInterface');
+        $factory = new ReflectionClass('Yiisoft\\Scheduler\\Integration\\Async\\ShellCommandRuntimeFactoryInterface');
         self::assertTrue($factory->isInterface());
         $constructor = $executor->getConstructor();
         self::assertNotNull($constructor);
         self::assertCount(1, $constructor->getParameters());
         self::assertSame(
-            'Yiisoft\\Schedule\\Integration\\Async\\ShellCommandRuntimeFactoryInterface',
+            'Yiisoft\\Scheduler\\Integration\\Async\\ShellCommandRuntimeFactoryInterface',
             (string) $constructor->getParameters()[0]->getType(),
         );
     }

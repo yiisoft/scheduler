@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Integration\Async;
+namespace Yiisoft\Scheduler\Integration\Async;
 
 use InvalidArgumentException;
-use Yiisoft\Schedule\Config\{ConfigurationSourceInterface, PreparedConfiguration};
+use Yiisoft\Scheduler\Config\{ConfigurationSourceInterface, PreparedConfiguration};
 
 use function hash;
 

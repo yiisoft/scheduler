@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Trigger;
+namespace Yiisoft\Scheduler\Trigger;
 
 use DateTimeImmutable;
 use Stringable;

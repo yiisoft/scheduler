@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Trigger;
+namespace Yiisoft\Scheduler\Tests\Trigger;
 
 use DateTimeImmutable;
 use PHPUnit\Framework\TestCase;
-use Yiisoft\Schedule\Trigger\{CronExpressionTrigger, TriggerRangeInterface};
+use Yiisoft\Scheduler\Trigger\{CronExpressionTrigger, TriggerRangeInterface};
 use DateTimeZone;
 
 final class CronExpressionTriggerTest extends TestCase

@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Support;
+namespace Yiisoft\Scheduler\Tests\Support;
 
 use RuntimeException;
-use Yiisoft\Schedule\Integration\Async\ExecutionLedgerInterface;
-use Yiisoft\Schedule\Integration\Async\ExecutionLedgerLocatorInterface;
-use Yiisoft\Schedule\Integration\Async\Store\FileExecutionLedger;
+use Yiisoft\Scheduler\Integration\Async\ExecutionLedgerInterface;
+use Yiisoft\Scheduler\Integration\Async\ExecutionLedgerLocatorInterface;
+use Yiisoft\Scheduler\Integration\Async\Store\FileExecutionLedger;
 
 use function getenv;
 use function is_dir;

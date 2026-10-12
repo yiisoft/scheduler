@@ -2,16 +2,16 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Config;
+namespace Yiisoft\Scheduler\Config;
 
 use InvalidArgumentException;
 use LogicException;
-use Yiisoft\Schedule\Callable\ContainerProvider;
-use Yiisoft\Schedule\Executor\CommandExecutorMap;
-use Yiisoft\Schedule\ScalarMetadata;
-use Yiisoft\Schedule\Task\ScheduleId;
-use Yiisoft\Schedule\Task\TaskId;
-use Yiisoft\Schedule\ExecutionMode;
+use Yiisoft\Scheduler\Callable\ContainerProvider;
+use Yiisoft\Scheduler\Executor\CommandExecutorMap;
+use Yiisoft\Scheduler\ScalarMetadata;
+use Yiisoft\Scheduler\Task\ScheduleId;
+use Yiisoft\Scheduler\Task\TaskId;
+use Yiisoft\Scheduler\ExecutionMode;
 
 use function in_array;
 use function is_array;

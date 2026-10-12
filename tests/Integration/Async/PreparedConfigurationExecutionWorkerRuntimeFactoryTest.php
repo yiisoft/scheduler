@@ -2,19 +2,19 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Integration\Async;
+namespace Yiisoft\Scheduler\Tests\Integration\Async;
 
 use Closure;
 use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
-use Yiisoft\Schedule\Config\{PhpConfigurationSource, PreparedConfiguration, RuntimeConfigurationSourceInterface, TimeoutPolicy};
-use Yiisoft\Schedule\Executor\{CallableCommand, CommandExecutorMap, CommandExecutorRuntimeFactory, ExecutionContext, ExecutorInterface, ShellCommandExecutor, ShellCommandSpecification, ShellVariableOverrides};
-use Yiisoft\Schedule\Integration\Async\{ExecutionFence, ExecutionIdentity, ExecutionLedgerRecord, ExecutionOccurrenceKey, ExecutionOutcome, ExecutionWorkerCapability, MonotonicClockInterface, PollWaiterInterface, PreparedConfigurationExecutionWorkerRuntimeFactory, ShellCommandRuntime, ShellCommandRuntimeFactoryInterface};
-use Yiisoft\Schedule\Integration\Async\Process\{ProcessHandleInterface, ProcessLaunchRequest, ProcessLaunchResult, ProcessLauncherInterface, ProcessResult};
-use Yiisoft\Schedule\Tests\Support\{RuntimeCallableProbe, TestCommandExecutorRuntimeFactory};
-use Yiisoft\Schedule\Config\TaskDefinition;
-use Yiisoft\Schedule\Executor\ShellCommand;
+use Yiisoft\Scheduler\Config\{PhpConfigurationSource, PreparedConfiguration, RuntimeConfigurationSourceInterface, TimeoutPolicy};
+use Yiisoft\Scheduler\Executor\{CallableCommand, CommandExecutorMap, CommandExecutorRuntimeFactory, ExecutionContext, ExecutorInterface, ShellCommandExecutor, ShellCommandSpecification, ShellVariableOverrides};
+use Yiisoft\Scheduler\Integration\Async\{ExecutionFence, ExecutionIdentity, ExecutionLedgerRecord, ExecutionOccurrenceKey, ExecutionOutcome, ExecutionWorkerCapability, MonotonicClockInterface, PollWaiterInterface, PreparedConfigurationExecutionWorkerRuntimeFactory, ShellCommandRuntime, ShellCommandRuntimeFactoryInterface};
+use Yiisoft\Scheduler\Integration\Async\Process\{ProcessHandleInterface, ProcessLaunchRequest, ProcessLaunchResult, ProcessLauncherInterface, ProcessResult};
+use Yiisoft\Scheduler\Tests\Support\{RuntimeCallableProbe, TestCommandExecutorRuntimeFactory};
+use Yiisoft\Scheduler\Config\TaskDefinition;
+use Yiisoft\Scheduler\Executor\ShellCommand;
 use RuntimeException;
 
 final class PreparedConfigurationExecutionWorkerRuntimeFactoryTest extends TestCase
@@ -384,12 +384,12 @@ final class PreparedConfigurationExecutionWorkerRuntimeFactoryTest extends TestC
         $overlap = var_export($task['overlap'] ?? 'allow', true);
         $mode = ($task['sync'] ?? false) === true ? '->sync()' : '';
         if (($task['shell'] ?? false) === true) {
-            $commandSource = "new \\Yiisoft\\Schedule\\Executor\\ShellCommand('/bin/fixture')";
+            $commandSource = "new \\Yiisoft\\Scheduler\\Executor\\ShellCommand('/bin/fixture')";
         } else {
-            $commandSource = "new \\Yiisoft\\Schedule\\Executor\\CallableCommand(static function (mixed \$service = null, mixed \$value = null): \\Yiisoft\\Schedule\\Integration\\Async\\ExecutionOutcome { \\Yiisoft\\Schedule\\Tests\\Support\\RuntimeCallableProbe::\$service = \$service; return new \\Yiisoft\\Schedule\\Integration\\Async\\ExecutionOutcome('succeeded'); }, {$payload})";
+            $commandSource = "new \\Yiisoft\\Scheduler\\Executor\\CallableCommand(static function (mixed \$service = null, mixed \$value = null): \\Yiisoft\\Scheduler\\Integration\\Async\\ExecutionOutcome { \\Yiisoft\\Scheduler\\Tests\\Support\\RuntimeCallableProbe::\$service = \$service; return new \\Yiisoft\\Scheduler\\Integration\\Async\\ExecutionOutcome('succeeded'); }, {$payload})";
         }
         $timeout = isset($task['timeout']) ? '->timeout(' . var_export($task['timeout']['soft'], true) . ', ' . var_export($task['timeout']['hard'], true) . ')' : '';
-        file_put_contents($path, "<?php return static function (): \\Yiisoft\\Schedule\\Config\\SchedulerConfig { \$config = new \\Yiisoft\\Schedule\\Config\\SchedulerConfig(); \$config->periodic({$commandSource})->every(60){$mode}->id('task'){$timeout}->overlap({$overlap}); return \$config; }; ");
+        file_put_contents($path, "<?php return static function (): \\Yiisoft\\Scheduler\\Config\\SchedulerConfig { \$config = new \\Yiisoft\\Scheduler\\Config\\SchedulerConfig(); \$config->periodic({$commandSource})->every(60){$mode}->id('task'){$timeout}->overlap({$overlap}); return \$config; }; ");
         $this->source = new MutableTestConfigurationSource(new PhpConfigurationSource($path), $prepareDelay);
         $recordMetadata = $recordMetadata ?? ['sourceId' => $this->source->sourceId(), 'sourceRevision' => $this->source->revision()];
         if (($recordMetadata['sourceId'] ?? null) === '__current__') {

@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Planner;
+namespace Yiisoft\Scheduler\Planner;
 
 use InvalidArgumentException;
 use Psr\Clock\ClockInterface;
-use Yiisoft\Schedule\ExecutionMode;
-use Yiisoft\Schedule\Config\{PreparedConfiguration, TimeoutPolicy};
-use Yiisoft\Schedule\Integration\Async\{ExecutionDispatchReservation,ExecutionFence,ExecutionLedgerInterface,ExecutionLedgerRecord,ExecutionLedgerState,ExecutionOccurrenceCandidate,ExecutionRecoveryFence,ExecutionWorkerCapability};
+use Yiisoft\Scheduler\ExecutionMode;
+use Yiisoft\Scheduler\Config\{PreparedConfiguration, TimeoutPolicy};
+use Yiisoft\Scheduler\Integration\Async\{ExecutionDispatchReservation,ExecutionFence,ExecutionLedgerInterface,ExecutionLedgerRecord,ExecutionLedgerState,ExecutionOccurrenceCandidate,ExecutionRecoveryFence,ExecutionWorkerCapability};
 
 use function is_array;
 use function is_float;

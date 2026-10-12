@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Integration\Async\Process;
+namespace Yiisoft\Scheduler\Integration\Async\Process;
 
 use Throwable;
-use Yiisoft\Schedule\Integration\Async\{ExecutionWorkerLaunchException, ExecutionWorkerLaunchHandle, ExecutionWorkerLaunchRequest, ExecutionWorkerLauncherInterface};
+use Yiisoft\Scheduler\Integration\Async\{ExecutionWorkerLaunchException, ExecutionWorkerLaunchHandle, ExecutionWorkerLaunchRequest, ExecutionWorkerLauncherInterface};
 
 /** Thin Symfony adapter; command construction and lifecycle retention remain application-owned. */
 final class SymfonyExecutionWorkerLauncher implements ExecutionWorkerLauncherInterface

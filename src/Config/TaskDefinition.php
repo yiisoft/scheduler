@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Config;
+namespace Yiisoft\Scheduler\Config;
 
-use Yiisoft\Schedule\Executor\Command;
-use Yiisoft\Schedule\ExecutionMode;
-use Yiisoft\Schedule\ScalarMetadata;
+use Yiisoft\Scheduler\Executor\Command;
+use Yiisoft\Scheduler\ExecutionMode;
+use Yiisoft\Scheduler\ScalarMetadata;
 use LogicException;
-use Yiisoft\Schedule\Task\{ScheduleId, TaskId};
+use Yiisoft\Scheduler\Task\{ScheduleId, TaskId};
 
 final class TaskDefinition
 {

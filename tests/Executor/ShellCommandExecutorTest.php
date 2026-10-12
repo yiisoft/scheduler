@@ -2,24 +2,24 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Executor;
+namespace Yiisoft\Scheduler\Tests\Executor;
 
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
-use Yiisoft\Schedule\Config\TimeoutPolicy;
+use Yiisoft\Scheduler\Config\TimeoutPolicy;
 use LogicException;
 use RuntimeException;
-use Yiisoft\Schedule\Executor\{ExecutionContext, ExecutorInterface, ShellCommand, ShellCommandExecutor, ShellCommandSpecification, ShellVariableOverrides};
-use Yiisoft\Schedule\Integration\Async\{ExecutionOutcome, MonotonicClockInterface, PollWaiterInterface, ShellCommandRuntime, ShellCommandRuntimeFactoryInterface};
-use Yiisoft\Schedule\Integration\Async\Process\{ProcessHandleInterface, ProcessLaunchRequest, ProcessLaunchResult, ProcessLauncherInterface, ProcessResult};
-use Yiisoft\Schedule\Executor\CallableCommand;
+use Yiisoft\Scheduler\Executor\{ExecutionContext, ExecutorInterface, ShellCommand, ShellCommandExecutor, ShellCommandSpecification, ShellVariableOverrides};
+use Yiisoft\Scheduler\Integration\Async\{ExecutionOutcome, MonotonicClockInterface, PollWaiterInterface, ShellCommandRuntime, ShellCommandRuntimeFactoryInterface};
+use Yiisoft\Scheduler\Integration\Async\Process\{ProcessHandleInterface, ProcessLaunchRequest, ProcessLaunchResult, ProcessLauncherInterface, ProcessResult};
+use Yiisoft\Scheduler\Executor\CallableCommand;
 
 final class ShellCommandExecutorTest extends TestCase
 {
     public function testCanonicalExecutorHasOnlyTheRuntimeFactorySeam(): void
     {
-        self::assertFalse(class_exists('Yiisoft\\Schedule\\Executor\\ShellExecutor'));
+        self::assertFalse(class_exists('Yiisoft\\Scheduler\\Executor\\ShellExecutor'));
         $reflection = new ReflectionClass(ShellCommandExecutor::class);
         self::assertTrue($reflection->implementsInterface(ExecutorInterface::class));
         self::assertCount(1, $reflection->getConstructor()?->getParameters() ?? []);

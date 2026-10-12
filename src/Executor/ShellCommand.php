@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Executor;
+namespace Yiisoft\Scheduler\Executor;
 
 use LogicException;
-use Yiisoft\Schedule\ScalarMetadata;
+use Yiisoft\Scheduler\ScalarMetadata;
 
 /** An immutable direct executable and argument vector. */
 final class ShellCommand implements Command

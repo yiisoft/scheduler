@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Config;
+namespace Yiisoft\Scheduler\Config;
 
 /** A configuration source with a stable identity and a pinned revision. */
 interface ConfigurationSourceInterface

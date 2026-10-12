@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Planner;
+namespace Yiisoft\Scheduler\Tests\Planner;
 
 use PHPUnit\Framework\TestCase;
-use Yiisoft\Schedule\Integration\Async\{ExecutionLedgerQueryInterface};
-use Yiisoft\Schedule\Planner\{AdmissionDecision,AdmissionPolicy};
+use Yiisoft\Scheduler\Integration\Async\{ExecutionLedgerQueryInterface};
+use Yiisoft\Scheduler\Planner\{AdmissionDecision,AdmissionPolicy};
 
 final class S16AdmissionPolicyTest extends TestCase
 {

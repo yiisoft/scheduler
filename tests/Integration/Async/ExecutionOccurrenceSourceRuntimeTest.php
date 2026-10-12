@@ -2,16 +2,16 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Integration\Async;
+namespace Yiisoft\Scheduler\Tests\Integration\Async;
 
 use DateTimeImmutable;
 use PHPUnit\Framework\TestCase;
-use Yiisoft\Schedule\Config\{MissedOccurrencePolicy, MissedOccurrenceSetting, TimeoutPolicy};
-use Yiisoft\Schedule\Integration\Async\{ExecutionAdmission, ExecutionBinding, ExecutionBindingSourceInterface, ExecutionClaimResult, ExecutionDispatchReservation, ExecutionDispatchResult, ExecutionFence, ExecutionGenerationResult, ExecutionIdentity, ExecutionLedgerInterface, ExecutionLedgerRecord, ExecutionOccurrenceCheckpointInterface, ExecutionOccurrenceKey, ExecutionOccurrenceSource, OccurrenceSkipReason, ExecutionOutcome, ExecutionRecoveryFence, ExecutionRecoveryResult, ExecutionRevocationResult, ExecutionLaunchObservation, ExecutionTerminalResult};
-use Yiisoft\Schedule\Tests\Support\TestClock;
-use Yiisoft\Schedule\Trigger\{CronExpressionTrigger, PeriodicTrigger, TriggerInterface};
-use Yiisoft\Schedule\Integration\Async\ExecutionLedgerState;
-use Yiisoft\Schedule\Integration\Async\ExecutionOccurrenceCandidate;
+use Yiisoft\Scheduler\Config\{MissedOccurrencePolicy, MissedOccurrenceSetting, TimeoutPolicy};
+use Yiisoft\Scheduler\Integration\Async\{ExecutionAdmission, ExecutionBinding, ExecutionBindingSourceInterface, ExecutionClaimResult, ExecutionDispatchReservation, ExecutionDispatchResult, ExecutionFence, ExecutionGenerationResult, ExecutionIdentity, ExecutionLedgerInterface, ExecutionLedgerRecord, ExecutionOccurrenceCheckpointInterface, ExecutionOccurrenceKey, ExecutionOccurrenceSource, OccurrenceSkipReason, ExecutionOutcome, ExecutionRecoveryFence, ExecutionRecoveryResult, ExecutionRevocationResult, ExecutionLaunchObservation, ExecutionTerminalResult};
+use Yiisoft\Scheduler\Tests\Support\TestClock;
+use Yiisoft\Scheduler\Trigger\{CronExpressionTrigger, PeriodicTrigger, TriggerInterface};
+use Yiisoft\Scheduler\Integration\Async\ExecutionLedgerState;
+use Yiisoft\Scheduler\Integration\Async\ExecutionOccurrenceCandidate;
 use InvalidArgumentException;
 use LogicException;
 use DateTimeZone;

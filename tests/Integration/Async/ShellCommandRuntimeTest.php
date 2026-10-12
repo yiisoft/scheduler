@@ -2,22 +2,22 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Integration\Async;
+namespace Yiisoft\Scheduler\Tests\Integration\Async;
 
 use PHPUnit\Framework\TestCase;
-use Yiisoft\Schedule\Config\TimeoutPolicy;
-use Yiisoft\Schedule\Executor\ShellCommandSpecification;
-use Yiisoft\Schedule\Executor\ShellVariableOverrides;
-use Yiisoft\Schedule\Integration\Async\MonotonicClockInterface;
-use Yiisoft\Schedule\Integration\Async\PollWaiterInterface;
-use Yiisoft\Schedule\Integration\Async\WorkerLifecyclePolicy;
-use Yiisoft\Schedule\Integration\Async\Process\ProcessHandleInterface;
-use Yiisoft\Schedule\Integration\Async\Process\ProcessLaunchRequest;
-use Yiisoft\Schedule\Integration\Async\Process\ProcessLaunchResult;
-use Yiisoft\Schedule\Integration\Async\Process\ProcessLauncherInterface;
-use Yiisoft\Schedule\Integration\Async\Process\ProcessResult;
-use Yiisoft\Schedule\Integration\Async\ExecutionOutcome;
-use Yiisoft\Schedule\Integration\Async\ShellCommandRuntime;
+use Yiisoft\Scheduler\Config\TimeoutPolicy;
+use Yiisoft\Scheduler\Executor\ShellCommandSpecification;
+use Yiisoft\Scheduler\Executor\ShellVariableOverrides;
+use Yiisoft\Scheduler\Integration\Async\MonotonicClockInterface;
+use Yiisoft\Scheduler\Integration\Async\PollWaiterInterface;
+use Yiisoft\Scheduler\Integration\Async\WorkerLifecyclePolicy;
+use Yiisoft\Scheduler\Integration\Async\Process\ProcessHandleInterface;
+use Yiisoft\Scheduler\Integration\Async\Process\ProcessLaunchRequest;
+use Yiisoft\Scheduler\Integration\Async\Process\ProcessLaunchResult;
+use Yiisoft\Scheduler\Integration\Async\Process\ProcessLauncherInterface;
+use Yiisoft\Scheduler\Integration\Async\Process\ProcessResult;
+use Yiisoft\Scheduler\Integration\Async\ExecutionOutcome;
+use Yiisoft\Scheduler\Integration\Async\ShellCommandRuntime;
 use LogicException;
 use ReflectionClass;
 use ReflectionMethod;
@@ -115,8 +115,8 @@ final class ShellCommandRuntimeTest extends TestCase
 {
     public function testLaunchContractCarriesAuthoritativeStartTimestamp(): void
     {
-        self::assertTrue(class_exists('Yiisoft\\Schedule\\Integration\\Async\\Process\\ProcessLaunchResult'));
-        $launchResult = new ReflectionClass('Yiisoft\\Schedule\\Integration\\Async\\Process\\ProcessLaunchResult');
+        self::assertTrue(class_exists('Yiisoft\\Scheduler\\Integration\\Async\\Process\\ProcessLaunchResult'));
+        $launchResult = new ReflectionClass('Yiisoft\\Scheduler\\Integration\\Async\\Process\\ProcessLaunchResult');
         self::assertTrue($launchResult->hasProperty('handle'));
         self::assertTrue($launchResult->hasProperty('startedAt'));
         self::assertSame(ProcessHandleInterface::class, $launchResult->getProperty('handle')->getType()->getName());
@@ -125,7 +125,7 @@ final class ShellCommandRuntimeTest extends TestCase
         self::assertTrue($launchResult->getProperty('startedAt')->isReadOnly());
 
         $launch = new ReflectionMethod(ProcessLauncherInterface::class, 'launch');
-        self::assertSame('Yiisoft\\Schedule\\Integration\\Async\\Process\\ProcessLaunchResult', (string) $launch->getReturnType());
+        self::assertSame('Yiisoft\\Scheduler\\Integration\\Async\\Process\\ProcessLaunchResult', (string) $launch->getReturnType());
     }
 
     public function testDelayedLauncherReturnCarriesAuthoritativeStartedAt(): void

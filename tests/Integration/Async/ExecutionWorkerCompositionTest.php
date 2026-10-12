@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Integration\Async;
+namespace Yiisoft\Scheduler\Tests\Integration\Async;
 
 use InvalidArgumentException;
 use LogicException;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
-use Yiisoft\Schedule\Config\PreparedConfiguration;
-use Yiisoft\Schedule\Integration\Async\{
+use Yiisoft\Scheduler\Config\PreparedConfiguration;
+use Yiisoft\Scheduler\Integration\Async\{
     ExecutionAdmission, ExecutionClaimResult, ExecutionDispatchResult, ExecutionDispatchReservation, ExecutionFence,
     ExecutionGenerationResult, ExecutionIdentity, ExecutionLaunchObservation, ExecutionLedgerInterface, ExecutionLedgerRecord,
     ExecutionOccurrenceKey, ExecutionOutcome, ExecutionRecoveryFence, ExecutionRecoveryResult, ExecutionRevocationResult,

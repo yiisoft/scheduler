@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Integration\Async\Process;
+namespace Yiisoft\Scheduler\Integration\Async\Process;
 
-use Yiisoft\Schedule\Integration\Async\{ExecutionWorkerLaunchHandle, ExecutionWorkerLaunchRequest};
+use Yiisoft\Scheduler\Integration\Async\{ExecutionWorkerLaunchHandle, ExecutionWorkerLaunchRequest};
 
 /** Application-owned retention and observation boundary for a started process. */
 interface ExecutionWorkerProcessHandleObserverInterface

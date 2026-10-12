@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Config;
+namespace Yiisoft\Scheduler\Tests\Config;
 
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 use ReflectionMethod;
-use Yiisoft\Schedule\Config\{ConfigurationPreparationResult, ConfigurationSourceInterface, ConfigurationSourcePin, ConfigurationVersionGuard};
+use Yiisoft\Scheduler\Config\{ConfigurationPreparationResult, ConfigurationSourceInterface, ConfigurationSourcePin, ConfigurationVersionGuard};
 use TypeError;
 use stdClass;
 

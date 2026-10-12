@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Binary;
+namespace Yiisoft\Scheduler\Binary;
 
 use InvalidArgumentException;
 

@@ -16,7 +16,7 @@
         <ini name="error_reporting" value="-1"/>
     </php>
     <testsuites>
-        <testsuite name="Yii Schedule tests">
+        <testsuite name="Yii Scheduler tests">
             <directory>./tests</directory>
         </testsuite>
     </testsuites>

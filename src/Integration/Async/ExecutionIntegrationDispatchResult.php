@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Integration\Async;
+namespace Yiisoft\Scheduler\Integration\Async;
 
 /** Outcome of coordinating admission, reservation, and an optional launch. */
 final class ExecutionIntegrationDispatchResult

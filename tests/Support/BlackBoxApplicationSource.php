@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Support;
+namespace Yiisoft\Scheduler\Tests\Support;
 
 use LogicException;
-use Yiisoft\Schedule\Integration\Async\ExecutionAdmission;
-use Yiisoft\Schedule\Integration\Async\ExecutionOccurrenceCandidate;
-use Yiisoft\Schedule\Integration\Async\ExecutionOccurrenceSourceInterface;
-use Yiisoft\Schedule\Integration\Async\OccurrenceSkipReason;
+use Yiisoft\Scheduler\Integration\Async\ExecutionAdmission;
+use Yiisoft\Scheduler\Integration\Async\ExecutionOccurrenceCandidate;
+use Yiisoft\Scheduler\Integration\Async\ExecutionOccurrenceSourceInterface;
+use Yiisoft\Scheduler\Integration\Async\OccurrenceSkipReason;
 
 final class BlackBoxApplicationSource implements ExecutionOccurrenceSourceInterface
 {

@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Integration\Async;
+namespace Yiisoft\Scheduler\Tests\Integration\Async;
 
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
-use Yiisoft\Schedule\Config\{PhpConfigurationSource, TimeoutPolicy};
-use Yiisoft\Schedule\Callable\ContainerProvider;
-use Yiisoft\Schedule\Executor\{CallableCommand, CallableExecutor, CommandExecutorMap, CommandExecutorRuntime, CommandExecutorRuntimeFactory, ExecutionContext};
-use Yiisoft\Schedule\Integration\Async\{ExecutionIdentity, ExecutionOutcome, PreparedConfigurationExecutionBindingSource};
+use Yiisoft\Scheduler\Config\{PhpConfigurationSource, TimeoutPolicy};
+use Yiisoft\Scheduler\Callable\ContainerProvider;
+use Yiisoft\Scheduler\Executor\{CallableCommand, CallableExecutor, CommandExecutorMap, CommandExecutorRuntime, CommandExecutorRuntimeFactory, ExecutionContext};
+use Yiisoft\Scheduler\Integration\Async\{ExecutionIdentity, ExecutionOutcome, PreparedConfigurationExecutionBindingSource};
 
 use function strlen;
 
@@ -18,7 +18,7 @@ final class PreparedConfigurationExecutionBindingSourceTest extends TestCase
     public function testMapsConfigurationFingerprintToStableRecordCompatibleBinding(): void
     {
         $path = tempnam(sys_get_temp_dir(), 'schedule-binding-');
-        file_put_contents($path, '<?php return static function (): \\Yiisoft\\Schedule\\Config\\SchedulerConfig { $config = new \\Yiisoft\\Schedule\\Config\\SchedulerConfig(); $config->timeout(1.25, 2.5); $config->periodic(new \\Yiisoft\\Schedule\\Executor\\CallableCommand(static fn(): \\Yiisoft\\Schedule\\Integration\\Async\\ExecutionOutcome => new \\Yiisoft\\Schedule\\Integration\\Async\\ExecutionOutcome("succeeded")))->every(60)->id("task")->overlap("skip"); return $config; };');
+        file_put_contents($path, '<?php return static function (): \\Yiisoft\\Scheduler\\Config\\SchedulerConfig { $config = new \\Yiisoft\\Scheduler\\Config\\SchedulerConfig(); $config->timeout(1.25, 2.5); $config->periodic(new \\Yiisoft\\Scheduler\\Executor\\CallableCommand(static fn(): \\Yiisoft\\Scheduler\\Integration\\Async\\ExecutionOutcome => new \\Yiisoft\\Scheduler\\Integration\\Async\\ExecutionOutcome("succeeded")))->every(60)->id("task")->overlap("skip"); return $config; };');
         $source = new PhpConfigurationSource($path);
         $configuration = $source->prepare(new BindingRuntimeFactory());
         $bindings = new PreparedConfigurationExecutionBindingSource($source, $configuration, 'owner-run');
@@ -45,7 +45,7 @@ final class PreparedConfigurationExecutionBindingSourceTest extends TestCase
     public function testRejectsUnknownTaskAndWrongSchedule(): void
     {
         $path = tempnam(sys_get_temp_dir(), 'schedule-binding-');
-        file_put_contents($path, '<?php return static function (): \\Yiisoft\\Schedule\\Config\\SchedulerConfig { $config = new \\Yiisoft\\Schedule\\Config\\SchedulerConfig(); $config->periodic(new \\Yiisoft\\Schedule\\Executor\\CallableCommand(static fn(): \\Yiisoft\\Schedule\\Integration\\Async\\ExecutionOutcome => new \\Yiisoft\\Schedule\\Integration\\Async\\ExecutionOutcome("succeeded")))->every(60)->id("task"); return $config; };');
+        file_put_contents($path, '<?php return static function (): \\Yiisoft\\Scheduler\\Config\\SchedulerConfig { $config = new \\Yiisoft\\Scheduler\\Config\\SchedulerConfig(); $config->periodic(new \\Yiisoft\\Scheduler\\Executor\\CallableCommand(static fn(): \\Yiisoft\\Scheduler\\Integration\\Async\\ExecutionOutcome => new \\Yiisoft\\Scheduler\\Integration\\Async\\ExecutionOutcome("succeeded")))->every(60)->id("task"); return $config; };');
         $source = new PhpConfigurationSource($path);
         $bindings = new PreparedConfigurationExecutionBindingSource($source, $source->prepare(new BindingRuntimeFactory()), 'owner-run');
 

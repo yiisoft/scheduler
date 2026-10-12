@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Integration\Async\Process;
+namespace Yiisoft\Scheduler\Integration\Async\Process;
 
 use Symfony\Component\Process\Process;
 use Throwable;
-use Yiisoft\Schedule\Integration\Async\MonotonicClockInterface;
-use Yiisoft\Schedule\Integration\Async\SystemMonotonicClock;
+use Yiisoft\Scheduler\Integration\Async\MonotonicClockInterface;
+use Yiisoft\Scheduler\Integration\Async\SystemMonotonicClock;
 
 use function file_get_contents;
 use function function_exists;

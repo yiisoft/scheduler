@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Integration\Async\Process;
+namespace Yiisoft\Scheduler\Tests\Integration\Async\Process;
 
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 use Symfony\Component\Process\Process;
-use Yiisoft\Schedule\Integration\Async\Process\{ProcessHandleInterface, ProcessLaunchRequest, ProcessScopeException, SymfonyProcessHandle, SymfonyProcessLauncher};
+use Yiisoft\Scheduler\Integration\Async\Process\{ProcessHandleInterface, ProcessLaunchRequest, ProcessScopeException, SymfonyProcessHandle, SymfonyProcessLauncher};
 
 use function chmod;
 use function file_get_contents;

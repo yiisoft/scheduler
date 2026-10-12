@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Support;
+namespace Yiisoft\Scheduler\Tests\Support;
 
 use RuntimeException;
-use Yiisoft\Schedule\Integration\Async\ExecutionWorkerLaunchRequest;
-use Yiisoft\Schedule\Integration\Async\Process\ExecutionWorkerProcessCommandBuilderInterface;
-use Yiisoft\Schedule\Integration\Async\Process\ProcessLaunchRequest;
+use Yiisoft\Scheduler\Integration\Async\ExecutionWorkerLaunchRequest;
+use Yiisoft\Scheduler\Integration\Async\Process\ExecutionWorkerProcessCommandBuilderInterface;
+use Yiisoft\Scheduler\Integration\Async\Process\ProcessLaunchRequest;
 
 use function dirname;
 

@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Config;
+namespace Yiisoft\Scheduler\Tests\Config;
 
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
-use Yiisoft\Schedule\Config\{PreparedConfiguration,TaskDefinition,TimeoutPolicy,TriggerDefinition};
-use Yiisoft\Schedule\Executor\ShellCommand;
-use Yiisoft\Schedule\ExecutionMode;
-use Yiisoft\Schedule\Task\TaskId;
+use Yiisoft\Scheduler\Config\{PreparedConfiguration,TaskDefinition,TimeoutPolicy,TriggerDefinition};
+use Yiisoft\Scheduler\Executor\ShellCommand;
+use Yiisoft\Scheduler\ExecutionMode;
+use Yiisoft\Scheduler\Task\TaskId;
 
 final class ValidationTest extends TestCase
 {

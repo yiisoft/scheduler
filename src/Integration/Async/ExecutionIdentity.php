@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Integration\Async;
+namespace Yiisoft\Scheduler\Integration\Async;
 
 use InvalidArgumentException;
-use Yiisoft\Schedule\ScalarMetadata;
+use Yiisoft\Scheduler\ScalarMetadata;
 
 /** Immutable execution identity/correlation used by the journal. */
 final class ExecutionIdentity

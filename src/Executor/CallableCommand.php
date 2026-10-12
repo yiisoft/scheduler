@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Executor;
+namespace Yiisoft\Scheduler\Executor;
 
 use Closure;
 use InvalidArgumentException;
 use LogicException;
-use Yiisoft\Schedule\ScalarMetadata;
+use Yiisoft\Scheduler\ScalarMetadata;
 
 use function is_string;
 use function is_bool;

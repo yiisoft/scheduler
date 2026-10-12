@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Callable;
+namespace Yiisoft\Scheduler\Tests\Callable;
 
 use PHPUnit\Framework\TestCase;
-use Yiisoft\Schedule\Callable\InvocationGuardContainer;
-use Yiisoft\Schedule\Tests\Support\StubContainer;
+use Yiisoft\Scheduler\Callable\InvocationGuardContainer;
+use Yiisoft\Scheduler\Tests\Support\StubContainer;
 use Throwable;
 
 final class InvocationGuardContainerTest extends TestCase

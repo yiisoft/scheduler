@@ -2,23 +2,23 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Planner;
+namespace Yiisoft\Scheduler\Tests\Planner;
 
 use DateTimeImmutable;
 use PHPUnit\Framework\TestCase;
 use Psr\Clock\ClockInterface;
-use Yiisoft\Schedule\Binary\{WorkerAdapter, WorkerCompositionInput};
-use Yiisoft\Schedule\Callable\ContainerProvider;
-use Yiisoft\Schedule\Config\{PreparedConfiguration, RuntimeConfigurationSourceInterface, TaskDefinition, TriggerDefinition};
-use Yiisoft\Schedule\Executor\{CommandExecutorMap, CommandExecutorRuntimeFactory, ProcessLocalCommandExecutorRuntimeFactory, ShellCommand};
-use Yiisoft\Schedule\Integration\Async\PreparedShellCommandRuntimeFactory;
-use Yiisoft\Schedule\Integration\Async\{ExecutionClaimResult, ExecutionFence, ExecutionIdentity, ExecutionLedgerInterface, ExecutionLedgerLocatorInterface, ExecutionLedgerRecord, ExecutionOccurrenceCheckpointInterface, ExecutionOccurrenceKey, ExecutionTerminalResult, ExecutionWorkerCapability, ExecutionWorkerInvocationResult, MonotonicClockInterface, PollWaiterInterface};
-use Yiisoft\Schedule\Planner\{PlannerCompositionInput, PlannerOwnerInterface, SourcePlannerRuntime};
-use Yiisoft\Schedule\SchedulerFactory;
-use Yiisoft\Schedule\ExecutionMode;
-use Yiisoft\Schedule\Integration\Async\ExecutionWorkerLauncherInterface;
-use Yiisoft\Schedule\Integration\Async\Process\{ProcessHandleInterface, ProcessLaunchResult, ProcessLauncherInterface, ProcessResult};
-use Yiisoft\Schedule\Task\TaskId;
+use Yiisoft\Scheduler\Binary\{WorkerAdapter, WorkerCompositionInput};
+use Yiisoft\Scheduler\Callable\ContainerProvider;
+use Yiisoft\Scheduler\Config\{PreparedConfiguration, RuntimeConfigurationSourceInterface, TaskDefinition, TriggerDefinition};
+use Yiisoft\Scheduler\Executor\{CommandExecutorMap, CommandExecutorRuntimeFactory, ProcessLocalCommandExecutorRuntimeFactory, ShellCommand};
+use Yiisoft\Scheduler\Integration\Async\PreparedShellCommandRuntimeFactory;
+use Yiisoft\Scheduler\Integration\Async\{ExecutionClaimResult, ExecutionFence, ExecutionIdentity, ExecutionLedgerInterface, ExecutionLedgerLocatorInterface, ExecutionLedgerRecord, ExecutionOccurrenceCheckpointInterface, ExecutionOccurrenceKey, ExecutionTerminalResult, ExecutionWorkerCapability, ExecutionWorkerInvocationResult, MonotonicClockInterface, PollWaiterInterface};
+use Yiisoft\Scheduler\Planner\{PlannerCompositionInput, PlannerOwnerInterface, SourcePlannerRuntime};
+use Yiisoft\Scheduler\SchedulerFactory;
+use Yiisoft\Scheduler\ExecutionMode;
+use Yiisoft\Scheduler\Integration\Async\ExecutionWorkerLauncherInterface;
+use Yiisoft\Scheduler\Integration\Async\Process\{ProcessHandleInterface, ProcessLaunchResult, ProcessLauncherInterface, ProcessResult};
+use Yiisoft\Scheduler\Task\TaskId;
 
 use const DIRECTORY_SEPARATOR;
 

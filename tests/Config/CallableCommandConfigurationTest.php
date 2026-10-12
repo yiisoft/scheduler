@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Config;
+namespace Yiisoft\Scheduler\Tests\Config;
 
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
-use Yiisoft\Schedule\Config\{ConfigurationConverter,SchedulerConfig};
-use Yiisoft\Schedule\Executor\CallableCommand;
-use Yiisoft\Schedule\ExecutionMode;
-use Yiisoft\Schedule\Config\PreparedConfiguration;
+use Yiisoft\Scheduler\Config\{ConfigurationConverter,SchedulerConfig};
+use Yiisoft\Scheduler\Executor\CallableCommand;
+use Yiisoft\Scheduler\ExecutionMode;
+use Yiisoft\Scheduler\Config\PreparedConfiguration;
 
 final class CallableCommandConfigurationTest extends TestCase
 {

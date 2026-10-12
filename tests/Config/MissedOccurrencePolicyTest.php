@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Config;
+namespace Yiisoft\Scheduler\Tests\Config;
 
 use PHPUnit\Framework\TestCase;
-use Yiisoft\Schedule\Config\{ConfigurationConverter,MissedOccurrencePolicy,MissedOccurrenceSetting,OverlapPolicy,PreparedConfiguration,SchedulerConfig,TaskDefinition};
-use Yiisoft\Schedule\Executor\ShellCommand;
-use Yiisoft\Schedule\Task\TaskId;
+use Yiisoft\Scheduler\Config\{ConfigurationConverter,MissedOccurrencePolicy,MissedOccurrenceSetting,OverlapPolicy,PreparedConfiguration,SchedulerConfig,TaskDefinition};
+use Yiisoft\Scheduler\Executor\ShellCommand;
+use Yiisoft\Scheduler\Task\TaskId;
 
 final class MissedOccurrencePolicyTest extends TestCase
 {

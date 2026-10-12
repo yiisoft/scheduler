@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Config;
+namespace Yiisoft\Scheduler\Config;
 
 use DateTimeImmutable;
-use Yiisoft\Schedule\Executor\Command;
-use Yiisoft\Schedule\ExecutionMode;
+use Yiisoft\Scheduler\Executor\Command;
+use Yiisoft\Scheduler\ExecutionMode;
 use DateTimeZone;
-use Yiisoft\Schedule\ScalarMetadata;
+use Yiisoft\Scheduler\ScalarMetadata;
 
 final class ScheduleBuilder
 {

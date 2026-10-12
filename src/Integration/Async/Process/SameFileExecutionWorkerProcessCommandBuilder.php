@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Integration\Async\Process;
+namespace Yiisoft\Scheduler\Integration\Async\Process;
 
-use Yiisoft\Schedule\Executor\ShellVariableOverrides;
-use Yiisoft\Schedule\Integration\Async\{ExecutionWorkerLaunchRequest,SystemMonotonicClock};
-use Yiisoft\Schedule\Integration\Async\MonotonicClockInterface;
+use Yiisoft\Scheduler\Executor\ShellVariableOverrides;
+use Yiisoft\Scheduler\Integration\Async\{ExecutionWorkerLaunchRequest,SystemMonotonicClock};
+use Yiisoft\Scheduler\Integration\Async\MonotonicClockInterface;
 
 use function assert;
 use function getenv;

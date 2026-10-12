@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Integration\Async;
+namespace Yiisoft\Scheduler\Integration\Async;
 
 /** Read-only queries for durable execution indexes. */
 interface ExecutionLedgerQueryInterface

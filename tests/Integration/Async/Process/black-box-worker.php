@@ -3,8 +3,8 @@
 declare(strict_types=1);
 
 require \dirname(__DIR__, 4) . '/vendor/autoload.php';
-use Yiisoft\Schedule\Integration\Async\ExecutionWorkerEntrypoint;
-use Yiisoft\Schedule\Tests\Support\{BlackBoxClock,BlackBoxLedgerLocator,BlackBoxRuntimeFactory};
+use Yiisoft\Scheduler\Integration\Async\ExecutionWorkerEntrypoint;
+use Yiisoft\Scheduler\Tests\Support\{BlackBoxClock,BlackBoxLedgerLocator,BlackBoxRuntimeFactory};
 
 $mode = getenv('BLACKBOX_MODE');
 if ($mode === 'exit-before-entrypoint') {

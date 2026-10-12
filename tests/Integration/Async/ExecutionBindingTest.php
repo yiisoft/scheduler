@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Integration\Async;
+namespace Yiisoft\Scheduler\Tests\Integration\Async;
 
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
-use Yiisoft\Schedule\Config\TimeoutPolicy;
-use Yiisoft\Schedule\Integration\Async\{ExecutionBinding, ExecutionIdentity, ExecutionOccurrenceCandidate, ExecutionOccurrenceKey};
+use Yiisoft\Scheduler\Config\TimeoutPolicy;
+use Yiisoft\Scheduler\Integration\Async\{ExecutionBinding, ExecutionIdentity, ExecutionOccurrenceCandidate, ExecutionOccurrenceKey};
 
 use const INF;
 use const NAN;

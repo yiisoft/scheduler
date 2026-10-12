@@ -2,16 +2,16 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Integration\Async;
+namespace Yiisoft\Scheduler\Integration\Async;
 
 use Throwable;
-use Yiisoft\Schedule\Config\TimeoutPolicy;
-use Yiisoft\Schedule\Executor\ShellCommandSpecification;
-use Yiisoft\Schedule\Executor\ShellVariableOverrides;
-use Yiisoft\Schedule\Executor\ShellVariableResolver;
-use Yiisoft\Schedule\Integration\Async\Process\ProcessHandleInterface;
-use Yiisoft\Schedule\Integration\Async\Process\ProcessLaunchRequest;
-use Yiisoft\Schedule\Integration\Async\Process\ProcessLauncherInterface;
+use Yiisoft\Scheduler\Config\TimeoutPolicy;
+use Yiisoft\Scheduler\Executor\ShellCommandSpecification;
+use Yiisoft\Scheduler\Executor\ShellVariableOverrides;
+use Yiisoft\Scheduler\Executor\ShellVariableResolver;
+use Yiisoft\Scheduler\Integration\Async\Process\ProcessHandleInterface;
+use Yiisoft\Scheduler\Integration\Async\Process\ProcessLaunchRequest;
+use Yiisoft\Scheduler\Integration\Async\Process\ProcessLauncherInterface;
 use UnexpectedValueException;
 
 use function is_int;

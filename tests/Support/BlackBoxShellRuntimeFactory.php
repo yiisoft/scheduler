@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Support;
+namespace Yiisoft\Scheduler\Tests\Support;
 
 use RuntimeException;
-use Yiisoft\Schedule\Config\TimeoutPolicy;
-use Yiisoft\Schedule\Executor\{ShellCommandSpecification,ShellVariableOverrides};
-use Yiisoft\Schedule\Integration\Async\{ExecutionLedgerRecord,ExecutionWorkerCapability,ExecutionWorkerRuntimeFactoryInterface,ExecutionWorkerRuntimeInterface,ShellCommandRuntime,SystemMonotonicClock,UsleepPollWaiter};
-use Yiisoft\Schedule\Integration\Async\Process\SymfonyProcessLauncher;
+use Yiisoft\Scheduler\Config\TimeoutPolicy;
+use Yiisoft\Scheduler\Executor\{ShellCommandSpecification,ShellVariableOverrides};
+use Yiisoft\Scheduler\Integration\Async\{ExecutionLedgerRecord,ExecutionWorkerCapability,ExecutionWorkerRuntimeFactoryInterface,ExecutionWorkerRuntimeInterface,ShellCommandRuntime,SystemMonotonicClock,UsleepPollWaiter};
+use Yiisoft\Scheduler\Integration\Async\Process\SymfonyProcessLauncher;
 
 use function file_get_contents;
 use function file_put_contents;

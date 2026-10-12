@@ -1,4 +1,4 @@
-# Upgrading Instructions for Yii Schedule
+# Upgrading Instructions for Yii Scheduler
 
 This release has a breaking configuration, CLI, state, and execution contract. Rebuild
 integrations around these contracts rather than the pre-release scheduling API or runtime.

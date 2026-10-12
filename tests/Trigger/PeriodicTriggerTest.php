@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Trigger;
+namespace Yiisoft\Scheduler\Tests\Trigger;
 
 use DateInterval;
 use DateTimeImmutable;
 use PHPUnit\Framework\TestCase;
-use Yiisoft\Schedule\Exception\LogicException;
-use Yiisoft\Schedule\Trigger\{PeriodicTrigger, TriggerRangeInterface};
+use Yiisoft\Scheduler\Exception\LogicException;
+use Yiisoft\Scheduler\Trigger\{PeriodicTrigger, TriggerRangeInterface};
 
 final class PeriodicTriggerTest extends TestCase
 {

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Planner;
+namespace Yiisoft\Scheduler\Planner;
 
 use InvalidArgumentException;
 use RuntimeException;

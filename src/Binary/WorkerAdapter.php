@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Binary;
+namespace Yiisoft\Scheduler\Binary;
 
 use InvalidArgumentException;
-use Yiisoft\Schedule\Integration\Async\{ExecutionLedgerLocatorInterface,ExecutionWorkerCapability,ExecutionWorkerEntrypoint,ExecutionWorkerInvocationResult};
+use Yiisoft\Scheduler\Integration\Async\{ExecutionLedgerLocatorInterface,ExecutionWorkerCapability,ExecutionWorkerEntrypoint,ExecutionWorkerInvocationResult};
 
 use function is_callable;
 use function strlen;

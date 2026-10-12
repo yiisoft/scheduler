@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Integration\Async\Store;
+namespace Yiisoft\Scheduler\Tests\Integration\Async\Store;
 
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
-use Yiisoft\Schedule\Integration\Async\OccurrenceSkipReason;
-use Yiisoft\Schedule\Integration\Async\Store\FileExecutionOccurrenceCheckpoint;
+use Yiisoft\Scheduler\Integration\Async\OccurrenceSkipReason;
+use Yiisoft\Scheduler\Integration\Async\Store\FileExecutionOccurrenceCheckpoint;
 use PHPUnit\Framework\Attributes\DataProvider;
 
 final class FileExecutionOccurrenceCheckpointTest extends TestCase

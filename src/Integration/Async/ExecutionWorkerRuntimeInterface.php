@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Integration\Async;
+namespace Yiisoft\Scheduler\Integration\Async;
 
 /** Marker for application runtime produced after a successful worker claim. */
 interface ExecutionWorkerRuntimeInterface

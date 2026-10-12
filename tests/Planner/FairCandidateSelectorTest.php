@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Planner;
+namespace Yiisoft\Scheduler\Tests\Planner;
 
 use PHPUnit\Framework\TestCase;
-use Yiisoft\Schedule\Config\TimeoutPolicy;
-use Yiisoft\Schedule\Integration\Async\{ExecutionBinding,ExecutionIdentity,ExecutionOccurrenceCandidate,ExecutionOccurrenceKey};
-use Yiisoft\Schedule\Planner\FairCandidateSelector;
+use Yiisoft\Scheduler\Config\TimeoutPolicy;
+use Yiisoft\Scheduler\Integration\Async\{ExecutionBinding,ExecutionIdentity,ExecutionOccurrenceCandidate,ExecutionOccurrenceKey};
+use Yiisoft\Scheduler\Planner\FairCandidateSelector;
 use InvalidArgumentException;
 
 final class FairCandidateSelectorTest extends TestCase

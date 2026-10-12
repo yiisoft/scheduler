@@ -2,18 +2,18 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Integration\Async\Process;
+namespace Yiisoft\Scheduler\Tests\Integration\Async\Process;
 
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
-use Yiisoft\Schedule\Config\PreparedConfiguration;
-use Yiisoft\Schedule\Integration\Async\WorkerLifecyclePolicy;
-use Yiisoft\Schedule\Executor\ShellVariableOverrides;
-use Yiisoft\Schedule\Integration\Async\ExecutionOccurrenceKey;
-use Yiisoft\Schedule\Integration\Async\ExecutionWorkerCapability;
-use Yiisoft\Schedule\Integration\Async\ExecutionWorkerLaunchRequest;
-use Yiisoft\Schedule\Integration\Async\MonotonicClockInterface;
-use Yiisoft\Schedule\Integration\Async\Process\SameFileExecutionWorkerProcessCommandBuilder;
+use Yiisoft\Scheduler\Config\PreparedConfiguration;
+use Yiisoft\Scheduler\Integration\Async\WorkerLifecyclePolicy;
+use Yiisoft\Scheduler\Executor\ShellVariableOverrides;
+use Yiisoft\Scheduler\Integration\Async\ExecutionOccurrenceKey;
+use Yiisoft\Scheduler\Integration\Async\ExecutionWorkerCapability;
+use Yiisoft\Scheduler\Integration\Async\ExecutionWorkerLaunchRequest;
+use Yiisoft\Scheduler\Integration\Async\MonotonicClockInterface;
+use Yiisoft\Scheduler\Integration\Async\Process\SameFileExecutionWorkerProcessCommandBuilder;
 
 use function putenv;
 

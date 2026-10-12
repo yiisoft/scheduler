@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Binary;
+namespace Yiisoft\Scheduler\Tests\Binary;
 
 use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -10,10 +10,10 @@ use PHPUnit\Framework\TestCase;
 use Psr\Clock\ClockInterface;
 use ReflectionClass;
 use ReflectionNamedType;
-use Yiisoft\Schedule\Binary\{WorkerAdapter, WorkerArgumentParser, WorkerInvocation};
-use Yiisoft\Schedule\Executor\ShellVariableOverrides;
+use Yiisoft\Scheduler\Binary\{WorkerAdapter, WorkerArgumentParser, WorkerInvocation};
+use Yiisoft\Scheduler\Executor\ShellVariableOverrides;
 use DateTimeImmutable;
-use Yiisoft\Schedule\Integration\Async\{ExecutionClaimResult, ExecutionFence, ExecutionIdentity, ExecutionLedgerInterface, ExecutionLedgerLocatorInterface, ExecutionLedgerRecord, ExecutionOccurrenceKey, ExecutionOutcome, ExecutionTerminalResult, ExecutionWorkerCapability, ExecutionWorkerEntrypoint, ExecutionWorkerRuntimeFactoryInterface, ExecutionWorkerRuntimeInterface};
+use Yiisoft\Scheduler\Integration\Async\{ExecutionClaimResult, ExecutionFence, ExecutionIdentity, ExecutionLedgerInterface, ExecutionLedgerLocatorInterface, ExecutionLedgerRecord, ExecutionOccurrenceKey, ExecutionOutcome, ExecutionTerminalResult, ExecutionWorkerCapability, ExecutionWorkerEntrypoint, ExecutionWorkerRuntimeFactoryInterface, ExecutionWorkerRuntimeInterface};
 
 final class WorkerAdapterTest extends TestCase
 {
@@ -37,7 +37,7 @@ final class WorkerAdapterTest extends TestCase
         $result = (new WorkerArgumentParser())->parse(['run', 'send', '--config', 'x', '--source', 's', '--state', 'r']);
         self::assertInstanceOf(WorkerInvocation::class, $result);
         $type = new ReflectionClass($result);
-        self::assertSame('Yiisoft\\Schedule\\Binary\\WorkerInvocation', $type->getName());
+        self::assertSame('Yiisoft\\Scheduler\\Binary\\WorkerInvocation', $type->getName());
         foreach (['task', 'config', 'source', 'state', 'overrides'] as $property) {
             self::assertTrue($type->getProperty($property)->isReadOnly());
         }

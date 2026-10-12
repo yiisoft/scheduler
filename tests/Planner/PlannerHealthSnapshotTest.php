@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Planner;
+namespace Yiisoft\Scheduler\Tests\Planner;
 
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
-use Yiisoft\Schedule\Config\ConfigurationSourceInterface;
-use Yiisoft\Schedule\Planner\FilePlannerOwner;
-use Yiisoft\Schedule\Planner\PlannerHealthSnapshot;
+use Yiisoft\Scheduler\Config\ConfigurationSourceInterface;
+use Yiisoft\Scheduler\Planner\FilePlannerOwner;
+use Yiisoft\Scheduler\Planner\PlannerHealthSnapshot;
 use FilesystemIterator;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;

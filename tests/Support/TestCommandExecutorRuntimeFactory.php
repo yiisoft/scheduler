@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Support;
+namespace Yiisoft\Scheduler\Tests\Support;
 
-use Yiisoft\Schedule\Callable\ContainerProvider;
-use Yiisoft\Schedule\Executor\{CallableCommand, CallableExecutor, CommandExecutorMap, CommandExecutorRuntime, CommandExecutorRuntimeFactory, ExecutionContext};
-use Yiisoft\Schedule\Integration\Async\ExecutionOutcome;
+use Yiisoft\Scheduler\Callable\ContainerProvider;
+use Yiisoft\Scheduler\Executor\{CallableCommand, CallableExecutor, CommandExecutorMap, CommandExecutorRuntime, CommandExecutorRuntimeFactory, ExecutionContext};
+use Yiisoft\Scheduler\Integration\Async\ExecutionOutcome;
 
 final class TestCommandExecutorRuntimeFactory implements CommandExecutorRuntimeFactory
 {

@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Config;
+namespace Yiisoft\Scheduler\Tests\Config;
 
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
-use Yiisoft\Schedule\Config\PreparedConfiguration;
+use Yiisoft\Scheduler\Config\PreparedConfiguration;
 
 final class AsyncWorkerCapacityValidationTest extends TestCase
 {

@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Executor;
+namespace Yiisoft\Scheduler\Executor;
 
 use InvalidArgumentException;
 use Throwable;
-use Yiisoft\Schedule\Config\TimeoutPolicy;
-use Yiisoft\Schedule\Integration\Async\{ExecutionOutcome,ShellCommandRuntimeFactoryInterface};
+use Yiisoft\Scheduler\Config\TimeoutPolicy;
+use Yiisoft\Scheduler\Integration\Async\{ExecutionOutcome,ShellCommandRuntimeFactoryInterface};
 
 final class ShellCommandExecutor implements ExecutorInterface
 {

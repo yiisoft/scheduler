@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Config;
+namespace Yiisoft\Scheduler\Config;
 
-use Yiisoft\Schedule\ScalarMetadata;
+use Yiisoft\Scheduler\ScalarMetadata;
 use DateTimeImmutable;
 use DateTimeZone;
 use InvalidArgumentException;

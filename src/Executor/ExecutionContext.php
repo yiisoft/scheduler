@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Executor;
+namespace Yiisoft\Scheduler\Executor;
 
-use Yiisoft\Schedule\Config\TimeoutPolicy;
-use Yiisoft\Schedule\ScalarMetadata;
+use Yiisoft\Scheduler\Config\TimeoutPolicy;
+use Yiisoft\Scheduler\ScalarMetadata;
 
 /** Immutable input passed to an executor. */
 final class ExecutionContext

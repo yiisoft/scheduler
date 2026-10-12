@@ -3,9 +3,9 @@
 declare(strict_types=1);
 
 use Psr\Container\ContainerInterface;
-use Yiisoft\Schedule\Config\SchedulerConfig;
-use Yiisoft\Schedule\Executor\CallableCommand;
-use Yiisoft\Schedule\Tests\Support\CallableDependencyInjectionService;
+use Yiisoft\Scheduler\Config\SchedulerConfig;
+use Yiisoft\Scheduler\Executor\CallableCommand;
+use Yiisoft\Scheduler\Tests\Support\CallableDependencyInjectionService;
 
 /**
  * The source is deliberately a zero-argument factory.  The container belongs

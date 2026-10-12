@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Config;
+namespace Yiisoft\Scheduler\Config;
 
 use InvalidArgumentException;
-use Yiisoft\Schedule\Executor\CommandExecutorRuntimeFactory;
+use Yiisoft\Scheduler\Executor\CommandExecutorRuntimeFactory;
 
 use function hash_file;
 use function is_file;

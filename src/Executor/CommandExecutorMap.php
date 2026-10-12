@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Executor;
+namespace Yiisoft\Scheduler\Executor;
 
 use InvalidArgumentException;
 use ReflectionClass;

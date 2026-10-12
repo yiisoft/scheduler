@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Trigger;
+namespace Yiisoft\Scheduler\Tests\Trigger;
 
 use DateTimeImmutable;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
-use Yiisoft\Schedule\Config\{SchedulerConfig, TriggerDefinition};
-use Yiisoft\Schedule\Executor\ShellCommand;
-use Yiisoft\Schedule\Trigger\{CronExpressionTrigger, PeriodicTrigger, TriggerFactory, TriggerInterface};
+use Yiisoft\Scheduler\Config\{SchedulerConfig, TriggerDefinition};
+use Yiisoft\Scheduler\Executor\ShellCommand;
+use Yiisoft\Scheduler\Trigger\{CronExpressionTrigger, PeriodicTrigger, TriggerFactory, TriggerInterface};
 use stdClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 

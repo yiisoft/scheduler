@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Binary;
+namespace Yiisoft\Scheduler\Tests\Binary;
 
 use PHPUnit\Framework\TestCase;
-use Yiisoft\Schedule\Binary\ExecutionWorkerExitCodeMapper;
-use Yiisoft\Schedule\Integration\Async\ExecutionOutcome;
-use Yiisoft\Schedule\Integration\Async\ExecutionWorkerInvocationResult;
+use Yiisoft\Scheduler\Binary\ExecutionWorkerExitCodeMapper;
+use Yiisoft\Scheduler\Integration\Async\ExecutionOutcome;
+use Yiisoft\Scheduler\Integration\Async\ExecutionWorkerInvocationResult;
 use PHPUnit\Framework\Attributes\DataProvider;
 
 final class ExecutionWorkerExitCodeMapperTest extends TestCase

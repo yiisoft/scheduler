@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Clock;
+namespace Yiisoft\Scheduler\Clock;
 
 use DateTimeImmutable;
 use Psr\Clock\ClockInterface;

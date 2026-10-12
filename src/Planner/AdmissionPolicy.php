@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Planner;
+namespace Yiisoft\Scheduler\Planner;
 
 use InvalidArgumentException;
-use Yiisoft\Schedule\Config\OverlapPolicy;
-use Yiisoft\Schedule\Integration\Async\ExecutionLedgerQueryInterface;
+use Yiisoft\Scheduler\Config\OverlapPolicy;
+use Yiisoft\Scheduler\Integration\Async\ExecutionLedgerQueryInterface;
 
 use function count;
 

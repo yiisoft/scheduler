@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Integration\Async;
+namespace Yiisoft\Scheduler\Integration\Async;
 
 /** Validates admission facts before a worker attempts to claim the ledger record. */
 interface ExecutionWorkerPreClaimValidatorInterface

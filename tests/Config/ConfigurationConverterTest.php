@@ -2,15 +2,15 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Config;
+namespace Yiisoft\Scheduler\Tests\Config;
 
 use InvalidArgumentException;
 use LogicException;
 use PHPUnit\Framework\TestCase;
-use Yiisoft\Schedule\Callable\{ContainerProvider};
-use Yiisoft\Schedule\Config\{ConfigurationConverter,PreparedConfiguration,SchedulerConfig};
-use Yiisoft\Schedule\Executor\{CallableCommand,ShellCommand};
-use Yiisoft\Schedule\ExecutionMode;
+use Yiisoft\Scheduler\Callable\{ContainerProvider};
+use Yiisoft\Scheduler\Config\{ConfigurationConverter,PreparedConfiguration,SchedulerConfig};
+use Yiisoft\Scheduler\Executor\{CallableCommand,ShellCommand};
+use Yiisoft\Scheduler\ExecutionMode;
 
 final class ConfigurationConverterTest extends TestCase
 {

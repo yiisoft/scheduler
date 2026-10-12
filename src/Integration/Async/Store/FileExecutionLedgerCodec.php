@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Integration\Async\Store;
+namespace Yiisoft\Scheduler\Integration\Async\Store;
 
 use InvalidArgumentException;
 use Throwable;
-use Yiisoft\Schedule\Config\PreparedConfiguration;
-use Yiisoft\Schedule\Integration\Async\{ExecutionIdentity, ExecutionDispatchReservation, ExecutionFence, ExecutionLaunchObservation, ExecutionLedgerRecord, ExecutionRecoveryFence, ExecutionOutcome, ExecutionOccurrenceKey, ExecutionProcessClosure};
-use Yiisoft\Schedule\ScalarMetadata;
+use Yiisoft\Scheduler\Config\PreparedConfiguration;
+use Yiisoft\Scheduler\Integration\Async\{ExecutionIdentity, ExecutionDispatchReservation, ExecutionFence, ExecutionLaunchObservation, ExecutionLedgerRecord, ExecutionRecoveryFence, ExecutionOutcome, ExecutionOccurrenceKey, ExecutionProcessClosure};
+use Yiisoft\Scheduler\ScalarMetadata;
 
 use function count;
 use function is_array;

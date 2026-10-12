@@ -2,6 +2,6 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Task;
+namespace Yiisoft\Scheduler\Task;
 
 final class TaskId extends Identifier {}

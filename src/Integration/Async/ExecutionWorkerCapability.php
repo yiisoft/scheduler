@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Integration\Async;
+namespace Yiisoft\Scheduler\Integration\Async;
 
 use InvalidArgumentException;
 use JsonException;
-use Yiisoft\Schedule\Config\PreparedConfiguration;
+use Yiisoft\Scheduler\Config\PreparedConfiguration;
 
 use function is_array;
 use function is_int;

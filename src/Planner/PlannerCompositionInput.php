@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Planner;
+namespace Yiisoft\Scheduler\Planner;
 
 use Psr\Clock\ClockInterface;
-use Yiisoft\Schedule\Config\RuntimeConfigurationSourceInterface;
-use Yiisoft\Schedule\Executor\{CommandExecutorRuntimeFactory,ShellVariableOverrides};
-use Yiisoft\Schedule\Integration\Async\{ExecutionLedgerInterface,ExecutionOccurrenceCheckpointInterface,ExecutionWorkerLauncherInterface,MonotonicClockInterface,PollWaiterInterface,ShellCommandRuntimeFactoryInterface};
+use Yiisoft\Scheduler\Config\RuntimeConfigurationSourceInterface;
+use Yiisoft\Scheduler\Executor\{CommandExecutorRuntimeFactory,ShellVariableOverrides};
+use Yiisoft\Scheduler\Integration\Async\{ExecutionLedgerInterface,ExecutionOccurrenceCheckpointInterface,ExecutionWorkerLauncherInterface,MonotonicClockInterface,PollWaiterInterface,ShellCommandRuntimeFactoryInterface};
 
 /** Immutable, typed process-local inputs for the planner composition root. */
 final class PlannerCompositionInput

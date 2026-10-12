@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Binary;
+namespace Yiisoft\Scheduler\Binary;
 
-use Yiisoft\Schedule\Integration\Async\ExecutionOutcome;
-use Yiisoft\Schedule\Integration\Async\ExecutionWorkerInvocationResult;
+use Yiisoft\Scheduler\Integration\Async\ExecutionOutcome;
+use Yiisoft\Scheduler\Integration\Async\ExecutionWorkerInvocationResult;
 
 /** Maps a worker result to a bounded process exit code. */
 final class ExecutionWorkerExitCodeMapper

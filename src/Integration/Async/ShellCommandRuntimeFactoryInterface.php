@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Integration\Async;
+namespace Yiisoft\Scheduler\Integration\Async;
 
-use Yiisoft\Schedule\Config\TimeoutPolicy;
-use Yiisoft\Schedule\Executor\ShellCommandSpecification;
+use Yiisoft\Scheduler\Config\TimeoutPolicy;
+use Yiisoft\Scheduler\Executor\ShellCommandSpecification;
 
 interface ShellCommandRuntimeFactoryInterface
 {

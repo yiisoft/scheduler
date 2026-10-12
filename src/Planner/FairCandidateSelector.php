@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Planner;
+namespace Yiisoft\Scheduler\Planner;
 
-use Yiisoft\Schedule\Integration\Async\ExecutionOccurrenceCandidate;
+use Yiisoft\Scheduler\Integration\Async\ExecutionOccurrenceCandidate;
 use InvalidArgumentException;
 
 use function count;

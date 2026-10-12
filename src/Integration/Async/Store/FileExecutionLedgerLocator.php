@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Integration\Async\Store;
+namespace Yiisoft\Scheduler\Integration\Async\Store;
 
 use InvalidArgumentException;
-use Yiisoft\Schedule\Integration\Async\{ExecutionLedgerInterface, ExecutionLedgerLocatorInterface};
+use Yiisoft\Scheduler\Integration\Async\{ExecutionLedgerInterface, ExecutionLedgerLocatorInterface};
 
 use const DIRECTORY_SEPARATOR;
 

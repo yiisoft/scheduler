@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Support;
+namespace Yiisoft\Scheduler\Tests\Support;
 
-use Yiisoft\Schedule\Integration\Async\ExecutionFence;
-use Yiisoft\Schedule\Integration\Async\ExecutionIdentity;
-use Yiisoft\Schedule\Integration\Async\ExecutionLedgerRecord;
-use Yiisoft\Schedule\Integration\Async\ExecutionOccurrenceKey;
-use Yiisoft\Schedule\Integration\Async\ExecutionWorkerCapability;
+use Yiisoft\Scheduler\Integration\Async\ExecutionFence;
+use Yiisoft\Scheduler\Integration\Async\ExecutionIdentity;
+use Yiisoft\Scheduler\Integration\Async\ExecutionLedgerRecord;
+use Yiisoft\Scheduler\Integration\Async\ExecutionOccurrenceKey;
+use Yiisoft\Scheduler\Integration\Async\ExecutionWorkerCapability;
 
 use function file_put_contents;
 

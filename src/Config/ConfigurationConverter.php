@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Config;
+namespace Yiisoft\Scheduler\Config;
 
 use InvalidArgumentException;
-use Yiisoft\Schedule\Executor\{CommandExecutorMap, CommandExecutorRuntimeFactory};
-use Yiisoft\Schedule\Task\TaskId;
+use Yiisoft\Scheduler\Executor\{CommandExecutorMap, CommandExecutorRuntimeFactory};
+use Yiisoft\Scheduler\Task\TaskId;
 
 /** Converts source declarations while keeping command handles strictly process-local. */
 final class ConfigurationConverter

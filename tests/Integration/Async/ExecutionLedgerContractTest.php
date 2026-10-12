@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Integration\Async;
+namespace Yiisoft\Scheduler\Tests\Integration\Async;
 
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
-use Yiisoft\Schedule\Integration\Async\{
+use Yiisoft\Scheduler\Integration\Async\{
     ExecutionAdmission, ExecutionClaimResult, ExecutionDispatchReservation, ExecutionDispatchResult,
     ExecutionFence, ExecutionGenerationResult, ExecutionIdentity, ExecutionLaunchObservation,
     ExecutionLedgerInterface, ExecutionLedgerQueryInterface, ExecutionLedgerRecord, ExecutionLedgerState, ExecutionOccurrenceKey,

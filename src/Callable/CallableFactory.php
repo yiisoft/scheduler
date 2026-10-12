@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Callable;
+namespace Yiisoft\Scheduler\Callable;
 
 use InvalidArgumentException;
 use Psr\Container\ContainerInterface;

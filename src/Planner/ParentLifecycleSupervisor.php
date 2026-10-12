@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Planner;
+namespace Yiisoft\Scheduler\Planner;
 
 use Throwable;
 use InvalidArgumentException;
 use RuntimeException;
-use Yiisoft\Schedule\Integration\Async\{ExecutionLaunchObservation, ExecutionProcessClosure, ExecutionWorkerLaunchHandle, ExecutionWorkerLaunchRequest, MonotonicClockInterface, PollWaiterInterface};
-use Yiisoft\Schedule\Integration\Async\Process\{ExecutionWorkerProcessHandleObserverInterface, ProcessHandleInterface, ProcessResult};
+use Yiisoft\Scheduler\Integration\Async\{ExecutionLaunchObservation, ExecutionProcessClosure, ExecutionWorkerLaunchHandle, ExecutionWorkerLaunchRequest, MonotonicClockInterface, PollWaiterInterface};
+use Yiisoft\Scheduler\Integration\Async\Process\{ExecutionWorkerProcessHandleObserverInterface, ProcessHandleInterface, ProcessResult};
 
 use function is_finite;
 use function preg_replace;

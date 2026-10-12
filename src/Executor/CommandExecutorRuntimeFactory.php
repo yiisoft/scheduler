@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Executor;
+namespace Yiisoft\Scheduler\Executor;
 
-use Yiisoft\Schedule\Callable\ContainerProvider;
+use Yiisoft\Scheduler\Callable\ContainerProvider;
 
 interface CommandExecutorRuntimeFactory
 {

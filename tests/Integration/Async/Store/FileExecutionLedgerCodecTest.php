@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Integration\Async\Store;
+namespace Yiisoft\Scheduler\Tests\Integration\Async\Store;
 
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
-use Yiisoft\Schedule\Integration\Async\{ExecutionDispatchReservation, ExecutionFence, ExecutionIdentity, ExecutionLaunchObservation, ExecutionLedgerRecord, ExecutionLedgerState, ExecutionOccurrenceKey, ExecutionOutcome, ExecutionProcessClosure, ExecutionRecoveryFence};
-use Yiisoft\Schedule\Integration\Async\Store\FileExecutionLedgerCodec;
+use Yiisoft\Scheduler\Integration\Async\{ExecutionDispatchReservation, ExecutionFence, ExecutionIdentity, ExecutionLaunchObservation, ExecutionLedgerRecord, ExecutionLedgerState, ExecutionOccurrenceKey, ExecutionOutcome, ExecutionProcessClosure, ExecutionRecoveryFence};
+use Yiisoft\Scheduler\Integration\Async\Store\FileExecutionLedgerCodec;
 use PHPUnit\Framework\Attributes\DataProvider;
 
 use const JSON_PRESERVE_ZERO_FRACTION;

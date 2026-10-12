@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Config;
+namespace Yiisoft\Scheduler\Tests\Config;
 
 use LogicException;
-use Yiisoft\Schedule\Callable\ContainerProvider;
-use Yiisoft\Schedule\Config\TimeoutPolicy;
-use Yiisoft\Schedule\Executor\{CommandExecutorRuntime,CommandExecutorRuntimeFactory,ProcessLocalCommandExecutorRuntimeFactory,ShellCommandSpecification};
-use Yiisoft\Schedule\Integration\Async\{ShellCommandRuntime,ShellCommandRuntimeFactoryInterface};
+use Yiisoft\Scheduler\Callable\ContainerProvider;
+use Yiisoft\Scheduler\Config\TimeoutPolicy;
+use Yiisoft\Scheduler\Executor\{CommandExecutorRuntime,CommandExecutorRuntimeFactory,ProcessLocalCommandExecutorRuntimeFactory,ShellCommandSpecification};
+use Yiisoft\Scheduler\Integration\Async\{ShellCommandRuntime,ShellCommandRuntimeFactoryInterface};
 
 /** Runtime graph used by configuration tests; execution is intentionally out of scope. */
 final class RuntimeFactoryFixture implements CommandExecutorRuntimeFactory

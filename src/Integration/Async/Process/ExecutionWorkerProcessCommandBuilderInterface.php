@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Integration\Async\Process;
+namespace Yiisoft\Scheduler\Integration\Async\Process;
 
-use Yiisoft\Schedule\Integration\Async\ExecutionWorkerLaunchRequest;
+use Yiisoft\Scheduler\Integration\Async\ExecutionWorkerLaunchRequest;
 
 /** Application-owned translation of an opaque worker request to a process request. */
 interface ExecutionWorkerProcessCommandBuilderInterface

@@ -2,22 +2,22 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Planner;
+namespace Yiisoft\Scheduler\Tests\Planner;
 
 use DateTimeImmutable;
 use PHPUnit\Framework\TestCase;
-use Yiisoft\Schedule\Config\TimeoutPolicy;
-use Yiisoft\Schedule\Integration\Async\ExecutionBinding;
-use Yiisoft\Schedule\Integration\Async\ExecutionFence;
-use Yiisoft\Schedule\Integration\Async\ExecutionIdentity;
-use Yiisoft\Schedule\Integration\Async\ExecutionLedgerInterface;
-use Yiisoft\Schedule\Integration\Async\ExecutionLedgerRecord;
-use Yiisoft\Schedule\Integration\Async\ExecutionLedgerState;
-use Yiisoft\Schedule\Integration\Async\ExecutionRecoveryFence;
-use Yiisoft\Schedule\Integration\Async\ExecutionOccurrenceCandidate;
-use Yiisoft\Schedule\Integration\Async\ExecutionOccurrenceKey;
-use Yiisoft\Schedule\Planner\ExecutionAdmissionMaterialFactory;
-use Yiisoft\Schedule\Tests\Support\TestClock;
+use Yiisoft\Scheduler\Config\TimeoutPolicy;
+use Yiisoft\Scheduler\Integration\Async\ExecutionBinding;
+use Yiisoft\Scheduler\Integration\Async\ExecutionFence;
+use Yiisoft\Scheduler\Integration\Async\ExecutionIdentity;
+use Yiisoft\Scheduler\Integration\Async\ExecutionLedgerInterface;
+use Yiisoft\Scheduler\Integration\Async\ExecutionLedgerRecord;
+use Yiisoft\Scheduler\Integration\Async\ExecutionLedgerState;
+use Yiisoft\Scheduler\Integration\Async\ExecutionRecoveryFence;
+use Yiisoft\Scheduler\Integration\Async\ExecutionOccurrenceCandidate;
+use Yiisoft\Scheduler\Integration\Async\ExecutionOccurrenceKey;
+use Yiisoft\Scheduler\Planner\ExecutionAdmissionMaterialFactory;
+use Yiisoft\Scheduler\Tests\Support\TestClock;
 use InvalidArgumentException;
 
 use const PHP_INT_MAX;

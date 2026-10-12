@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 require \dirname(__DIR__, 4) . '/vendor/autoload.php';
 
-use Yiisoft\Schedule\Integration\Async\ExecutionWorkerEntrypoint;
-use Yiisoft\Schedule\Tests\Support\{BlackBoxClock,BlackBoxLedgerLocator,BlackBoxShellRuntimeFactory};
+use Yiisoft\Scheduler\Integration\Async\ExecutionWorkerEntrypoint;
+use Yiisoft\Scheduler\Tests\Support\{BlackBoxClock,BlackBoxLedgerLocator,BlackBoxShellRuntimeFactory};
 
 $capability = stream_get_contents(\STDIN);
 $result = (new ExecutionWorkerEntrypoint(new BlackBoxLedgerLocator(), new BlackBoxShellRuntimeFactory(), new BlackBoxClock()))->invoke($capability, 3000);

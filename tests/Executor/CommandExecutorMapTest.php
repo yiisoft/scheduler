@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Executor;
+namespace Yiisoft\Scheduler\Tests\Executor;
 
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
-use Yiisoft\Schedule\Executor\{Command, CommandExecutorMap, ExecutionContext, ExecutorInterface};
-use Yiisoft\Schedule\Integration\Async\ExecutionOutcome;
+use Yiisoft\Scheduler\Executor\{Command, CommandExecutorMap, ExecutionContext, ExecutorInterface};
+use Yiisoft\Scheduler\Integration\Async\ExecutionOutcome;
 use stdClass;
 
 final class CommandExecutorMapTest extends TestCase

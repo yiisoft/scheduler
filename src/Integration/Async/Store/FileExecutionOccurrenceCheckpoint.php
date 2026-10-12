@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Integration\Async\Store;
+namespace Yiisoft\Scheduler\Integration\Async\Store;
 
 use InvalidArgumentException;
 use JsonException;
-use Yiisoft\Schedule\Integration\Async\ExecutionOccurrenceCheckpointInterface;
-use Yiisoft\Schedule\Integration\Async\OccurrenceSkipReason;
+use Yiisoft\Scheduler\Integration\Async\ExecutionOccurrenceCheckpointInterface;
+use Yiisoft\Scheduler\Integration\Async\OccurrenceSkipReason;
 
 use function count;
 use function file_get_contents;

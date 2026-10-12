@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Integration\Async;
+namespace Yiisoft\Scheduler\Tests\Integration\Async;
 
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
-use Yiisoft\Schedule\Integration\Async\ExecutionFence;
+use Yiisoft\Scheduler\Integration\Async\ExecutionFence;
 
 final class ExecutionFenceTest extends TestCase
 {

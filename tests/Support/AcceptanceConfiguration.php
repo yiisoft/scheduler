@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-use Yiisoft\Schedule\Config\SchedulerConfig;
-use Yiisoft\Schedule\Executor\CallableCommand;
-use Yiisoft\Schedule\Executor\ShellCommand;
+use Yiisoft\Scheduler\Config\SchedulerConfig;
+use Yiisoft\Scheduler\Executor\CallableCommand;
+use Yiisoft\Scheduler\Executor\ShellCommand;
 
 if (!\function_exists('yii_schedule_acceptance_sync_effect')) {
     function yii_schedule_acceptance_sync_effect(): void

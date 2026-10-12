@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Planner;
+namespace Yiisoft\Scheduler\Planner;
 
-use Yiisoft\Schedule\Integration\Async\WorkerLifecyclePolicy;
-use Yiisoft\Schedule\Integration\Async\ExecutionWorkerLaunchHandle;
-use Yiisoft\Schedule\Integration\Async\ExecutionWorkerLaunchRequest;
-use Yiisoft\Schedule\Integration\Async\Process\ProcessHandleInterface;
+use Yiisoft\Scheduler\Integration\Async\WorkerLifecyclePolicy;
+use Yiisoft\Scheduler\Integration\Async\ExecutionWorkerLaunchHandle;
+use Yiisoft\Scheduler\Integration\Async\ExecutionWorkerLaunchRequest;
+use Yiisoft\Scheduler\Integration\Async\Process\ProcessHandleInterface;
 
 /** A launched worker remains owned until its complete process scope is quiescent. */
 final class RetainedWorker

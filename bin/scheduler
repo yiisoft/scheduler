@@ -5,12 +5,12 @@ declare(strict_types=1);
 
 require \dirname(__DIR__) . '/vendor/autoload.php';
 
-use Yiisoft\Schedule\Binary\{CliArgumentParser,ExecutionWorkerExitCodeMapper,StateDirectoryResolver,WorkerArgumentParser,WorkerCompositionInput};
-use Yiisoft\Schedule\Config\PhpConfigurationSource;
-use Yiisoft\Schedule\Executor\ShellVariableOverrides;
-use Yiisoft\Schedule\Integration\Async\ExecutionWorkerInvocationResult;
-use Yiisoft\Schedule\Planner\{PlannerCompositionInput,PlannerHealthSnapshot,PlannerStateFormat};
-use Yiisoft\Schedule\SchedulerFactory;
+use Yiisoft\Scheduler\Binary\{CliArgumentParser,ExecutionWorkerExitCodeMapper,StateDirectoryResolver,WorkerArgumentParser,WorkerCompositionInput};
+use Yiisoft\Scheduler\Config\PhpConfigurationSource;
+use Yiisoft\Scheduler\Executor\ShellVariableOverrides;
+use Yiisoft\Scheduler\Integration\Async\ExecutionWorkerInvocationResult;
+use Yiisoft\Scheduler\Planner\{PlannerCompositionInput,PlannerHealthSnapshot,PlannerStateFormat};
+use Yiisoft\Scheduler\SchedulerFactory;
 
 try {
     $arguments = \array_slice($argv, 1);

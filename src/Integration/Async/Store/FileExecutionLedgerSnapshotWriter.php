@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Integration\Async\Store;
+namespace Yiisoft\Scheduler\Integration\Async\Store;
 
 /** Writes one complete snapshot and commits it atomically. */
 interface FileExecutionLedgerSnapshotWriter

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Integration\Async;
+namespace Yiisoft\Scheduler\Integration\Async;
 
 /** Narrow seam for producing a validated execution identity. */
 interface ExecutionIdentityFactoryInterface

@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Config;
+namespace Yiisoft\Scheduler\Config;
 
 use DateTimeImmutable;
 use InvalidArgumentException;
 use Psr\Container\ContainerInterface;
-use Yiisoft\Schedule\Callable\ContainerProvider;
-use Yiisoft\Schedule\Executor\{Command, CommandExecutorMap};
-use Yiisoft\Schedule\Executor\CommandExecutorRuntime;
+use Yiisoft\Scheduler\Callable\ContainerProvider;
+use Yiisoft\Scheduler\Executor\{Command, CommandExecutorMap};
+use Yiisoft\Scheduler\Executor\CommandExecutorRuntime;
 use Closure;
 
 use function count;

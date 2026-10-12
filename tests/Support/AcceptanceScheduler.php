@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Support;
+namespace Yiisoft\Scheduler\Tests\Support;
 
 use FilesystemIterator;
 use PHPUnit\Framework\Assert;
@@ -10,12 +10,12 @@ use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use Symfony\Component\Process\Process;
 use Throwable;
-use Yiisoft\Schedule\Integration\Async\UsleepPollWaiter;
-use Yiisoft\Schedule\Config\{PhpConfigurationSource, PreparedConfiguration};
-use Yiisoft\Schedule\Executor\{CommandExecutorMap, CommandExecutorRuntime, CommandExecutorRuntimeFactory};
-use Yiisoft\Schedule\Callable\ContainerProvider;
-use Yiisoft\Schedule\Executor\ExecutionContext;
-use Yiisoft\Schedule\Integration\Async\ExecutionOutcome;
+use Yiisoft\Scheduler\Integration\Async\UsleepPollWaiter;
+use Yiisoft\Scheduler\Config\{PhpConfigurationSource, PreparedConfiguration};
+use Yiisoft\Scheduler\Executor\{CommandExecutorMap, CommandExecutorRuntime, CommandExecutorRuntimeFactory};
+use Yiisoft\Scheduler\Callable\ContainerProvider;
+use Yiisoft\Scheduler\Executor\ExecutionContext;
+use Yiisoft\Scheduler\Integration\Async\ExecutionOutcome;
 use LogicException;
 
 use function array_replace;

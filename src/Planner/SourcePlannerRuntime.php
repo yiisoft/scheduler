@@ -2,20 +2,20 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Planner;
+namespace Yiisoft\Scheduler\Planner;
 
 use DateTimeImmutable;
 use InvalidArgumentException;
 use Psr\Clock\ClockInterface;
 use Throwable;
-use Yiisoft\Schedule\Config\{ConfigurationSourceInterface,PreparedConfiguration,TriggerFactory};
-use Yiisoft\Schedule\Executor\ExecutionContext;
-use Yiisoft\Schedule\ExecutionMode;
-use Yiisoft\Schedule\Integration\Async\{ExecutionIntegrationCoordinator,ExecutionOccurrenceSource,ExecutionOutcome,ExecutionWorkerCapability,ExecutionWorkerLauncherInterface,ExecutionLedgerInterface,ExecutionLedgerQueryInterface,ExecutionOccurrenceCheckpointInterface,MonotonicClockInterface,PollWaiterInterface,WorkerLifecyclePolicy};
-use Yiisoft\Schedule\Integration\Async\ExecutionFence;
-use Yiisoft\Schedule\Integration\Async\ExecutionLaunchObservation;
-use Yiisoft\Schedule\Integration\Async\PreparedConfigurationExecutionBindingSource;
-use Yiisoft\Schedule\Integration\Async\OccurrenceSkipReason;
+use Yiisoft\Scheduler\Config\{ConfigurationSourceInterface,PreparedConfiguration,TriggerFactory};
+use Yiisoft\Scheduler\Executor\ExecutionContext;
+use Yiisoft\Scheduler\ExecutionMode;
+use Yiisoft\Scheduler\Integration\Async\{ExecutionIntegrationCoordinator,ExecutionOccurrenceSource,ExecutionOutcome,ExecutionWorkerCapability,ExecutionWorkerLauncherInterface,ExecutionLedgerInterface,ExecutionLedgerQueryInterface,ExecutionOccurrenceCheckpointInterface,MonotonicClockInterface,PollWaiterInterface,WorkerLifecyclePolicy};
+use Yiisoft\Scheduler\Integration\Async\ExecutionFence;
+use Yiisoft\Scheduler\Integration\Async\ExecutionLaunchObservation;
+use Yiisoft\Scheduler\Integration\Async\PreparedConfigurationExecutionBindingSource;
+use Yiisoft\Scheduler\Integration\Async\OccurrenceSkipReason;
 use RuntimeException;
 
 use function is_string;

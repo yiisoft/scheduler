@@ -1,13 +1,13 @@
 {
-    "name": "yiisoft/schedule",
+    "name": "yiisoft/scheduler",
     "type": "library",
     "description": "Recurring tasks and cron-style scheduling for PHP, best used with Yii3",
     "keywords": ["yii", "schedule", "scheduler", "cron", "recurring tasks"],
     "homepage": "https://www.yiiframework.com/",
     "license": "BSD-3-Clause",
     "support": {
-        "issues": "https://github.com/yiisoft/schedule/issues?state=open",
-        "source": "https://github.com/yiisoft/schedule",
+        "issues": "https://github.com/yiisoft/scheduler/issues?state=open",
+        "source": "https://github.com/yiisoft/scheduler",
         "forum": "https://www.yiiframework.com/forum/",
         "wiki": "https://www.yiiframework.com/wiki/",
         "irc": "ircs://irc.libera.chat:6697/yii",
@@ -43,12 +43,12 @@
     },
     "autoload": {
         "psr-4": {
-            "Yiisoft\\Schedule\\": "src"
+            "Yiisoft\\Scheduler\\": "src"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "Yiisoft\\Schedule\\Tests\\": "tests"
+            "Yiisoft\\Scheduler\\Tests\\": "tests"
         }
     },
     "config": {

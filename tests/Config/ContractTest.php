@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Config;
+namespace Yiisoft\Scheduler\Tests\Config;
 
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
-use Yiisoft\Schedule\Config\{PreparedConfiguration,SchedulerConfig,TaskDefinition,PhpConfigurationSource};
-use Yiisoft\Schedule\Executor\{CallableCommand,ShellCommand};
-use Yiisoft\Schedule\ExecutionMode;
-use Yiisoft\Schedule\Task\TaskId;
+use Yiisoft\Scheduler\Config\{PreparedConfiguration,SchedulerConfig,TaskDefinition,PhpConfigurationSource};
+use Yiisoft\Scheduler\Executor\{CallableCommand,ShellCommand};
+use Yiisoft\Scheduler\ExecutionMode;
+use Yiisoft\Scheduler\Task\TaskId;
 use stdClass;
 
 final class ContractTest extends TestCase
@@ -30,7 +30,7 @@ final class ContractTest extends TestCase
 
     public function testRemovedCompilationApiIsAbsent(): void
     {
-        self::assertFalse(class_exists('Yiisoft\\Schedule\\Config\\Manifest'));
+        self::assertFalse(class_exists('Yiisoft\\Scheduler\\Config\\Manifest'));
         self::assertFalse(method_exists(SchedulerConfig::class, 'compile'));
         self::assertFalse(method_exists(PhpConfigurationSource::class, 'compile'));
     }

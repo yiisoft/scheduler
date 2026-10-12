@@ -2,15 +2,15 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Planner;
+namespace Yiisoft\Scheduler\Planner;
 
 use Closure;
 use InvalidArgumentException;
 use LogicException;
 use Psr\Clock\ClockInterface;
-use Yiisoft\Schedule\Config\{ConfigurationSourceInterface,PreparedConfiguration,RuntimeConfigurationSourceInterface};
-use Yiisoft\Schedule\Executor\CommandExecutorRuntimeFactory;
-use Yiisoft\Schedule\Integration\Async\{ExecutionOccurrenceCandidate,MonotonicClockInterface,PollWaiterInterface};
+use Yiisoft\Scheduler\Config\{ConfigurationSourceInterface,PreparedConfiguration,RuntimeConfigurationSourceInterface};
+use Yiisoft\Scheduler\Executor\CommandExecutorRuntimeFactory;
+use Yiisoft\Scheduler\Integration\Async\{ExecutionOccurrenceCandidate,MonotonicClockInterface,PollWaiterInterface};
 
 use function count;
 

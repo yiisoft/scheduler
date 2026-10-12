@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Binary;
+namespace Yiisoft\Scheduler\Binary;
 
 use Psr\Clock\ClockInterface;
-use Yiisoft\Schedule\Config\RuntimeConfigurationSourceInterface;
-use Yiisoft\Schedule\Executor\{CommandExecutorRuntimeFactory,ShellVariableOverrides};
-use Yiisoft\Schedule\Integration\Async\{ExecutionLedgerLocatorInterface,MonotonicClockInterface,PollWaiterInterface,ShellCommandRuntimeFactoryInterface};
-use Yiisoft\Schedule\Integration\Async\Process\ProcessLauncherInterface;
+use Yiisoft\Scheduler\Config\RuntimeConfigurationSourceInterface;
+use Yiisoft\Scheduler\Executor\{CommandExecutorRuntimeFactory,ShellVariableOverrides};
+use Yiisoft\Scheduler\Integration\Async\{ExecutionLedgerLocatorInterface,MonotonicClockInterface,PollWaiterInterface,ShellCommandRuntimeFactoryInterface};
+use Yiisoft\Scheduler\Integration\Async\Process\ProcessLauncherInterface;
 
 /** Immutable, typed process-local inputs for fresh-worker composition. */
 final class WorkerCompositionInput

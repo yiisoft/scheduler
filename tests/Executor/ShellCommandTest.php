@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Executor;
+namespace Yiisoft\Scheduler\Tests\Executor;
 
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
-use Yiisoft\Schedule\Executor\ShellCommand;
-use Yiisoft\Schedule\Executor\ShellVariableOverrides;
-use Yiisoft\Schedule\Executor\ShellVariableResolver;
+use Yiisoft\Scheduler\Executor\ShellCommand;
+use Yiisoft\Scheduler\Executor\ShellVariableOverrides;
+use Yiisoft\Scheduler\Executor\ShellVariableResolver;
 use LogicException;
 
 final class ShellCommandTest extends TestCase

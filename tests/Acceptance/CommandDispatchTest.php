@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Acceptance;
+namespace Yiisoft\Scheduler\Tests\Acceptance;
 
 use PHPUnit\Framework\TestCase;
-use Yiisoft\Schedule\Tests\Support\AcceptanceScheduler;
+use Yiisoft\Scheduler\Tests\Support\AcceptanceScheduler;
 use PHPUnit\Framework\Attributes\DataProvider;
 
 final class CommandDispatchTest extends TestCase

@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Executor;
+namespace Yiisoft\Scheduler\Tests\Executor;
 
 use PHPUnit\Framework\TestCase;
-use Yiisoft\Schedule\Callable\ContainerProvider;
-use Yiisoft\Schedule\Executor\{CallableCommand, CallableExecutor, ExecutionContext};
-use Yiisoft\Schedule\Integration\Async\ExecutionOutcome;
-use Yiisoft\Schedule\Tests\Support\StubContainer;
+use Yiisoft\Scheduler\Callable\ContainerProvider;
+use Yiisoft\Scheduler\Executor\{CallableCommand, CallableExecutor, ExecutionContext};
+use Yiisoft\Scheduler\Integration\Async\ExecutionOutcome;
+use Yiisoft\Scheduler\Tests\Support\StubContainer;
 use InvalidArgumentException;
 
 final class ExecutorLayerTest extends TestCase

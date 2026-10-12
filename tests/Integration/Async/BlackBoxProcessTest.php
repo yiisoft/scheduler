@@ -2,19 +2,19 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Integration\Async;
+namespace Yiisoft\Scheduler\Tests\Integration\Async;
 
 use FilesystemIterator;
 use PHPUnit\Framework\TestCase;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use Symfony\Component\Process\Process;
-use Yiisoft\Schedule\Config\PreparedConfiguration;
+use Yiisoft\Scheduler\Config\PreparedConfiguration;
 use Throwable;
-use Yiisoft\Schedule\Integration\Async\{ExecutionDispatchReservation,ExecutionFence,ExecutionIntegrationCoordinator,ExecutionLaunchObservation,ExecutionLedgerInterface,ExecutionLedgerState,ExecutionOccurrenceKey,ExecutionWorkerCapability,ExecutionWorkerLaunchRequest};
-use Yiisoft\Schedule\Integration\Async\Process\{ProcessResult,SymfonyExecutionWorkerLauncher};
-use Yiisoft\Schedule\Integration\Async\Store\FileExecutionLedger;
-use Yiisoft\Schedule\Tests\Support\{BlackBoxApplication,BlackBoxApplicationLauncher,BlackBoxApplicationSource,BlackBoxCommandBuilder,BlackBoxObserver};
+use Yiisoft\Scheduler\Integration\Async\{ExecutionDispatchReservation,ExecutionFence,ExecutionIntegrationCoordinator,ExecutionLaunchObservation,ExecutionLedgerInterface,ExecutionLedgerState,ExecutionOccurrenceKey,ExecutionWorkerCapability,ExecutionWorkerLaunchRequest};
+use Yiisoft\Scheduler\Integration\Async\Process\{ProcessResult,SymfonyExecutionWorkerLauncher};
+use Yiisoft\Scheduler\Integration\Async\Store\FileExecutionLedger;
+use Yiisoft\Scheduler\Tests\Support\{BlackBoxApplication,BlackBoxApplicationLauncher,BlackBoxApplicationSource,BlackBoxCommandBuilder,BlackBoxObserver};
 
 use function file_get_contents;
 use function is_dir;

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Callable;
+namespace Yiisoft\Scheduler\Callable;
 
 use Psr\Container\NotFoundExceptionInterface;
 use RuntimeException;

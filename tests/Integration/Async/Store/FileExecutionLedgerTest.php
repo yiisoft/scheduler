@@ -2,17 +2,17 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Integration\Async\Store;
+namespace Yiisoft\Scheduler\Tests\Integration\Async\Store;
 
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
-use Yiisoft\Schedule\Integration\Async\{
+use Yiisoft\Scheduler\Integration\Async\{
     ExecutionDispatchReservation, ExecutionDispatchResult, ExecutionFence, ExecutionGenerationResult,
     ExecutionIdentity, ExecutionLaunchObservation, ExecutionLedgerQueryInterface, ExecutionLedgerRecord, ExecutionLedgerState,
     ExecutionOccurrenceKey, ExecutionOutcome, ExecutionProcessClosure, ExecutionRecoveryFence,
     ExecutionRecoveryResult, ExecutionRevocationResult, ExecutionTerminalResult,
 };
-use Yiisoft\Schedule\Integration\Async\Store\{FileExecutionLedger, FileExecutionLedgerCodec, FileExecutionLedgerSnapshotWriter};
+use Yiisoft\Scheduler\Integration\Async\Store\{FileExecutionLedger, FileExecutionLedgerCodec, FileExecutionLedgerSnapshotWriter};
 use PHPUnit\Framework\Attributes\DataProvider;
 
 use const JSON_THROW_ON_ERROR;

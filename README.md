@@ -1,9 +1,9 @@
 <p align="center">
     <a href="https://github.com/yiisoft" target="_blank"><img src="https://yiisoft.github.io/docs/images/yii_logo.svg" height="100px" alt="Yii"></a>
-    <h1 align="center">Yii Schedule</h1>
+    <h1 align="center">Yii Scheduler</h1>
 </p>
 
-[![Latest Stable Version](https://poser.pugx.org/yiisoft/schedule/v)](https://packagist.org/packages/yiisoft/schedule)
+[![Latest Stable Version](https://poser.pugx.org/yiisoft/scheduler/v)](https://packagist.org/packages/yiisoft/scheduler)
 
 Recurring task scheduling for PHP applications. Define schedules in a package-neutral typed PHP DSL and prepare them for execution.
 
@@ -22,7 +22,7 @@ Recurring task scheduling for PHP applications. Define schedules in a package-ne
 ## Installation
 
 ```shell
-composer require yiisoft/schedule
+composer require yiisoft/scheduler
 ```
 
 ## Configuration
@@ -32,8 +32,8 @@ A PHP configuration file returns a zero-argument factory that creates `Scheduler
 ```php
 <?php
 
-use Yiisoft\Schedule\Config\SchedulerConfig;
-use Yiisoft\Schedule\Executor\ShellCommand;
+use Yiisoft\Scheduler\Config\SchedulerConfig;
+use Yiisoft\Scheduler\Executor\ShellCommand;
 
 return static function (): SchedulerConfig {
     $config = new SchedulerConfig();
@@ -81,4 +81,4 @@ The CLI does not provide status/history commands, `--once`, detach mode, framewo
 
 ## License
 
-The Yii Schedule is free software. It is released under the terms of the BSD License. See [`LICENSE.md`](./LICENSE.md).
+The Yii Scheduler is free software. It is released under the terms of the BSD License. See [`LICENSE.md`](./LICENSE.md).

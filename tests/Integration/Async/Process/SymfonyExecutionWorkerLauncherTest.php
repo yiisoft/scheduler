@@ -2,16 +2,16 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Integration\Async\Process;
+namespace Yiisoft\Scheduler\Tests\Integration\Async\Process;
 
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 use Symfony\Component\Process\Process;
-use Yiisoft\Schedule\Config\PreparedConfiguration;
+use Yiisoft\Scheduler\Config\PreparedConfiguration;
 use Throwable;
-use Yiisoft\Schedule\Integration\Async\Process\{ProcessHandleInterface, ProcessLaunchRequest, ProcessLaunchResult, ProcessLauncherInterface, ProcessResult};
-use Yiisoft\Schedule\Integration\Async\{ExecutionOccurrenceKey, ExecutionWorkerCapability, ExecutionWorkerLaunchException, ExecutionWorkerLaunchHandle, ExecutionWorkerLaunchRequest};
-use Yiisoft\Schedule\Integration\Async\Process\{ExecutionWorkerProcessCommandBuilderInterface, ExecutionWorkerProcessHandleObserverInterface, SymfonyExecutionWorkerLauncher, SymfonyProcessHandle, SymfonyProcessLauncher};
+use Yiisoft\Scheduler\Integration\Async\Process\{ProcessHandleInterface, ProcessLaunchRequest, ProcessLaunchResult, ProcessLauncherInterface, ProcessResult};
+use Yiisoft\Scheduler\Integration\Async\{ExecutionOccurrenceKey, ExecutionWorkerCapability, ExecutionWorkerLaunchException, ExecutionWorkerLaunchHandle, ExecutionWorkerLaunchRequest};
+use Yiisoft\Scheduler\Integration\Async\Process\{ExecutionWorkerProcessCommandBuilderInterface, ExecutionWorkerProcessHandleObserverInterface, SymfonyExecutionWorkerLauncher, SymfonyProcessHandle, SymfonyProcessLauncher};
 
 use function constant;
 use function defined;

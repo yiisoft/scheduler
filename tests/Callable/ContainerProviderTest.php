@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Tests\Callable;
+namespace Yiisoft\Scheduler\Tests\Callable;
 
 use InvalidArgumentException;
 use LogicException;
@@ -10,9 +10,9 @@ use PHPUnit\Framework\TestCase;
 use Psr\Container\ContainerInterface;
 use Psr\Container\NotFoundExceptionInterface;
 use RuntimeException;
-use Yiisoft\Schedule\Callable\ContainerProvider;
-use Yiisoft\Schedule\Callable\EmptyContainer;
-use Yiisoft\Schedule\Tests\Support\StubContainer;
+use Yiisoft\Scheduler\Callable\ContainerProvider;
+use Yiisoft\Scheduler\Callable\EmptyContainer;
+use Yiisoft\Scheduler\Tests\Support\StubContainer;
 
 final class ContainerProviderTest extends TestCase
 {

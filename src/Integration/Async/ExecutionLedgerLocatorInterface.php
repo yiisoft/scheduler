@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Integration\Async;
+namespace Yiisoft\Scheduler\Integration\Async;
 
 /** Resolves an application allow-listed ledger locator. */
 interface ExecutionLedgerLocatorInterface

@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Executor;
+namespace Yiisoft\Scheduler\Executor;
 
-use Yiisoft\Schedule\Callable\ContainerProvider;
-use Yiisoft\Schedule\Integration\Async\ShellCommandRuntimeFactoryInterface;
-use Yiisoft\Schedule\Integration\Async\ExecutionOutcome;
+use Yiisoft\Scheduler\Callable\ContainerProvider;
+use Yiisoft\Scheduler\Integration\Async\ShellCommandRuntimeFactoryInterface;
+use Yiisoft\Scheduler\Integration\Async\ExecutionOutcome;
 
 /** Builds the command executor graph owned by one PHP process. */
 final class ProcessLocalCommandExecutorRuntimeFactory implements CommandExecutorRuntimeFactory

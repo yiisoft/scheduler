@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Integration\Async;
+namespace Yiisoft\Scheduler\Integration\Async;
 
 use InvalidArgumentException;
-use Yiisoft\Schedule\Config\TimeoutPolicy;
-use Yiisoft\Schedule\ScalarMetadata;
+use Yiisoft\Scheduler\Config\TimeoutPolicy;
+use Yiisoft\Scheduler\ScalarMetadata;
 
 use function in_array;
 use function strlen;

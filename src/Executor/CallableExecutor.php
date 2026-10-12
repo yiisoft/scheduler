@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Schedule\Executor;
+namespace Yiisoft\Scheduler\Executor;
 
-use Yiisoft\Schedule\Callable\CallableFactory;
-use Yiisoft\Schedule\Callable\ContainerProvider;
-use Yiisoft\Schedule\Callable\InvocationGuardContainer;
-use Yiisoft\Schedule\Integration\Async\ExecutionOutcome;
-use Yiisoft\Schedule\ScalarMetadata;
+use Yiisoft\Scheduler\Callable\CallableFactory;
+use Yiisoft\Scheduler\Callable\ContainerProvider;
+use Yiisoft\Scheduler\Callable\InvocationGuardContainer;
+use Yiisoft\Scheduler\Integration\Async\ExecutionOutcome;
+use Yiisoft\Scheduler\ScalarMetadata;
 use Throwable;
 use Closure;
 use InvalidArgumentException;
