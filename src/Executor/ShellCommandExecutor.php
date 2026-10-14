@@ -15,13 +15,16 @@ final class ShellCommandExecutor implements ExecutorInterface
 
     public function execute(ExecutionContext $context): ExecutionOutcome
     {
-        if (!$context->command instanceof ShellCommand) {
+        $command = $context->command instanceof PhpCommand
+            ? $context->command->resolve()
+            : $context->command;
+        if (!$command instanceof ShellCommand) {
             throw new InvalidArgumentException('Shell executor requires a shell command.');
         }
 
         try {
             return $this->runtimeFactory
-                ->create($context->command->specification(), $context->timeout ?? new TimeoutPolicy())
+                ->create($command->specification(), $context->timeout ?? new TimeoutPolicy())
                 ->execute();
         } catch (Throwable) {
             return new ExecutionOutcome(ExecutionOutcome::FAILED, 'shell.execution_failed');

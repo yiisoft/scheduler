@@ -7,7 +7,7 @@ namespace Yiisoft\Scheduler\Integration\Async;
 use Closure;
 use InvalidArgumentException;
 use Yiisoft\Scheduler\Config\{PreparedConfiguration,RuntimeConfigurationSourceInterface};
-use Yiisoft\Scheduler\Executor\{CallableCommand,CallableExecutor,CommandExecutorRuntimeFactory,ExecutionContext,ExecutorInterface,ShellCommand,ShellCommandExecutor};
+use Yiisoft\Scheduler\Executor\{CallableCommand,CallableExecutor,CommandExecutorRuntimeFactory,ExecutionContext,ExecutorInterface,PhpCommand,ShellCommand,ShellCommandExecutor};
 use Yiisoft\Scheduler\ExecutionMode;
 use Yiisoft\Scheduler\Executor\Command;
 
@@ -106,6 +106,10 @@ final class PreparedConfigurationExecutionWorkerRuntimeFactory implements Execut
         if ($this->shellRuntimeFactory !== null
             && (!array_key_exists(ShellCommand::class, $configured) || $configured[ShellCommand::class] instanceof ShellCommandExecutor)) {
             $overlay[ShellCommand::class] = new ShellCommandExecutor($this->shellRuntimeFactory);
+        }
+        if ($this->shellRuntimeFactory !== null
+            && (!array_key_exists(PhpCommand::class, $configured) || $configured[PhpCommand::class] instanceof ShellCommandExecutor)) {
+            $overlay[PhpCommand::class] = new ShellCommandExecutor($this->shellRuntimeFactory);
         }
         $map = $map->with($overlay);
         $executor = $map->executorFor($command);

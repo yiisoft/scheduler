@@ -9,7 +9,7 @@ use LogicException;
 use PHPUnit\Framework\TestCase;
 use Yiisoft\Scheduler\Callable\{ContainerProvider};
 use Yiisoft\Scheduler\Config\{ConfigurationConverter,PreparedConfiguration,SchedulerConfig};
-use Yiisoft\Scheduler\Executor\{CallableCommand,ShellCommand};
+use Yiisoft\Scheduler\Executor\{CallableCommand,PhpCommand,ShellCommand};
 use Yiisoft\Scheduler\ExecutionMode;
 
 final class ConfigurationConverterTest extends TestCase
@@ -31,7 +31,8 @@ final class ConfigurationConverterTest extends TestCase
     public function testRuntimeFactoryProvidesExactBuiltInMap(): void
     {
         $runtime = (new RuntimeFactoryFixture())->create(new ContainerProvider());
-        self::assertCount(2, $runtime->commandExecutorMap()->all());
+        self::assertCount(3, $runtime->commandExecutorMap()->all());
+        self::assertArrayHasKey(PhpCommand::class, $runtime->commandExecutorMap()->all());
         self::assertArrayHasKey(ShellCommand::class, $runtime->commandExecutorMap()->all());
         self::assertArrayHasKey(CallableCommand::class, $runtime->commandExecutorMap()->all());
     }

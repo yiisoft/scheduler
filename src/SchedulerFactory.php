@@ -7,7 +7,7 @@ namespace Yiisoft\Scheduler;
 use Yiisoft\Scheduler\Binary\{WorkerAdapter,WorkerCompositionInput};
 use Yiisoft\Scheduler\Clock\SystemClock;
 use Yiisoft\Scheduler\Config\PhpConfigurationSource;
-use Yiisoft\Scheduler\Executor\ProcessLocalCommandExecutorRuntimeFactory;
+use Yiisoft\Scheduler\Executor\{PhpProcessConfiguration,ProcessLocalCommandExecutorRuntimeFactory};
 use InvalidArgumentException;
 use Yiisoft\Scheduler\Integration\Async\{ExecutionWorkerEntrypoint,PreparedConfigurationExecutionWorkerRuntimeFactory,PreparedShellCommandRuntimeFactory,SystemMonotonicClock,UsleepPollWaiter};
 use Yiisoft\Scheduler\Integration\Async\Process\{SameFileExecutionWorkerProcessCommandBuilder,SymfonyExecutionWorkerLauncher,SymfonyProcessLauncher};
@@ -47,6 +47,7 @@ final class SchedulerFactory
                 $owner->stateDirectory(),
                 overrides: $input->shellVariableOverrides,
                 clock: $monotonicClock,
+                phpConfiguration: PhpProcessConfiguration::current(),
             ),
             $supervisor,
             $processLauncher,

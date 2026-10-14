@@ -8,7 +8,7 @@ use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 use Yiisoft\Scheduler\Config\PreparedConfiguration;
 use Yiisoft\Scheduler\Integration\Async\WorkerLifecyclePolicy;
-use Yiisoft\Scheduler\Executor\ShellVariableOverrides;
+use Yiisoft\Scheduler\Executor\{PhpProcessConfiguration,ShellVariableOverrides};
 use Yiisoft\Scheduler\Integration\Async\ExecutionOccurrenceKey;
 use Yiisoft\Scheduler\Integration\Async\ExecutionWorkerCapability;
 use Yiisoft\Scheduler\Integration\Async\ExecutionWorkerLaunchRequest;
@@ -56,6 +56,25 @@ final class SameFileExecutionWorkerProcessCommandBuilderTest extends TestCase
         self::assertSame($request->capability->toArray(), $capability->toArray());
         self::assertArrayNotHasKey('remainingBudget', $capability->toArray());
         self::assertStringNotContainsString('remainingBudget', $process->protocolInput);
+    }
+
+    public function testExplicitPhpConfigurationPrefixesWorkerScriptAndArguments(): void
+    {
+        $builder = new SameFileExecutionWorkerProcessCommandBuilder(
+            '/app/scheduler.php',
+            '/app/config.php',
+            '/app/source.php',
+            '/app/state',
+            phpConfiguration: new PhpProcessConfiguration('/usr/bin/php81', ['-d', 'memory_limit=1G']),
+        );
+
+        $process = $builder->build($this->request());
+
+        self::assertSame('/usr/bin/php81', $process->executable);
+        self::assertSame(
+            ['-d', 'memory_limit=1G', '/app/scheduler.php', 'run', 'task', '--config', '/app/config.php', '--source', '/app/source.php', '--state', '/app/state'],
+            $process->argv,
+        );
     }
 
     public function testExplicitEnvironmentIsPassedWithoutChangingWorkerContract(): void

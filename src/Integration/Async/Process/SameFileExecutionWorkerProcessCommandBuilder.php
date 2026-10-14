@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Yiisoft\Scheduler\Integration\Async\Process;
 
-use Yiisoft\Scheduler\Executor\ShellVariableOverrides;
+use Yiisoft\Scheduler\Executor\{PhpProcessConfiguration,ShellVariableOverrides};
 use Yiisoft\Scheduler\Integration\Async\{ExecutionWorkerLaunchRequest,SystemMonotonicClock};
 use Yiisoft\Scheduler\Integration\Async\MonotonicClockInterface;
 
@@ -25,6 +25,7 @@ final class SameFileExecutionWorkerProcessCommandBuilder implements ExecutionWor
         private readonly MonotonicClockInterface $clock = new SystemMonotonicClock(),
         /** @var array<string, string>|null */
         private readonly ?array $environment = null,
+        private readonly ?PhpProcessConfiguration $phpConfiguration = null,
     ) {}
 
     public function build(ExecutionWorkerLaunchRequest $request): ProcessLaunchRequest
@@ -36,8 +37,13 @@ final class SameFileExecutionWorkerProcessCommandBuilder implements ExecutionWor
             $arguments[] = '--var';
             $arguments[] = $name . '=' . $value;
         }
+        $executable = $this->executable;
+        if ($this->phpConfiguration !== null) {
+            $arguments = [...$this->phpConfiguration->arguments, $this->executable, ...$arguments];
+            $executable = $this->phpConfiguration->binary;
+        }
         return new ProcessLaunchRequest(
-            $this->executable,
+            $executable,
             $arguments,
             $this->cwd,
             $this->environment ?? $this->inheritedEnvironment(),

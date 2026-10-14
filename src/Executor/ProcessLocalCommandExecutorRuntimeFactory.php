@@ -17,6 +17,7 @@ final class ProcessLocalCommandExecutorRuntimeFactory implements CommandExecutor
     {
         $map = new CommandExecutorMap([
             ShellCommand::class => new ShellCommandExecutor($this->shellRuntimeFactory),
+            PhpCommand::class => new ShellCommandExecutor($this->shellRuntimeFactory),
             CallableCommand::class => new CallableExecutor($containerProvider),
         ]);
 
