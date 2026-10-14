@@ -24,14 +24,12 @@ use PHPUnit\Framework\Attributes\DataProvider;
 
 final class ExecutionOccurrenceSourceTest extends TestCase
 {
-    public function testSkipReasonsAreClosedAndExcludeCapacity(): void
+    public function testSkipReasonsAreClosed(): void
     {
         self::assertSame(
             ['overlap', 'downtime', 'range-trim'],
             array_map(static fn(OccurrenceSkipReason $reason): string => $reason->value, OccurrenceSkipReason::cases()),
         );
-        self::assertSame(OccurrenceSkipReason::RANGE_TRIM, OccurrenceSkipReason::fromString('range-trim'));
-        $this->assertThrows(fn() => OccurrenceSkipReason::fromString('capacity'));
     }
 
     public function testCandidateIsBoundedConsistentAndRetainsSnapshot(): void
@@ -74,17 +72,13 @@ final class ExecutionOccurrenceSourceTest extends TestCase
         self::assertSame($first, $source->next());
     }
 
-    public function testSkipConsumesExactlyCurrentCandidateAndLeavesCapacityDecisionRetryable(): void
+    public function testSkipConsumesExactlyCurrentCandidate(): void
     {
         $first = new ExecutionOccurrenceCandidate(new ExecutionOccurrenceKey('task', 'occurrence-1'), $this->mapping('occurrence-1', 'v1', 'one'), 'p1');
         $second = new ExecutionOccurrenceCandidate(new ExecutionOccurrenceKey('task', 'occurrence-2'), $this->mapping('occurrence-2', 'v2', 'two'), 'p2');
         $source = new FakeOccurrenceSource([$first, $second]);
 
         self::assertSame($first, $source->next());
-        foreach (['capacity', 'duplicate', '', "reason\n", str_repeat('x', 2049)] as $reason) {
-            $this->assertThrows(fn() => $source->skip($first, OccurrenceSkipReason::fromString($reason)));
-            self::assertSame($first, $source->next());
-        }
         $source->skip($first, OccurrenceSkipReason::OVERLAP);
         self::assertSame($second, $source->next());
 

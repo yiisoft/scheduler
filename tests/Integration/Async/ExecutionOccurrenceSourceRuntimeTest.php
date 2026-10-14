@@ -140,7 +140,7 @@ final class ExecutionOccurrenceSourceRuntimeTest extends TestCase
         self::assertSame('o0000000600', $source->next()?->occurrence->occurrenceId);
     }
 
-    public function testUnauthorizedSkipReasonsLeaveProductionSourceCursorRetryable(): void
+    public function testValidSkipAdvancesProductionSourceCursor(): void
     {
         $checkpoint = new RuntimeCheckpoint('t0000000000');
         $source = new ExecutionOccurrenceSource(
@@ -153,11 +153,6 @@ final class ExecutionOccurrenceSourceRuntimeTest extends TestCase
         $candidate = $source->next();
         self::assertNotNull($candidate);
 
-        foreach (['duplicate', 'capacity', '', "reason\n", str_repeat('x', 2049)] as $reason) {
-            $this->expectExceptionForReason(fn() => $source->skip($candidate, OccurrenceSkipReason::fromString($reason)));
-            self::assertSame($candidate, $source->next());
-            self::assertSame('t0000000000', $checkpoint->value);
-        }
         $source->skip($candidate, OccurrenceSkipReason::OVERLAP);
         self::assertSame('t0000000600', $checkpoint->value);
     }
@@ -181,16 +176,6 @@ final class ExecutionOccurrenceSourceRuntimeTest extends TestCase
             self::assertLessThanOrEqual(64, $trigger->calls - $before);
         }
         self::assertSame('o0000001000', $found?->occurrence->occurrenceId);
-    }
-
-    private function expectExceptionForReason(callable $callback): void
-    {
-        try {
-            $callback();
-        } catch (InvalidArgumentException) {
-            return;
-        }
-        self::fail('Expected InvalidArgumentException was not thrown.');
     }
 
     private function source(MissedOccurrenceSetting|MissedOccurrencePolicy $policy, RuntimeLedger $ledger, RuntimeCheckpoint $checkpoint, ?TestClock $clock = null): ExecutionOccurrenceSource

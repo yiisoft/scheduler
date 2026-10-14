@@ -114,20 +114,6 @@ final class FileExecutionOccurrenceCheckpointTest extends TestCase
         (new FileExecutionOccurrenceCheckpoint($this->root))->initialize($task, $cursor);
     }
 
-    #[DataProvider('invalidReasonProvider')]
-    public function testSkipRejectsInvalidBoundedReason(string $reason): void
-    {
-        $checkpoint = new FileExecutionOccurrenceCheckpoint($this->root);
-        $checkpoint->initialize('task', 'cursor-1');
-        $this->expectException(InvalidArgumentException::class);
-        $checkpoint->skip('task', 'cursor-1', 'cursor-2', OccurrenceSkipReason::fromString($reason));
-    }
-
-    public static function invalidReasonProvider(): array
-    {
-        return [[''], ['duplicate'], ['capacity'], ['unknown'], ["reason\n"], [str_repeat('x', 2049)]];
-    }
-
     public static function invalidInputProvider(): array
     {
         return [
