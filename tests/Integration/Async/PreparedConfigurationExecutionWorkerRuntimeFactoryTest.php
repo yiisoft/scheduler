@@ -388,7 +388,7 @@ final class PreparedConfigurationExecutionWorkerRuntimeFactoryTest extends TestC
             $commandSource = "new \\Yiisoft\\Scheduler\\Executor\\CallableCommand(static function (mixed \$service = null, mixed \$value = null): \\Yiisoft\\Scheduler\\Integration\\Async\\ExecutionOutcome { \\Yiisoft\\Scheduler\\Tests\\Support\\RuntimeCallableProbe::\$service = \$service; return new \\Yiisoft\\Scheduler\\Integration\\Async\\ExecutionOutcome('succeeded'); }, {$payload})";
         }
         $timeout = isset($task['timeout']) ? '->timeout(' . var_export($task['timeout']['soft'], true) . ', ' . var_export($task['timeout']['hard'], true) . ')' : '';
-        file_put_contents($path, "<?php return static function (): \\Yiisoft\\Scheduler\\Config\\SchedulerConfig { \$config = new \\Yiisoft\\Scheduler\\Config\\SchedulerConfig(); \$config->periodic({$commandSource})->every(60){$mode}->id('task'){$timeout}->overlap({$overlap}); return \$config; }; ");
+        file_put_contents($path, "<?php return static function (): \\Yiisoft\\Scheduler\\Config\\SchedulerConfig { \$config = new \\Yiisoft\\Scheduler\\Config\\SchedulerConfig(); \$config->periodic('task', {$commandSource})->every(60){$mode}{$timeout}->overlap({$overlap}); return \$config; }; ");
         $this->source = new MutableTestConfigurationSource(new PhpConfigurationSource($path), $prepareDelay);
         $recordMetadata = $recordMetadata ?? ['sourceId' => $this->source->sourceId(), 'sourceRevision' => $this->source->revision()];
         if (($recordMetadata['sourceId'] ?? null) === '__current__') {

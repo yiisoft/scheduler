@@ -14,8 +14,8 @@ final class MissedOccurrencePolicyTest extends TestCase
     public function testTypedPoliciesPropagate(): void
     {
         $c = new SchedulerConfig();
-        $c->periodic(new ShellCommand('/bin/echo'))->every(60)->repeatMissedAll(2)->id('all');
-        $c->periodic(new ShellCommand('/bin/echo'))->every(60)->missedOccurrences(MissedOccurrencePolicy::LAST)->id('last');
+        $c->periodic('all', new ShellCommand('/bin/echo'))->every(60)->repeatMissedAll(2);
+        $c->periodic('last', new ShellCommand('/bin/echo'))->every(60)->missedOccurrences(MissedOccurrencePolicy::LAST);
         $p = $this->convert($c);
         self::assertSame(MissedOccurrencePolicy::ALL, $p->task('all')->missedOccurrences->policy);
         self::assertSame(2, $p->task('all')->missedOccurrences->max);

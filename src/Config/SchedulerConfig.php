@@ -9,6 +9,7 @@ use InvalidArgumentException;
 use Psr\Container\ContainerInterface;
 use Yiisoft\Scheduler\Callable\ContainerProvider;
 use Yiisoft\Scheduler\Executor\{Command, CommandExecutorMap};
+use Yiisoft\Scheduler\Task\TaskId;
 use Yiisoft\Scheduler\Executor\CommandExecutorRuntime;
 use Closure;
 
@@ -43,21 +44,21 @@ final class SchedulerConfig
         return $this;
     }
 
-    public function periodic(Command $command, ?int $seconds = null, ?DateTimeImmutable $from = null, ?DateTimeImmutable $until = null): ScheduleBuilder
+    public function periodic(string $id, Command $command, ?int $seconds = null, ?DateTimeImmutable $from = null, ?DateTimeImmutable $until = null): ScheduleBuilder
     {
-        $builder = new ScheduleBuilder($this, $command, count($this->schedules));
+        $builder = new ScheduleBuilder($this, new TaskId($id), $command, count($this->schedules));
         $this->schedules[] = $builder;
         return $seconds === null ? $builder : $builder->every($seconds, $from, $until);
     }
 
-    public function every(Command $command, int $seconds, ?DateTimeImmutable $from = null, ?DateTimeImmutable $until = null): ScheduleBuilder
+    public function every(string $id, Command $command, int $seconds, ?DateTimeImmutable $from = null, ?DateTimeImmutable $until = null): ScheduleBuilder
     {
-        return $this->periodic($command)->every($seconds, $from, $until);
+        return $this->periodic($id, $command)->every($seconds, $from, $until);
     }
 
-    public function cron(Command $command, string $expression, ?string $timezone = null, ?DateTimeImmutable $from = null, ?DateTimeImmutable $until = null): ScheduleBuilder
+    public function cron(string $id, Command $command, string $expression, ?string $timezone = null, ?DateTimeImmutable $from = null, ?DateTimeImmutable $until = null): ScheduleBuilder
     {
-        return $this->periodic($command)->cron($expression, $timezone, $from, $until);
+        return $this->periodic($id, $command)->cron($expression, $timezone, $from, $until);
     }
 
     public function replace(int $ordinal, ScheduleBuilder $builder): void

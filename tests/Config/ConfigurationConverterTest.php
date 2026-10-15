@@ -19,8 +19,8 @@ final class ConfigurationConverterTest extends TestCase
         $config = new SchedulerConfig();
         $shell = new ShellCommand('/bin/echo', ['ok']);
         $callable = new CallableCommand(static fn(): string => 'ok');
-        $config->periodic($shell)->every(60)->id('shell')->metadata(['owner' => 'test']);
-        $config->periodic($callable)->every(120)->id('callable')->sync();
+        $config->periodic('shell', $shell)->every(60)->metadata(['owner' => 'test']);
+        $config->periodic('callable', $callable)->every(120)->sync();
         $prepared = $this->convert($config);
         self::assertSame(['shell','callable'], array_keys($prepared->tasks));
         self::assertSame($shell, $prepared->task('shell')->command);
@@ -69,7 +69,7 @@ final class ConfigurationConverterTest extends TestCase
     public function testSyncTaskCannotHaveTimeout(): void
     {
         $config = new SchedulerConfig();
-        $config->periodic(new ShellCommand('/bin/echo'))->every(60)->sync()->timeout(1);
+        $config->periodic('timeout-task', new ShellCommand('/bin/echo'))->every(60)->sync()->timeout(1);
         $this->expectException(InvalidArgumentException::class);
         $this->convert($config);
     }

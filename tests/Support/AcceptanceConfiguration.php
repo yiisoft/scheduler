@@ -23,18 +23,18 @@ if (($sentinel = getenv('SCHEDULER_ACCEPTANCE_DUPLICATE_SENTINEL')) !== false) {
 
 return static function () use ($directory): SchedulerConfig {
     $config = new SchedulerConfig();
-    $config->every(new ShellCommand(
+    $config->every('external-task', new ShellCommand(
         \PHP_BINARY,
         [(string) getenv('SCHEDULER_ACCEPTANCE_EXTERNAL_COMMAND'), $directory, 'external-effect'],
-    ), 1)->id('external-task');
+    ), 1);
     // The fixed anchor makes the cron occurrence immediately eligible without a
     // wall-clock sleep or a boundary race.
-    $config->cron(new ShellCommand(
+    $config->cron('cron-task', new ShellCommand(
         \PHP_BINARY,
         [(string) getenv('SCHEDULER_ACCEPTANCE_EXTERNAL_COMMAND'), $directory, 'cron-effect'],
-    ), '0 0 1 1 *', 'UTC', new DateTimeImmutable('2000-01-01T00:00:00+00:00'), new DateTimeImmutable('2000-01-01T00:00:00+00:00'))->id('cron-task');
-    $config->every(new CallableCommand('yii_schedule_acceptance_sync_effect'), 1)
-        ->sync()->id('sync-task');
+    ), '0 0 1 1 *', 'UTC', new DateTimeImmutable('2000-01-01T00:00:00+00:00'), new DateTimeImmutable('2000-01-01T00:00:00+00:00'));
+    $config->every('sync-task', new CallableCommand('yii_schedule_acceptance_sync_effect'), 1)
+        ->sync();
 
     return $config;
 };

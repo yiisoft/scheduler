@@ -17,7 +17,7 @@ final class CallableCommandConfigurationTest extends TestCase
     {
         $command = new CallableCommand(static fn(string $value): string => $value, ['value' => 'ok']);
         $config = new SchedulerConfig();
-        $config->periodic($command)->every(60)->id('named')->sync();
+        $config->periodic('named', $command)->every(60)->sync();
         $task = $this->convert($config)->task('named');
         self::assertSame($command, $task->command);
         self::assertSame(['value' => 'ok'], $command->arguments());
@@ -27,7 +27,7 @@ final class CallableCommandConfigurationTest extends TestCase
     public function testCallableRequiresNoRegistryOrSyntheticReference(): void
     {
         $config = new SchedulerConfig();
-        $config->periodic(new CallableCommand(static fn(): string => 'ok'))->every(60);
+        $config->periodic('callable', new CallableCommand(static fn(): string => 'ok'))->every(60);
         $prepared = $this->convert($config);
         self::assertInstanceOf(CallableCommand::class, array_values($prepared->tasks)[0]->command);
     }
@@ -35,8 +35,8 @@ final class CallableCommandConfigurationTest extends TestCase
     public function testDuplicateTaskIdsAreRejected(): void
     {
         $config = new SchedulerConfig();
-        $config->periodic(new CallableCommand(static fn(): string => 'one'))->every(60)->id('same');
-        $config->periodic(new CallableCommand(static fn(): string => 'two'))->every(120)->id('same');
+        $config->periodic('same', new CallableCommand(static fn(): string => 'one'))->every(60);
+        $config->periodic('same', new CallableCommand(static fn(): string => 'two'))->every(120);
         $this->expectException(InvalidArgumentException::class);
         $this->convert($config);
     }

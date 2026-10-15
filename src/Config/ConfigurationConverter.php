@@ -6,7 +6,6 @@ namespace Yiisoft\Scheduler\Config;
 
 use InvalidArgumentException;
 use Yiisoft\Scheduler\Executor\{CommandExecutorMap, CommandExecutorRuntimeFactory};
-use Yiisoft\Scheduler\Task\TaskId;
 
 /** Converts source declarations while keeping command handles strictly process-local. */
 final class ConfigurationConverter
@@ -31,7 +30,7 @@ final class ConfigurationConverter
         foreach ($configuration->schedules() as $schedule) {
             $schedule->trigger->validate();
             $tasks[] = new TaskDefinition(
-                new TaskId($schedule->taskId()),
+                $schedule->id,
                 $schedule->command,
                 $schedule->mode,
                 $schedule->timeout,

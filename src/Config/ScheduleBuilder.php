@@ -9,6 +9,7 @@ use Yiisoft\Scheduler\Executor\Command;
 use Yiisoft\Scheduler\ExecutionMode;
 use DateTimeZone;
 use Yiisoft\Scheduler\ScalarMetadata;
+use Yiisoft\Scheduler\Task\TaskId;
 
 final class ScheduleBuilder
 {
@@ -16,11 +17,11 @@ final class ScheduleBuilder
 
     public function __construct(
         private readonly SchedulerConfig $owner,
+        public readonly TaskId $id,
         public readonly Command $command,
         private readonly int $ordinal,
         public readonly ExecutionMode $mode = ExecutionMode::ASYNC,
         public readonly ?TimeoutPolicy $timeout = null,
-        private readonly string $taskIdSuffix = '',
         public readonly MissedOccurrenceSetting $missedOccurrences = new MissedOccurrenceSetting(),
         public readonly OverlapPolicy $overlap = OverlapPolicy::ALLOW,
         ?TriggerDefinition $trigger = null,
@@ -43,11 +44,6 @@ final class ScheduleBuilder
     public function timeout(float $soft, ?float $hard = null): self
     {
         return $this->copy(timeout: new TimeoutPolicy($soft, $hard));
-    }
-
-    public function id(string $id): self
-    {
-        return $this->copy(taskIdSuffix: $id);
     }
 
     public function missedOccurrences(MissedOccurrencePolicy $policy): self
@@ -102,19 +98,9 @@ final class ScheduleBuilder
         return $this->copy(metadata: $metadata);
     }
 
-    public function taskId(): string
+    private function copy(?ExecutionMode $mode = null, ?TimeoutPolicy $timeout = null, ?MissedOccurrenceSetting $missed = null, ?OverlapPolicy $overlap = null, ?TriggerDefinition $trigger = null, ?array $metadata = null): self
     {
-        return $this->taskIdSuffix !== '' ? $this->taskIdSuffix : 'task-' . substr(hash('sha256', $this->command::class . ':' . $this->ordinal), 0, 24);
-    }
-
-    public function taskIdSuffix(): string
-    {
-        return $this->taskIdSuffix;
-    }
-
-    private function copy(?ExecutionMode $mode = null, ?TimeoutPolicy $timeout = null, ?string $taskIdSuffix = null, ?MissedOccurrenceSetting $missed = null, ?OverlapPolicy $overlap = null, ?TriggerDefinition $trigger = null, ?array $metadata = null): self
-    {
-        return $this->replace(new self($this->owner, $this->command, $this->ordinal, $mode ?? $this->mode, $timeout ?? $this->timeout, $taskIdSuffix ?? $this->taskIdSuffix, $missed ?? $this->missedOccurrences, $overlap ?? $this->overlap, $trigger ?? $this->trigger, $metadata ?? $this->metadata));
+        return $this->replace(new self($this->owner, $this->id, $this->command, $this->ordinal, $mode ?? $this->mode, $timeout ?? $this->timeout, $missed ?? $this->missedOccurrences, $overlap ?? $this->overlap, $trigger ?? $this->trigger, $metadata ?? $this->metadata));
     }
 
     private function replace(self $copy): self

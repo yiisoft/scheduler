@@ -18,7 +18,7 @@ final class PreparedConfigurationExecutionBindingSourceTest extends TestCase
     public function testMapsConfigurationFingerprintToStableRecordCompatibleBinding(): void
     {
         $path = tempnam(sys_get_temp_dir(), 'schedule-binding-');
-        file_put_contents($path, '<?php return static function (): \\Yiisoft\\Scheduler\\Config\\SchedulerConfig { $config = new \\Yiisoft\\Scheduler\\Config\\SchedulerConfig(); $config->timeout(1.25, 2.5); $config->periodic(new \\Yiisoft\\Scheduler\\Executor\\CallableCommand(static fn(): \\Yiisoft\\Scheduler\\Integration\\Async\\ExecutionOutcome => new \\Yiisoft\\Scheduler\\Integration\\Async\\ExecutionOutcome("succeeded")))->every(60)->id("task")->overlap("skip"); return $config; };');
+        file_put_contents($path, '<?php return static function (): \\Yiisoft\\Scheduler\\Config\\SchedulerConfig { $config = new \\Yiisoft\\Scheduler\\Config\\SchedulerConfig(); $config->timeout(1.25, 2.5); $config->periodic(\'task\', new \\Yiisoft\\Scheduler\\Executor\\CallableCommand(static fn(): \\Yiisoft\\Scheduler\\Integration\\Async\\ExecutionOutcome => new \\Yiisoft\\Scheduler\\Integration\\Async\\ExecutionOutcome("succeeded")))->every(60)->overlap("skip"); return $config; };');
         $source = new PhpConfigurationSource($path);
         $configuration = $source->prepare(new BindingRuntimeFactory());
         $bindings = new PreparedConfigurationExecutionBindingSource($source, $configuration, 'owner-run');
@@ -45,7 +45,7 @@ final class PreparedConfigurationExecutionBindingSourceTest extends TestCase
     public function testRejectsUnknownTask(): void
     {
         $path = tempnam(sys_get_temp_dir(), 'schedule-binding-');
-        file_put_contents($path, '<?php return static function (): \\Yiisoft\\Scheduler\\Config\\SchedulerConfig { $config = new \\Yiisoft\\Scheduler\\Config\\SchedulerConfig(); $config->periodic(new \\Yiisoft\\Scheduler\\Executor\\CallableCommand(static fn(): \\Yiisoft\\Scheduler\\Integration\\Async\\ExecutionOutcome => new \\Yiisoft\\Scheduler\\Integration\\Async\\ExecutionOutcome("succeeded")))->every(60)->id("task"); return $config; };');
+        file_put_contents($path, '<?php return static function (): \\Yiisoft\\Scheduler\\Config\\SchedulerConfig { $config = new \\Yiisoft\\Scheduler\\Config\\SchedulerConfig(); $config->periodic(\'task\', new \\Yiisoft\\Scheduler\\Executor\\CallableCommand(static fn(): \\Yiisoft\\Scheduler\\Integration\\Async\\ExecutionOutcome => new \\Yiisoft\\Scheduler\\Integration\\Async\\ExecutionOutcome("succeeded")))->every(60); return $config; };');
         $source = new PhpConfigurationSource($path);
         $bindings = new PreparedConfigurationExecutionBindingSource($source, $source->prepare(new BindingRuntimeFactory()), 'owner-run');
 

@@ -32,7 +32,7 @@ final class TriggerFactoryTest extends TestCase
         self::assertSame(['answer' => 42, 'label' => 'portable'], $received);
         self::assertStringNotContainsString('PeriodicTrigger', serialize($definition));
 
-        $builder = (new SchedulerConfig())->periodic(new ShellCommand('/bin/true'))->trigger($reference, ['answer' => 42]);
+        $builder = (new SchedulerConfig())->periodic('trigger-task', new ShellCommand('/bin/true'))->trigger($reference, ['answer' => 42]);
         self::assertSame($reference, $builder->trigger->reference);
         self::assertSame(['answer' => 42], $builder->trigger->definition);
     }

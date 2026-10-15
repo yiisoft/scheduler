@@ -15,18 +15,18 @@ return static function (): SchedulerConfig {
     $config = new SchedulerConfig(static function (): ContainerInterface {
         return new CallableDependencyInjectionService((string) getenv('SCHEDULER_ACCEPTANCE_DIR'));
     });
-    $config->every(new CallableCommand(
+    $config->every('callable-async', new CallableCommand(
         static function (CallableDependencyInjectionService $service, string $effect, int $value): void {
             $service->record($effect, $value);
         },
         ['effect' => 'async.effect', 'value' => 7],
-    ), 1)->id('callable-async')->async();
-    $config->every(new CallableCommand(
+    ), 1)->async();
+    $config->every('callable-sync', new CallableCommand(
         static function (CallableDependencyInjectionService $service, string $effect, int $value): void {
             $service->record($effect, $value);
         },
         ['effect' => 'sync.effect', 'value' => 11],
-    ), 1)->id('callable-sync')->sync();
+    ), 1)->sync();
 
     return $config;
 };

@@ -37,9 +37,8 @@ use Yiisoft\Scheduler\Executor\ShellCommand;
 
 return static function (): SchedulerConfig {
     $config = new SchedulerConfig();
-    $config->periodic(new ShellCommand('/usr/bin/php', ['bin/console', 'cache:clear']))
+    $config->periodic('clear-cache', new ShellCommand('/usr/bin/php', ['bin/console', 'cache:clear']))
         ->every(3600)
-        ->id('clear-cache')
         ->async();
     return $config;
 };

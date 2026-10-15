@@ -240,7 +240,7 @@ final class ExecutionWorkerEntrypointTest extends TestCase
         $path = tempnam(sys_get_temp_dir(), 'schedule-worker-');
         $marker = tempnam(sys_get_temp_dir(), 'schedule-worker-malformed-');
         unlink($marker);
-        file_put_contents($path, "<?php return static function (): \\Yiisoft\\Scheduler\\Config\\SchedulerConfig { if (is_file(" . var_export($marker, true) . ")) { throw new \\InvalidArgumentException('Malformed profile.'); } \$config = new \\Yiisoft\\Scheduler\\Config\\SchedulerConfig(); \$config->periodic(new \\Yiisoft\\Scheduler\\Executor\\CallableCommand(static fn(mixed \$probe = null): \\Yiisoft\\Scheduler\\Integration\\Async\\ExecutionOutcome => new \\Yiisoft\\Scheduler\\Integration\\Async\\ExecutionOutcome('succeeded'), ['probe' => 'probe']))->every(60)->id('task'); return \$config; }; ");
+        file_put_contents($path, "<?php return static function (): \\Yiisoft\\Scheduler\\Config\\SchedulerConfig { if (is_file(" . var_export($marker, true) . ")) { throw new \\InvalidArgumentException('Malformed profile.'); } \$config = new \\Yiisoft\\Scheduler\\Config\\SchedulerConfig(); \$config->periodic('task', new \\Yiisoft\\Scheduler\\Executor\\CallableCommand(static fn(mixed \$probe = null): \\Yiisoft\\Scheduler\\Integration\\Async\\ExecutionOutcome => new \\Yiisoft\\Scheduler\\Integration\\Async\\ExecutionOutcome('succeeded'), ['probe' => 'probe']))->every(60); return \$config; }; ");
         $source = new PhpConfigurationSource($path);
         $configuration = $source->prepare(new TestCommandExecutorRuntimeFactory());
         $definition = $configuration->tasks['task'];
