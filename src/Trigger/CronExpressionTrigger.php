@@ -9,6 +9,7 @@ use DateTimeImmutable;
 use DateTimeZone;
 use Yiisoft\Scheduler\Exception\LogicException;
 
+use function date_default_timezone_get;
 use function is_string;
 use function sprintf;
 
@@ -20,6 +21,10 @@ final class CronExpressionTrigger implements TriggerInterface
     private readonly CronExpression $cron;
     private readonly ?DateTimeZone $timezone;
 
+    /**
+     * @param DateTimeZone|string|null $timezone The timezone the expression is written in.
+     * Defaults to the default timezone.
+     */
     public function __construct(
         private readonly string $expression,
         DateTimeZone|string|null $timezone = null,
@@ -35,7 +40,11 @@ final class CronExpressionTrigger implements TriggerInterface
 
     public function getNextRunDate(DateTimeImmutable $lastRun): ?DateTimeImmutable
     {
-        $next = $this->cron->getNextRunDate($lastRun, 0, false, $this->timezone?->getName());
+        // Not the timezone of the given date: one restored from a checkpoint is in UTC whatever
+        // timezone it was saved in, and the expression would silently change its meaning with it.
+        $timezone = $this->timezone?->getName() ?? date_default_timezone_get();
+
+        $next = $this->cron->getNextRunDate($lastRun, 0, false, $timezone);
 
         $next = DateTimeImmutable::createFromInterface($next);
 
