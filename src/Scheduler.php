@@ -614,7 +614,6 @@ final class Scheduler
         $this->children = [];
         $this->terminating = false;
         self::restoreDefaultSignalHandlers();
-        self::nameChildProcess($context);
 
         // Whatever the parent had buffered before the fork belongs to the parent, which
         // writes it out itself; releasing the buffers here also keeps the task's own output
@@ -622,6 +621,10 @@ final class Scheduler
         while (ob_get_level() > 0) {
             ob_end_clean();
         }
+
+        // Only once the parent's buffers are gone, so that a warning about the renaming
+        // reaches the error log instead of a buffer nothing will flush.
+        self::nameChildProcess($context);
 
         try {
             $this->handler->handle($task->getTask(), $context);
@@ -646,7 +649,9 @@ final class Scheduler
      */
     private static function nameChildProcess(TaskContext $context): void
     {
-        if ('Darwin' === PHP_OS_FAMILY) {
+        // Registered by the CLI SAPI alone, and a common entry of disable_functions; the
+        // daemon itself runs anywhere pcntl does.
+        if ('Darwin' === PHP_OS_FAMILY || !function_exists('cli_set_process_title')) {
             return;
         }
 

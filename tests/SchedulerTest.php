@@ -1012,6 +1012,7 @@ final class SchedulerTest extends TestCase
                 usleep(10_000);
             }
 
+            $this->assertFileExists("$dir/title", 'The task process did not finish in time.');
             $this->assertSame('task report of schedule default', file_get_contents("$dir/title"));
         } finally {
             array_map(unlink(...), glob("$dir/*") ?: []);
