@@ -37,6 +37,7 @@ use const LOCK_EX;
 use const SIGKILL;
 use const SIGTERM;
 use const SIG_DFL;
+use const PHP_OS_FAMILY;
 
 final class SchedulerTest extends TestCase
 {
@@ -974,6 +975,44 @@ final class SchedulerTest extends TestCase
 
             // The result cannot cross the process boundary, so the events carry null.
             $this->assertSame([null, null], $dispatcher->results);
+        } finally {
+            array_map(unlink(...), glob("$dir/*") ?: []);
+            rmdir($dir);
+        }
+    }
+
+    #[RequiresPhpExtension('pcntl')]
+    public function testConcurrentTickNamesTheTaskProcessAfterTheTask(): void
+    {
+        if ('Darwin' === PHP_OS_FAMILY) {
+            self::markTestSkipped('cli_set_process_title() is not supported on macOS.');
+        }
+
+        $clock = new TestClock();
+        $dir = sys_get_temp_dir() . '/yii-scheduler-test-' . uniqid();
+        mkdir($dir);
+
+        $schedule = (new Schedule())->task(
+            RecurringTask::cron('* * * * *', static function () use ($dir): void {
+                file_put_contents("$dir/title", (string) cli_get_process_title());
+            })->withId('report'),
+        );
+
+        $scheduler = new Scheduler([$schedule], new CallableTaskHandler(), $clock);
+
+        try {
+            $scheduler->tick();
+            $clock->advance('+1 minute');
+
+            $this->assertSame(1, $scheduler->tick(true));
+
+            $deadline = microtime(true) + 15;
+            while ($scheduler->hasRunningChildren() && microtime(true) < $deadline) {
+                $scheduler->reapChildren();
+                usleep(10_000);
+            }
+
+            $this->assertSame('task report of schedule default', file_get_contents("$dir/title"));
         } finally {
             array_map(unlink(...), glob("$dir/*") ?: []);
             rmdir($dir);
