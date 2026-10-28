@@ -8,11 +8,8 @@ use PHPUnit\Framework\TestCase;
 use Yiisoft\Scheduler\Tests\Support\AcceptanceScheduler;
 use Yiisoft\Scheduler\Tests\Support\CallableDependencyInjectionService;
 
-use function in_array;
-
 use const FILE_IGNORE_NEW_LINES;
 use const FILE_SKIP_EMPTY_LINES;
-use const JSON_THROW_ON_ERROR;
 
 /** End-to-end regression for container-owned typed callable services. */
 final class CallableDependencyInjectionTest extends TestCase
@@ -36,13 +33,12 @@ final class CallableDependencyInjectionTest extends TestCase
             AcceptanceScheduler::assertTerminalRecord($directory, $asyncAdmission, $config);
             AcceptanceScheduler::assertTerminalRecord($directory, $syncAdmission, $config);
 
-            // Terminal snapshots use the current ledger schema; this must not
-            // regress to accepting the retired v2 assertion contract.
-            foreach (glob(AcceptanceScheduler::sourceLedgerDirectory($config) . '/*.json') ?: [] as $path) {
-                $record = json_decode((string) file_get_contents($path), true, 32, JSON_THROW_ON_ERROR);
-                if (in_array($record['state'] ?? null, ['succeeded', 'failed', 'cancelled'], true)) {
-                    self::assertSame(6, $record['version'] ?? null);
-                }
+            // Terminal snapshots use the current ledger schema; assert the
+            // current schema field rather than the retired numeric version.
+            foreach ([$asyncAdmission, $syncAdmission] as $admission) {
+                $record = AcceptanceScheduler::ledgerRecord($config, $admission['occurrence']);
+                self::assertNotNull($record);
+                self::assertSame('dev', $record['schema'] ?? null);
             }
 
             self::assertSame('async', $asyncAdmission['metadata']['taskMappingIdentity']['mode']);

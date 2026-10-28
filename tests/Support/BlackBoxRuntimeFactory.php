@@ -11,6 +11,7 @@ use Yiisoft\Scheduler\Integration\Async\ExecutionOutcome;
 use Yiisoft\Scheduler\Integration\Async\ExecutionWorkerCapability;
 use Yiisoft\Scheduler\Integration\Async\ExecutionWorkerRuntimeFactoryInterface;
 use Yiisoft\Scheduler\Integration\Async\ExecutionWorkerRuntimeInterface;
+use Yiisoft\Scheduler\Integration\Async\ExecutionLedgerCommandInterface;
 
 use function file_put_contents;
 use function getenv;
@@ -18,7 +19,7 @@ use function is_string;
 
 final class BlackBoxRuntimeFactory implements ExecutionWorkerRuntimeFactoryInterface
 {
-    public function create(ExecutionWorkerCapability $capability, ExecutionLedgerRecord $claimedRecord): ExecutionWorkerRuntimeInterface
+    public function create(ExecutionWorkerCapability $capability, ExecutionLedgerRecord $claimedRecord, ExecutionLedgerCommandInterface $ledger): ExecutionWorkerRuntimeInterface
     {
         $marker = getenv('BLACKBOX_MARKER_PATH');
         $effect = getenv('BLACKBOX_EFFECT_PATH');

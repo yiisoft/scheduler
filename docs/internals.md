@@ -1,5 +1,11 @@
 # Internals
 
+## Recovery boundary
+
+Recovery keeps admission, dispatch, observation, supervision, worker execution, and scheduling separate. Stage 7 fairly reconsiders the active/ownership union through bounded source-scoped SQLite keyset pages and opaque cursors bound to the source and last key. SQLite transactions provide durable state transitions and bounded selection; process identity, launch receipts, fencing, deadlines, and recovery classification remain scheduler responsibilities. Terminal ownership is observed independently of current configuration, and only aggregate closure permits atomic redelivery and generation rotation. The original revision, deadline, fence, generation, and at-least-once guarantees remain. Historical configuration loading, distributed coordination, exactly-once effects, provider effects, and framework adapters are not package guarantees.
+
+The default local execution ledger is SQLite-backed through optional `yiisoft/db`, `yiisoft/db-sqlite`, `pdo_sqlite`, and `mbstring` dependencies. Applications that provide both custom command and query ledger ports do not need the default adapter.
+
 ## Unit testing
 
 The package is tested with [PHPUnit](https://phpunit.de/). To run tests:
@@ -10,11 +16,10 @@ The package is tested with [PHPUnit](https://phpunit.de/). To run tests:
 
 ## Mutation testing
 
-The package tests are checked with [Infection](https://infection.github.io/) mutation framework with
-[Infection Static Analysis Plugin](https://github.com/Roave/infection-static-analysis-plugin). To run it:
+The package tests are checked with the [Infection](https://infection.github.io/) mutation framework. To run it:
 
 ```shell
-./vendor/bin/roave-infection-static-analysis-plugin
+./vendor/bin/infection
 ```
 
 ## Static analysis

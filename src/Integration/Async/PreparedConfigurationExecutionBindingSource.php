@@ -43,6 +43,11 @@ final class PreparedConfigurationExecutionBindingSource implements ExecutionBind
         $task = $this->configuration->task($taskKey);
         $timeout = $this->configuration->timeoutFor($task);
         $policy = $this->configuration->taskPolicyProjection($task);
+        if (($policy['source'][0] ?? null) !== $this->sourceId
+            || ($policy['source'][1] ?? null) !== $this->revision) {
+            throw new InvalidArgumentException('Prepared task policy source facts are not canonical.');
+        }
+        $context = ['sourceId' => $this->sourceId, 'sourceRevision' => $this->revision];
         $version = $this->configuration->taskFingerprint($task);
         $correlation = $this->correlationFactory === null
             ? new ExecutionIdentity(
@@ -61,7 +66,7 @@ final class PreparedConfigurationExecutionBindingSource implements ExecutionBind
             $correlation,
             $this->configuration->fingerprint(),
             $policy,
-            ['sourceId' => $this->sourceId, 'sourceRevision' => $this->revision],
+            $context,
             $this->sourceId,
             $this->runId,
             mode: $task->mode->value,

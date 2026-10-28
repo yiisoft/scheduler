@@ -13,10 +13,16 @@ use function count;
 /** Source-scoped, conservative admission calculation. The supplied query owns the source partition. */
 final class AdmissionPolicy
 {
-    public function __construct(private readonly ExecutionLedgerQueryInterface $query, private readonly int $capacity = 16)
-    {
+    public function __construct(
+        private readonly ExecutionLedgerQueryInterface $query,
+        private readonly int $capacity = 16,
+        private readonly string $sourceIdentity = '',
+    ) {
         if ($capacity < 1) {
             throw new InvalidArgumentException('Async worker capacity must be positive.');
+        }
+        if ($sourceIdentity === '') {
+            throw new InvalidArgumentException('Async source identity must be non-empty.');
         }
     }
 
@@ -27,13 +33,13 @@ final class AdmissionPolicy
 
     public function activeCount(): int
     {
-        return count($this->query->ownershipHoldingExecutions());
+        return count($this->query->ownershipHoldingExecutions($this->sourceIdentity));
     }
 
     public function decide(string $taskKey, OverlapPolicy|string $overlap = OverlapPolicy::ALLOW): AdmissionDecision
     {
         $policy = OverlapPolicy::fromScalar($overlap);
-        $active = $this->query->ownershipHoldingExecutions();
+        $active = $this->query->ownershipHoldingExecutions($this->sourceIdentity);
         if (count($active) >= $this->capacity) {
             return AdmissionDecision::deferCapacity();
         }

@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace Yiisoft\Scheduler\Tests\Integration\Async\Process;
 
 use PHPUnit\Framework\TestCase;
-use RuntimeException;
 use Symfony\Component\Process\Process;
-use Yiisoft\Scheduler\Integration\Async\Process\{ProcessHandleInterface, ProcessLaunchRequest, ProcessScopeException, SymfonyProcessHandle, SymfonyProcessLauncher};
+use Yiisoft\Scheduler\Integration\Async\ExecutionLaunchDescriptor;
+use Yiisoft\Scheduler\Integration\Async\Process\{LinuxProcessObserver, ProcessHandleInterface, ProcessLaunchRequest, ProcessLookupResult, ProcessScopeException, SymfonyProcessHandle, SymfonyProcessLauncher};
 
 use function chmod;
 use function file_get_contents;
@@ -117,6 +117,96 @@ final class S07ProcessScopeTest extends TestCase
         self::assertTrue($rejected || $process !== null, 'Fast-parent handling must be rejection or an owned ambiguous handle.');
     }
 
+    public function testRapidCompletedOwnedScopeRemainsTerminallyObservable(): void
+    {
+        $descriptor = new ExecutionLaunchDescriptor('rapid-scope', 1, 'nonce');
+        $launch = (new SymfonyProcessLauncher())->launch(new ProcessLaunchRequest(
+            PHP_BINARY,
+            ['-r', 'exit(0);'],
+            null,
+            ['YII_SCHEDULER_WORKER_MARKER' => $descriptor->marker()],
+            '',
+            $descriptor,
+        ));
+
+        // Launch lookup is best effort: the process can disappear between
+        // starting the owned scope and observing /proc. Validate the facts
+        // when available, but do not turn either a late match or no-match into
+        // a timing assertion.
+        if ($launch->identity !== null) {
+            self::assertSame($descriptor, $launch->identity->descriptor);
+            self::assertSame($launch->identity->processGroupId, $launch->identity->pid);
+            self::assertGreaterThan(0, $launch->identity->sessionId);
+        }
+        $lookup = (new LinuxProcessObserver())->lookup($descriptor);
+        self::assertContains($lookup->status, [ProcessLookupResult::MATCH, ProcessLookupResult::NO_MATCH]);
+        if ($lookup->matched()) {
+            self::assertNotNull($lookup->identity);
+            self::assertSame($descriptor, $lookup->identity->descriptor);
+        }
+
+        // poll() is allowed to return null while this very short process is
+        // completing. The owned handle remains safe to terminate in either
+        // state; an unsafe descriptor must never be attachable.
+        $launch->handle->poll();
+        self::assertTrue($launch->handle->isRunning() || $launch->handle->isQuiescent());
+        $launch->handle->terminateHard();
+        $unsafe = new ExecutionLaunchDescriptor('rapid-scope-unsafe', 1, 'nonce');
+        $this->expectException(ProcessScopeException::class);
+        (new LinuxProcessObserver())->attach($unsafe);
+    }
+
+    public function testInheritedMarkerAcrossWrapperAndWorkerIsOneVerifiedScope(): void
+    {
+        $descriptor = new ExecutionLaunchDescriptor('duplicate-scope', 1, 'nonce');
+        $handle = (new SymfonyProcessLauncher())->launch(new ProcessLaunchRequest(
+            PHP_BINARY,
+            [__DIR__ . '/s07-scope-worker.php', 'persistent', $this->directory . '/duplicate.json'],
+            null,
+            ['YII_SCHEDULER_WORKER_MARKER' => $descriptor->marker()],
+            '',
+            $descriptor,
+        ));
+
+        $this->readJsonWhenReady($this->directory . '/duplicate.json');
+        if ($handle->identity !== null) {
+            self::assertSame($descriptor, $handle->identity->descriptor);
+            self::assertSame($handle->identity->processGroupId, $handle->identity->pid);
+        }
+        $lookup = (new LinuxProcessObserver())->lookup($descriptor);
+        self::assertSame(ProcessLookupResult::MATCH, $lookup->status);
+        self::assertNotNull($lookup->identity);
+        self::assertSame($descriptor, $lookup->identity->descriptor);
+        $handle->handle->terminateHard();
+        self::assertNotNull($this->pollToCompletion($handle->handle));
+    }
+
+    public function testSameMarkerInConflictingScopesRemainsAmbiguous(): void
+    {
+        $descriptor = new ExecutionLaunchDescriptor('conflicting-scope', 1, 'nonce');
+        $request = new ProcessLaunchRequest(
+            PHP_BINARY,
+            [__DIR__ . '/s07-scope-worker.php', 'persistent', $this->directory . '/conflict.json'],
+            null,
+            ['YII_SCHEDULER_WORKER_MARKER' => $descriptor->marker()],
+            '',
+            $descriptor,
+        );
+        $first = (new SymfonyProcessLauncher())->launch($request)->handle;
+        try {
+            $this->readJsonWhenReady($this->directory . '/conflict.json');
+            $lookup = (new LinuxProcessObserver())->lookup($descriptor);
+            self::assertSame(ProcessLookupResult::MATCH, $lookup->status);
+            self::assertNotNull($lookup->identity);
+            self::assertSame($descriptor, $lookup->identity->descriptor);
+            $this->expectException(ProcessScopeException::class);
+            (new SymfonyProcessLauncher())->launch($request);
+        } finally {
+            $first->terminateHard();
+            $this->pollToCompletion($first);
+        }
+    }
+
     public function testTrustedSetsidIsUsedInsteadOfPATHCommand(): void
     {
         $fakeSetsid = $this->directory . '/setsid';
@@ -136,26 +226,26 @@ final class S07ProcessScopeTest extends TestCase
         self::assertSame(0, $result->exitCode);
     }
 
-    public function testAlreadyExitedHandleIsIdempotent(): void
+    public function testUnboundAlreadyExitedMockCannotClaimQuiescenceOrSignal(): void
     {
         $process = $this->createMock(Process::class);
         $process->method('isRunning')->willReturn(false);
+        $process->expects(self::never())->method('signal');
         $handle = new SymfonyProcessHandle($process);
 
-        $handle->terminateSoft();
+        self::assertFalse($handle->isQuiescent());
+        $this->expectException(ProcessScopeException::class);
         $handle->terminateHard();
-        self::assertTrue($handle->isQuiescent());
     }
 
-    public function testTerminationFailureIsPropagatedExplicitly(): void
+    public function testUnboundTerminationDoesNotReachSymfonySignal(): void
     {
         $process = $this->createMock(Process::class);
-        $process->expects(self::once())->method('isRunning')->willReturn(true);
-        $process->expects(self::once())->method('signal')->willThrowException(new RuntimeException('signal failed'));
+        $process->method('isRunning')->willReturn(true);
+        $process->expects(self::never())->method('signal');
         $handle = new SymfonyProcessHandle($process);
 
-        $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('signal failed');
+        $this->expectException(ProcessScopeException::class);
         $handle->terminateHard();
     }
 

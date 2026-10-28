@@ -10,5 +10,5 @@ namespace Yiisoft\Scheduler\Integration\Async;
  */
 interface ExecutionWorkerRuntimeFactoryInterface
 {
-    public function create(ExecutionWorkerCapability $capability, ExecutionLedgerRecord $claimedRecord): ExecutionWorkerRuntimeInterface;
+    public function create(ExecutionWorkerCapability $capability, ExecutionLedgerRecord $claimedRecord, ExecutionLedgerCommandInterface $ledger): ExecutionWorkerRuntimeInterface;
 }

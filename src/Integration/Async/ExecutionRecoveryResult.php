@@ -19,6 +19,7 @@ final class ExecutionRecoveryResult
     public const REVOKED = 'revoked';
     public const STALE = 'stale';
     public const REJECTED = 'rejected';
+    public const RECOVERY_EXPIRED = 'recovery-expired';
 
     private function __construct(public readonly string $status, public readonly ?ExecutionLedgerRecord $record, public readonly ?string $reason)
     {
@@ -47,6 +48,11 @@ final class ExecutionRecoveryResult
         return new self(self::AMBIGUOUS, $record, null);
     }
 
+    public static function expired(ExecutionLedgerRecord $record): self
+    {
+        return new self(self::RECOVERY_EXPIRED, $record, null);
+    }
+
     public static function needsResolution(ExecutionLedgerRecord $record): self
     {
         return new self(self::NEEDS_RESOLUTION, $record, null);
@@ -54,7 +60,7 @@ final class ExecutionRecoveryResult
 
     public static function result(string $status, ?ExecutionLedgerRecord $record = null, ?string $reason = null): self
     {
-        if (!in_array($status, [self::TERMINAL, self::SAME_GENERATION_UNCLAIMED, self::LEASE_EXPIRED_OBSERVED, self::AMBIGUOUS, self::NEEDS_RESOLUTION, self::REVOKED, self::STALE, self::REJECTED], true)) {
+        if (!in_array($status, [self::TERMINAL, self::SAME_GENERATION_UNCLAIMED, self::LEASE_EXPIRED_OBSERVED, self::AMBIGUOUS, self::NEEDS_RESOLUTION, self::REVOKED, self::STALE, self::REJECTED, self::RECOVERY_EXPIRED], true)) {
             throw new InvalidArgumentException('Invalid recovery result.');
         }
         return new self($status, $record, $reason);

@@ -26,7 +26,7 @@ final class ExecutionOccurrenceSource implements ExecutionOccurrenceSourceInterf
     /** @var list<DateTimeImmutable> */
     private array $fallbackMissed = [];
     private bool $scanExhausted = false;
-    private readonly ?ExecutionLedgerInterface $ledger;
+    private readonly ?ExecutionLedgerQueryInterface $ledger;
     private readonly MissedOccurrenceSetting $policy;
 
     public function __construct(
@@ -55,7 +55,7 @@ final class ExecutionOccurrenceSource implements ExecutionOccurrenceSourceInterf
             $setting = new MissedOccurrenceSetting($ledgerOrPolicy);
         }
 
-        $ledger = $ledgerOrPolicy instanceof ExecutionLedgerInterface ? $ledgerOrPolicy : null;
+        $ledger = $ledgerOrPolicy instanceof ExecutionLedgerQueryInterface ? $ledgerOrPolicy : null;
         if ($ledger === null && $setting->policy !== MissedOccurrencePolicy::SKIP) {
             throw new InvalidArgumentException('A journal history port is required for replay policies.');
         }
@@ -66,7 +66,7 @@ final class ExecutionOccurrenceSource implements ExecutionOccurrenceSourceInterf
     public function next(): ?ExecutionOccurrenceCandidate
     {
         $wasPrimed = $this->checkpointPrimed;
-        $cursor = $wasPrimed
+        $cursor = $wasPrimed || $this->scanCheckpoint !== null
             ? $this->scanCheckpoint
             : $this->checkpoint->read($this->taskKey);
         $this->checkpointPrimed = false;

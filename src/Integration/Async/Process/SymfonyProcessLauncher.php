@@ -6,6 +6,7 @@ namespace Yiisoft\Scheduler\Integration\Async\Process;
 
 use Symfony\Component\Process\Process;
 use Throwable;
+use Yiisoft\Scheduler\Integration\Async\ExecutionLaunchDescriptor;
 use Yiisoft\Scheduler\Integration\Async\MonotonicClockInterface;
 use Yiisoft\Scheduler\Integration\Async\SystemMonotonicClock;
 
@@ -46,11 +47,48 @@ final class SymfonyProcessLauncher implements ProcessLauncherInterface
         if ($setsid === null) {
             throw new ProcessScopeException('Unable to establish the owned process scope.');
         }
-        $process = new Process([$setsid, '--wait', $request->executable, ...$request->argv], $request->cwd, $request->environment);
+        // Symfony merges inherited variables. Mask both reserved markers first,
+        // then expose only the marker belonging to this launch role.
+        $environment = $request->environment;
+        $environment[ExecutionLaunchDescriptor::WORKER_MARKER] = false;
+        $environment[ExecutionLaunchDescriptor::COMMAND_MARKER] = false;
+        if ($request->descriptor !== null) {
+            $environment[$request->descriptor->markerName()] = $request->descriptor->marker();
+        }
+        // An unbound application request still receives a local descriptor so
+        // the owned boundary has a fail-closed identity. It is deliberately
+        // not exported as application metadata or used for marker lookup.
+        $launchDescriptor = $request->descriptor ?? new ExecutionLaunchDescriptor('local-launch', 1);
+        $process = new Process([$setsid, '--wait', $request->executable, ...$request->argv], $request->cwd, $environment);
         $process->setInput($request->protocolInput);
-        $handle = new SymfonyProcessHandle($process);
+        $handle = new SymfonyProcessHandle($process, $launchDescriptor);
         $startedAt = $handle->start($this->clock);
-        return new ProcessLaunchResult($handle, $startedAt);
+        $wallStartedAtMicros = $handle->wallStartedAtMicros();
+        $observer = new LinuxProcessObserver();
+        $pid = $process->getPid();
+        $groupId = $handle->processGroupId();
+        $identity = ($pid === null || $groupId === null) ? null : $observer->captureLaunchIdentity($pid, $groupId, $launchDescriptor);
+        if ($identity === null) {
+            throw new ProcessScopeException('Unable to capture the launched process identity.');
+        }
+        $handle->bindIdentity($identity);
+        $lookup = $request->descriptor === null ? null : $observer->lookup($request->descriptor);
+        if ($lookup?->matched() && $lookup->identity !== null && !$lookup->identity->sameFacts($identity)) {
+            $handle->terminateHard();
+            throw new ProcessScopeException('Unable to verify the launched process identity.');
+        }
+        if ($request->descriptor !== null && ($lookup === null || !$lookup->matched() || $lookup->identity === null)) {
+            // The handle and its process group are the launch boundary. A
+            // best-effort first sample may lose an unrelated /proc entry (or
+            // race the target's exit); retain that owned boundary and let a
+            // later recovery lookup fail closed. A real same-marker conflict
+            // must still abort rather than becoming an unresolved success.
+            if ($lookup?->status === ProcessLookupResult::AMBIGUOUS) {
+                $handle->terminateHard();
+                throw new ProcessScopeException('Unable to verify the launched process identity.');
+            }
+        }
+        return new ProcessLaunchResult($handle, $startedAt, $wallStartedAtMicros, $identity);
     }
 
     private static function findTrustedSetsid(): ?string

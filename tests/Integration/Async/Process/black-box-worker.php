@@ -12,6 +12,6 @@ if ($mode === 'exit-before-entrypoint') {
 }
 
 $capability = stream_get_contents(\STDIN);
-$result = (new ExecutionWorkerEntrypoint(new BlackBoxLedgerLocator(), new BlackBoxRuntimeFactory(), new BlackBoxClock()))->invoke($capability, 3000);
+$result = (new ExecutionWorkerEntrypoint(new BlackBoxLedgerLocator(), new BlackBoxRuntimeFactory(), new BlackBoxClock()))->invoke($capability, \PHP_INT_MAX);
 fwrite(\STDERR, $result->status . "\n");
 exit($result->status === 'committed-succeeded' ? 0 : 1);

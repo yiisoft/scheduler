@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Yiisoft\Scheduler\Integration\Async\Process;
 
 use InvalidArgumentException;
+use Yiisoft\Scheduler\Integration\Async\ExecutionLaunchDescriptor;
 
 use function count;
 use function is_string;
@@ -15,7 +16,7 @@ final class ProcessLaunchRequest
     public const MAX_PROTOCOL_INPUT_LENGTH = 1048576;
 
     /** @param list<string> $argv @param array<string,string> $environment */
-    public function __construct(public readonly string $executable, public readonly array $argv, public readonly ?string $cwd, public readonly array $environment, public readonly string $protocolInput)
+    public function __construct(public readonly string $executable, public readonly array $argv, public readonly ?string $cwd, public readonly array $environment, public readonly string $protocolInput, public readonly ?ExecutionLaunchDescriptor $descriptor = null)
     {
         if ($executable === '' || str_contains($executable, "\0") || ($argv !== [] && array_keys($argv) !== range(0, count($argv) - 1))) {
             throw new InvalidArgumentException('Invalid process request.');

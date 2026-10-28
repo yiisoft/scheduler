@@ -227,7 +227,6 @@ final class BlackBoxShellProcessTest extends TestCase
     {
         $occurrence = new ExecutionOccurrenceKey('fixture-task', 'shell-' . bin2hex(random_bytes(4)));
         $capability = BlackBoxApplication::capability($occurrence);
-        $capability = new ExecutionWorkerCapability($capability->occurrence, $capability->attemptId, $capability->runId, $capability->executionId, $capability->generation, $capability->fenceToken, $capability->configurationFingerprint, hash('sha256', PreparedConfiguration::canonical($capability->policy)), $capability->ledgerLocator, $capability->runtimeLocator, $capability->sourceRevision, $capability->policy);
         $ledger = new FileExecutionLedger($this->directory . '/ledger');
         $ledger->admit(BlackBoxApplication::record($capability));
         $marker = $this->directory . '/marker';

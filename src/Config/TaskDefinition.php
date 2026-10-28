@@ -25,7 +25,11 @@ final class TaskDefinition
         ?TriggerDefinition $trigger = null,
         mixed $missedOccurrences = MissedOccurrencePolicy::SKIP,
         mixed $overlap = OverlapPolicy::ALLOW,
+        public readonly ?float $recoveryMaxAge = null,
     ) {
+        if ($recoveryMaxAge !== null) {
+            SchedulerConfig::assertRecoveryMaxAge($recoveryMaxAge);
+        }
         $this->missedOccurrences = $missedOccurrences instanceof MissedOccurrenceSetting
             ? $missedOccurrences
             : ($missedOccurrences instanceof MissedOccurrencePolicy
@@ -59,5 +63,10 @@ final class TaskDefinition
     public function overlapPolicy(): OverlapPolicy
     {
         return $this->overlap;
+    }
+
+    public function recoveryMaxAge(): ?float
+    {
+        return $this->recoveryMaxAge;
     }
 }

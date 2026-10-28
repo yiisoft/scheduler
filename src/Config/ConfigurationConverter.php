@@ -38,8 +38,9 @@ final class ConfigurationConverter
                 $schedule->trigger,
                 $schedule->missedOccurrences,
                 $schedule->overlap,
+                $schedule->recoveryMaxAge,
             );
         }
-        return new PreparedConfiguration($tasks, $configuration->timeoutPolicy(), null, null, $configuration->asyncWorkerCapacityValue(), $map, $configuration->containerProvider());
+        return new PreparedConfiguration($tasks, $configuration->timeoutPolicy(), null, null, $configuration->asyncWorkerCapacityValue(), $map, $configuration->containerProvider(), $configuration->recoveryMaxAgeValue());
     }
 }

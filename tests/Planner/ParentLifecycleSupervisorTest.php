@@ -7,12 +7,14 @@ namespace Yiisoft\Scheduler\Tests\Planner;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use RuntimeException;
+use InvalidArgumentException;
 use Yiisoft\Scheduler\Config\TimeoutPolicy;
-use Yiisoft\Scheduler\Integration\Async\{ExecutionOccurrenceKey, ExecutionWorkerCapability, ExecutionWorkerLaunchRequest, MonotonicClockInterface, PollWaiterInterface, WorkerLifecyclePolicy};
-use Yiisoft\Scheduler\Integration\Async\Process\ProcessHandleInterface;
+use Yiisoft\Scheduler\Integration\Async\{ExecutionLaunchDescriptor, ExecutionOccurrenceKey, ExecutionStartObservation, ExecutionWorkerCapability, ExecutionWorkerLaunchRequest, MonotonicClockInterface, PollWaiterInterface, WorkerLifecyclePolicy};
+use Yiisoft\Scheduler\Integration\Async\Process\{ProcessHandleInterface, ProcessIdentity, ProcessLaunchResult};
 use Yiisoft\Scheduler\Integration\Async\Process\ProcessResult;
 use Yiisoft\Scheduler\Planner\ParentLifecycleSupervisor;
 use Closure;
+use Yiisoft\Scheduler\Integration\Async\Process\ProcessScopeProof;
 
 final class ParentLifecycleSupervisorTest extends TestCase
 {
@@ -42,6 +44,11 @@ final class ParentLifecycleSupervisorTest extends TestCase
             public function wait(float $seconds): void {}
         };
         $handle = new class implements ProcessHandleInterface {
+            public function scopeProof(): ProcessScopeProof
+            {
+                return ProcessScopeProof::closedTerminalFromRetainedPoll(new ExecutionLaunchDescriptor('test', 1, 'test'), new ProcessIdentity(10, 10, 10, '1', 'boot', new ExecutionLaunchDescriptor('test', 1, 'test')));
+            }
+
             public int $soft = 0;
             public int $hard = 0;
 
@@ -71,7 +78,7 @@ final class ParentLifecycleSupervisorTest extends TestCase
             }
         };
         $supervisor = new ParentLifecycleSupervisor($clock, $waiter);
-        $launch = $supervisor->retain(new ExecutionWorkerLaunchRequest($this->capability(), null, 0), $handle);
+        $launch = $supervisor->retain(new ExecutionWorkerLaunchRequest($this->capability(), null, 0), new ProcessLaunchResult($handle, 0));
 
         $supervisor->poll();
 
@@ -94,6 +101,11 @@ final class ParentLifecycleSupervisorTest extends TestCase
             public function wait(float $seconds): void {}
         };
         $handle = new class implements ProcessHandleInterface {
+            public function scopeProof(): ProcessScopeProof
+            {
+                return ProcessScopeProof::closedTerminalFromRetainedPoll(new ExecutionLaunchDescriptor('test', 1, 'test'), new ProcessIdentity(10, 10, 10, '1', 'boot', new ExecutionLaunchDescriptor('test', 1, 'test')));
+            }
+
             public int $soft = 0;
             public int $hard = 0;
             public bool $quiet = false;
@@ -126,10 +138,14 @@ final class ParentLifecycleSupervisorTest extends TestCase
         $supervisor = new ParentLifecycleSupervisor($clock, $waiter);
         // Retention is deliberately delayed: deadlines belong to launch, not observation.
         $clock->time = 3;
-        $launch = $supervisor->retain(new ExecutionWorkerLaunchRequest($this->capability(), new WorkerLifecyclePolicy(2, 2), 0), $handle);
+        $launch = $supervisor->retain(new ExecutionWorkerLaunchRequest($this->capability(), new WorkerLifecyclePolicy(2, 2), 0), new ProcessLaunchResult($handle, 2));
 
         $supervisor->poll();
         self::assertTrue($supervisor->hasUnresolvedWorkers());
+        self::assertSame(0, $handle->soft);
+        self::assertSame(0, $handle->hard);
+        $clock->time = 4;
+        $supervisor->poll();
         self::assertSame(1, $handle->soft);
         self::assertSame(1, $handle->hard);
         $supervisor->poll();
@@ -155,6 +171,11 @@ final class ParentLifecycleSupervisorTest extends TestCase
             public function wait(float $seconds): void {}
         };
         $handle = new class implements ProcessHandleInterface {
+            public function scopeProof(): ProcessScopeProof
+            {
+                return ProcessScopeProof::closedTerminalFromRetainedPoll(new ExecutionLaunchDescriptor('test', 1, 'test'), new ProcessIdentity(10, 10, 10, '1', 'boot', new ExecutionLaunchDescriptor('test', 1, 'test')));
+            }
+
             public function isRunning(): bool
             {
                 return false;
@@ -175,7 +196,7 @@ final class ParentLifecycleSupervisorTest extends TestCase
             public function terminateHard(): void {}
         };
         $supervisor = new ParentLifecycleSupervisor($clock, $waiter);
-        $supervisor->retain(new ExecutionWorkerLaunchRequest($this->capability(), new WorkerLifecyclePolicy(), 0), $handle);
+        $supervisor->retain(new ExecutionWorkerLaunchRequest($this->capability(), new WorkerLifecyclePolicy(), 0), new ProcessLaunchResult($handle, 0));
 
         $observation = $supervisor->poll()[0];
         self::assertSame('worker exit code 1: Could not open input file: run ', $observation->error);
@@ -194,6 +215,11 @@ final class ParentLifecycleSupervisorTest extends TestCase
             public function wait(float $seconds): void {}
         };
         $handle = new class implements ProcessHandleInterface {
+            public function scopeProof(): ProcessScopeProof
+            {
+                return ProcessScopeProof::closedTerminalFromRetainedPoll(new ExecutionLaunchDescriptor('test', 1, 'test'), new ProcessIdentity(10, 10, 10, '1', 'boot', new ExecutionLaunchDescriptor('test', 1, 'test')));
+            }
+
             public function isRunning(): bool
             {
                 return false;
@@ -214,7 +240,7 @@ final class ParentLifecycleSupervisorTest extends TestCase
             public function terminateHard(): void {}
         };
         $supervisor = new ParentLifecycleSupervisor($clock, $waiter);
-        $supervisor->retain(new ExecutionWorkerLaunchRequest($this->capability(), new WorkerLifecyclePolicy(), 0), $handle);
+        $supervisor->retain(new ExecutionWorkerLaunchRequest($this->capability(), new WorkerLifecyclePolicy(), 0), new ProcessLaunchResult($handle, 0));
 
         self::assertSame([], $supervisor->poll());
         self::assertTrue($supervisor->hasUnresolvedWorkers());
@@ -242,6 +268,11 @@ final class ParentLifecycleSupervisorTest extends TestCase
             }
         };
         $handle = new class implements ProcessHandleInterface {
+            public function scopeProof(): ProcessScopeProof
+            {
+                return ProcessScopeProof::closedTerminalFromRetainedPoll(new ExecutionLaunchDescriptor('test', 1, 'test'), new ProcessIdentity(10, 10, 10, '1', 'boot', new ExecutionLaunchDescriptor('test', 1, 'test')));
+            }
+
             public array $signals = [];
             public bool $quiet = false;
 
@@ -272,7 +303,7 @@ final class ParentLifecycleSupervisorTest extends TestCase
             }
         };
         $supervisor = new ParentLifecycleSupervisor($clock, $waiter);
-        $launch = $supervisor->retain(new ExecutionWorkerLaunchRequest($this->capability(), new WorkerLifecyclePolicy(0.1, 0.1), 0), $handle);
+        $launch = $supervisor->retain(new ExecutionWorkerLaunchRequest($this->capability(), new WorkerLifecyclePolicy(0.1, 0.1), 0), new ProcessLaunchResult($handle, 0));
         $clock->time = 1;
 
         self::assertTrue($supervisor->shutdown(1));
@@ -296,6 +327,11 @@ final class ParentLifecycleSupervisorTest extends TestCase
             public function wait(float $seconds): void {}
         };
         $handle = new class implements ProcessHandleInterface {
+            public function scopeProof(): ProcessScopeProof
+            {
+                return ProcessScopeProof::closedTerminalFromRetainedPoll(new ExecutionLaunchDescriptor('test', 1, 'test'), new ProcessIdentity(10, 10, 10, '1', 'boot', new ExecutionLaunchDescriptor('test', 1, 'test')));
+            }
+
             public function isRunning(): bool
             {
                 return true;
@@ -316,7 +352,7 @@ final class ParentLifecycleSupervisorTest extends TestCase
             public function terminateHard(): void {}
         };
         $supervisor = new ParentLifecycleSupervisor($clock, $waiter);
-        $launch = $supervisor->retain(new ExecutionWorkerLaunchRequest($this->capability(), new WorkerLifecyclePolicy(), 0), $handle);
+        $launch = $supervisor->retain(new ExecutionWorkerLaunchRequest($this->capability(), new WorkerLifecyclePolicy(), 0), new ProcessLaunchResult($handle, 0));
 
         self::assertFalse($supervisor->shutdown(0));
         $observations = $supervisor->takeShutdownObservations();
@@ -341,6 +377,11 @@ final class ParentLifecycleSupervisorTest extends TestCase
             public function wait(float $seconds): void {}
         };
         $handle = new class implements ProcessHandleInterface {
+            public function scopeProof(): ProcessScopeProof
+            {
+                return ProcessScopeProof::closedTerminalFromRetainedPoll(new ExecutionLaunchDescriptor('test', 1, 'test'), new ProcessIdentity(10, 10, 10, '1', 'boot', new ExecutionLaunchDescriptor('test', 1, 'test')));
+            }
+
             public int $soft = 0;
 
             public function isRunning(): bool
@@ -367,12 +408,67 @@ final class ParentLifecycleSupervisorTest extends TestCase
             public function terminateHard(): void {}
         };
         $supervisor = new ParentLifecycleSupervisor($clock, $waiter);
-        $supervisor->retain(new ExecutionWorkerLaunchRequest($this->capability(), new WorkerLifecyclePolicy(), 0), $handle);
+        $supervisor->retain(new ExecutionWorkerLaunchRequest($this->capability(), new WorkerLifecyclePolicy(), 0), new ProcessLaunchResult($handle, 0));
 
         self::assertFalse($supervisor->shutdown(0));
         self::assertSame(1, $handle->soft);
         self::assertFalse($supervisor->shutdown(0));
         self::assertSame(1, $handle->soft);
+    }
+
+    public function testPollForwardsQueuedStartBeforeTerminalClosureInOnePoll(): void
+    {
+        $clock = new class implements MonotonicClockInterface {
+            public function now(): float
+            {
+                return 5.0;
+            }
+        };
+        $waiter = new class implements PollWaiterInterface {
+            public function wait(float $seconds): void {}
+        };
+        $handle = new class implements ProcessHandleInterface {
+            public function scopeProof(): ProcessScopeProof
+            {
+                return ProcessScopeProof::closedTerminalFromRetainedPoll(new ExecutionLaunchDescriptor('test', 1, 'test'), new ProcessIdentity(10, 10, 10, '1', 'boot', new ExecutionLaunchDescriptor('test', 1, 'test')));
+            }
+
+            public function isRunning(): bool
+            {
+                return false;
+            }
+
+            public function isQuiescent(): bool
+            {
+                return true;
+            }
+
+            public function poll(): ?ProcessResult
+            {
+                return new ProcessResult(0);
+            }
+
+            public function terminateSoft(): void {}
+
+            public function terminateHard(): void {}
+        };
+        $descriptor = new ExecutionLaunchDescriptor('e', 1, 'nonce', occurrence: new ExecutionOccurrenceKey('t', 'o'));
+        $identity = new ProcessIdentity(123, 123, 123, '456', 'boot', $descriptor);
+        $supervisor = new ParentLifecycleSupervisor($clock, $waiter);
+        $launch = $supervisor->retain(
+            new ExecutionWorkerLaunchRequest($this->capability(), new WorkerLifecyclePolicy(), 0, descriptor: $descriptor),
+            new ProcessLaunchResult($handle, 1.0, 5000000, $identity),
+        );
+
+        $observations = $supervisor->poll();
+
+        self::assertCount(2, $observations);
+        self::assertNull($observations[0]->closure);
+        self::assertTrue($observations[1]->closure?->isConfirmed());
+        self::assertSame($launch->value, $observations[0]->launchHandle?->value);
+        self::assertSame($launch->value, $observations[1]->launchHandle?->value);
+        self::assertSame($identity->pid, $observations[0]->processIdentity?->pid);
+        self::assertSame($identity->startTicks, $observations[1]->processIdentity?->startTicks);
     }
 
     public function testTerminalPollIsNotInvalidatedByASecondProcessTableObservation(): void
@@ -387,6 +483,11 @@ final class ParentLifecycleSupervisorTest extends TestCase
             public function wait(float $seconds): void {}
         };
         $handle = new class implements ProcessHandleInterface {
+            public function scopeProof(): ProcessScopeProof
+            {
+                return ProcessScopeProof::closedTerminalFromRetainedPoll(new ExecutionLaunchDescriptor('test', 1, 'test'), new ProcessIdentity(10, 10, 10, '1', 'boot', new ExecutionLaunchDescriptor('test', 1, 'test')));
+            }
+
             private bool $polled = false;
 
             public function isRunning(): bool
@@ -413,12 +514,94 @@ final class ParentLifecycleSupervisorTest extends TestCase
             public function terminateHard(): void {}
         };
         $supervisor = new ParentLifecycleSupervisor($clock, $waiter);
-        $supervisor->retain(new ExecutionWorkerLaunchRequest($this->capability(), new WorkerLifecyclePolicy(), 0), $handle);
+        $supervisor->retain(new ExecutionWorkerLaunchRequest($this->capability(), new WorkerLifecyclePolicy(), 0), new ProcessLaunchResult($handle, 0));
 
         $observations = $supervisor->poll();
         self::assertCount(1, $observations);
         self::assertTrue($observations[0]->closure?->isConfirmed());
         self::assertFalse($supervisor->hasUnresolvedWorkers());
+    }
+
+    public function testFreshAttemptAndReattachmentKeepIndependentMonotonicBoundaries(): void
+    {
+        $clock = new class implements MonotonicClockInterface {
+            public float $time = 10.0;
+
+            public function now(): float
+            {
+                return $this->time;
+            }
+        };
+        $waiter = new class implements PollWaiterInterface {
+            public function wait(float $seconds): void {}
+        };
+        $handles = [];
+        foreach ([0, 0] as $_) {
+            $handles[] = new class implements ProcessHandleInterface {
+                public function scopeProof(): ProcessScopeProof
+                {
+                    return ProcessScopeProof::closedTerminalFromRetainedPoll(new ExecutionLaunchDescriptor('test', 1, 'test'), new ProcessIdentity(10, 10, 10, '1', 'boot', new ExecutionLaunchDescriptor('test', 1, 'test')));
+                }
+
+                public int $soft = 0;
+
+                public function isRunning(): bool
+                {
+                    return true;
+                }
+
+                public function isQuiescent(): bool
+                {
+                    return false;
+                }
+
+                public function poll(): ?ProcessResult
+                {
+                    return null;
+                }
+
+                public function terminateSoft(): void
+                {
+                    ++$this->soft;
+                }
+
+                public function terminateHard(): void {}
+            };
+        }
+        $supervisor = new ParentLifecycleSupervisor($clock, $waiter);
+        $policy = new WorkerLifecyclePolicy(1.0, null);
+        $request = new ExecutionWorkerLaunchRequest($this->capability(), $policy, 10.0);
+        $supervisor->retain($request, new ProcessLaunchResult($handles[0], startedAt: 10.0));
+        $identity = new ProcessIdentity(1, 1, 1, 'ticks', 'boot', $request->descriptor);
+        $reattachedHandle = $supervisor->retainReattached(
+            new ExecutionWorkerLaunchRequest($this->capability(), $policy, 4.0, descriptor: $request->descriptor),
+            $handles[1],
+            $identity,
+            200,
+            new ExecutionStartObservation(100, 4000000000),
+        );
+        $retained = $supervisor->retained()[$reattachedHandle->value];
+        self::assertSame(200, $retained->wallLaunchedAtMicros);
+        self::assertSame(4.0, $retained->launchedAt);
+        self::assertSame(100, $retained->attemptStartObservation?->wallMicroseconds);
+        self::assertSame(4000000000, $retained->attemptStartObservation?->monotonicNanoseconds);
+
+        $supervisor->poll();
+        self::assertSame(0, $handles[0]->soft);
+        self::assertSame(1, $handles[1]->soft);
+        $clock->time = 11.0;
+        $supervisor->poll();
+        self::assertSame(1, $handles[0]->soft);
+        self::assertSame(1, $handles[1]->soft);
+
+        self::expectException(InvalidArgumentException::class);
+        $supervisor->retainReattached(
+            $request,
+            $handles[1],
+            $identity,
+            -1,
+            new ExecutionStartObservation(100, 4000000000),
+        );
     }
 
     private function capability(): ExecutionWorkerCapability
@@ -436,14 +619,16 @@ final class ParentLifecycleSupervisorTest extends TestCase
             'runtime',
             'source-revision',
             [
-                'format' => 4,
+                'schema' => 'dev',
                 'source' => ['source', 'source-revision'],
                 'task' => [
-                    'id' => 't', 'mode' => 'async', 'timeout' => null, 'metadata' => [],
+                    'id' => 't', 'mode' => 'async', 'timeout' => null, 'recoveryMaxAge' => 180.0, 'metadata' => [],
                     'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]],
                     'overlap' => 'allow', 'missed' => ['skip', null],
                 ],
             ],
+            launchDescriptor: new ExecutionLaunchDescriptor('e', 1, 'nonce', occurrence: new ExecutionOccurrenceKey('t', 'o')),
+            permissionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
         );
     }
 }

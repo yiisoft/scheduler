@@ -9,5 +9,5 @@ use Yiisoft\Scheduler\Integration\Async\{ExecutionWorkerLaunchHandle, ExecutionW
 /** Application-owned retention and observation boundary for a started process. */
 interface ExecutionWorkerProcessHandleObserverInterface
 {
-    public function retain(ExecutionWorkerLaunchRequest $request, ProcessHandleInterface $handle): ExecutionWorkerLaunchHandle;
+    public function retain(ExecutionWorkerLaunchRequest $request, ProcessLaunchResult $launch): ExecutionWorkerLaunchHandle;
 }

@@ -13,7 +13,6 @@ use function count;
 use function file_get_contents;
 use function file_put_contents;
 use function is_array;
-use function is_int;
 use function is_string;
 use function json_decode;
 use function json_encode;
@@ -37,8 +36,7 @@ use const LOCK_EX;
 final class PlannerStateFormat
 {
     public const FILE = 'runtime-format.json';
-    public const VERSION = 1;
-    public const RUNTIME = 4;
+    public const SCHEMA = 'dev';
     private const MAX_SIZE = 4096;
 
     /** Initialize only a genuinely empty namespace, or validate its marker. */
@@ -117,16 +115,15 @@ final class PlannerStateFormat
         } catch (Throwable) {
             return false;
         }
-        if (!is_array($data) || count($data) !== 2) {
+        if (!is_array($data) || count($data) !== 1) {
             return false;
         }
         $keys = array_keys($data);
         sort($keys);
-        if ($keys !== ['runtime', 'version']) {
+        if ($keys !== ['schema']) {
             return false;
         }
-        return is_int($data['version'] ?? null) && $data['version'] === self::VERSION
-            && is_int($data['runtime'] ?? null) && $data['runtime'] === self::RUNTIME;
+        return $data['schema'] === self::SCHEMA;
     }
 
     private static function hasDuplicateObjectMembers(string $raw): bool
@@ -185,7 +182,7 @@ final class PlannerStateFormat
     {
         $temporary = $marker . '.' . bin2hex(random_bytes(6)) . '.tmp';
         try {
-            $contents = json_encode(['version' => self::VERSION, 'runtime' => self::RUNTIME], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+            $contents = json_encode(['schema' => self::SCHEMA], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
             if (file_put_contents($temporary, $contents, LOCK_EX) === false || !@rename($temporary, $marker)) {
                 throw new RuntimeException('Planner state format marker cannot be written.');
             }

@@ -6,7 +6,7 @@ namespace Yiisoft\Scheduler\Tests\Integration\Async\Store;
 
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
-use Yiisoft\Scheduler\Integration\Async\{ExecutionDispatchReservation, ExecutionFence, ExecutionIdentity, ExecutionLaunchObservation, ExecutionLedgerRecord, ExecutionLedgerState, ExecutionOccurrenceKey, ExecutionOutcome, ExecutionProcessClosure, ExecutionRecoveryFence};
+use Yiisoft\Scheduler\Integration\Async\{ExecutionDispatchReservation, ExecutionFence, ExecutionIdentity, ExecutionLaunchDescriptor, ExecutionLaunchObservation, ExecutionLedgerRecord, ExecutionLedgerState, ExecutionOccurrenceKey, ExecutionOutcome, ExecutionProcessClosure, ExecutionProcessIdentity, ExecutionRecoveryFence};
 use Yiisoft\Scheduler\Integration\Async\Store\FileExecutionLedgerCodec;
 use PHPUnit\Framework\Attributes\DataProvider;
 
@@ -15,11 +15,86 @@ use const JSON_THROW_ON_ERROR;
 
 final class FileExecutionLedgerCodecTest extends TestCase
 {
-    public function testEncodeWritesLatestLedgerSnapshotVersion(): void
+    public function testEncodeWritesCurrentLedgerSchema(): void
     {
         $value = json_decode((new FileExecutionLedgerCodec())->encode(self::record()), true, 64, JSON_THROW_ON_ERROR);
 
-        self::assertSame(6, $value['version']);
+        self::assertSame('dev', $value['schema']);
+    }
+
+    public function testRecordRejectsRecoveryFenceFromAnotherGeneration(): void
+    {
+        $record = self::record();
+
+        $this->expectException(InvalidArgumentException::class);
+        new ExecutionLedgerRecord(
+            $record->occurrence,
+            $record->correlation,
+            $record->attempt,
+            $record->fence,
+            $record->state,
+            $record->configurationFingerprint,
+            $record->taskSnapshot,
+            $record->createdAt,
+            $record->updatedAt,
+            $record->outcome,
+            $record->metadata,
+            $record->dispatchReservation,
+            $record->launchObservation,
+            new ExecutionRecoveryFence('recovery-other', 2),
+            sourceIdentity: $record->sourceIdentity,
+            sourceRevision: $record->sourceRevision,
+        );
+    }
+
+    #[DataProvider('invalidFreshSourceFactsProvider')]
+    public function testCurrentSchemaRequiresCanonicalSourceFacts(string $field, mixed $value): void
+    {
+        $snapshot = json_decode((new FileExecutionLedgerCodec())->encode(self::record()), true, 64, JSON_THROW_ON_ERROR);
+        $snapshot[$field] = $value;
+
+        $this->expectException(InvalidArgumentException::class);
+        (new FileExecutionLedgerCodec())->decode(json_encode($snapshot, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION));
+    }
+
+    public static function invalidFreshSourceFactsProvider(): array
+    {
+        return [
+            'missing identity' => ['sourceIdentity', null],
+            'missing revision' => ['sourceRevision', null],
+            'mismatched identity' => ['sourceIdentity', 'other-source'],
+            'mismatched revision' => ['sourceRevision', 'other-revision'],
+            'identity with NUL' => ['sourceIdentity', "source\0identity"],
+            'revision with NUL' => ['sourceRevision', "revision\0value"],
+        ];
+    }
+
+    public function testCurrentSchemaRejectsMalformedPolicySourceBeforePersistence(): void
+    {
+        $value = json_decode((new FileExecutionLedgerCodec())->encode(self::record()), true, 64, JSON_THROW_ON_ERROR);
+        $value['taskSnapshot']['source'] = ['source-1'];
+
+        $this->expectException(InvalidArgumentException::class);
+        (new FileExecutionLedgerCodec())->decode(json_encode($value, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION));
+    }
+
+    public function testIdentityWithoutTimingRoundTripsInObservationAndLedger(): void
+    {
+        $identity = new ExecutionProcessIdentity(123, 123, 123, 'ticks', 'boot');
+        $record = self::record();
+        $record = $record->transition(
+            dispatchReservation: $record->dispatchReservation?->withPhase(ExecutionDispatchReservation::AMBIGUOUS),
+        );
+        $record = $record->transition(
+            launchObservation: new ExecutionLaunchObservation(123, null, 'identified', 16, processIdentity: $identity),
+            processIdentity: $identity,
+        );
+
+        $decoded = (new FileExecutionLedgerCodec())->decode((new FileExecutionLedgerCodec())->encode($record));
+        self::assertEquals($identity, $decoded->processIdentity);
+        self::assertNull($decoded->startObservation);
+        self::assertEquals($identity, $decoded->launchObservation?->processIdentity);
+        self::assertNull($decoded->launchObservation?->startObservation);
     }
 
     public function testCompleteRecordRoundTripPreservesEveryNestedFieldAndFloats(): void
@@ -49,15 +124,16 @@ final class FileExecutionLedgerCodecTest extends TestCase
             1,
             new ExecutionFence(1, 'fence-token'),
             ExecutionLedgerState::SUCCEEDED,
-            'launch-intent',
             'manifest',
-            ['format' => 4, 'source' => [null, null], 'task' => ['id' => 'task', 'mode' => 'async', 'timeout' => [1.0, 2.0], 'metadata' => ['deep' => self::deepTree(20)], 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null]]],
+            ['schema' => 'dev', 'source' => ['source-1', 'revision-1'], 'task' => ['id' => 'task', 'mode' => 'async', 'timeout' => [1.0, 2.0], 'recoveryMaxAge' => 180.0, 'metadata' => ['deep' => self::deepTree(20)], 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null]]],
             10,
             20,
             $outcome,
             self::deepTree(32),
             null,
-            new ExecutionLaunchObservation(123, null, 'complete', 16, ExecutionProcessClosure::confirmed(0, 'closed')),
+            new ExecutionLaunchObservation(null, null, 'complete', 16, ExecutionProcessClosure::confirmed(0, 'closed')),
+            sourceIdentity: 'source-1',
+            sourceRevision: 'revision-1',
         );
 
         $decoded = (new FileExecutionLedgerCodec())->decode((new FileExecutionLedgerCodec())->encode($record));
@@ -120,7 +196,6 @@ final class FileExecutionLedgerCodecTest extends TestCase
             'outcome status differs from state' => [self::json(['state' => ExecutionLedgerState::SUCCEEDED, 'outcome' => ['status' => ExecutionOutcome::FAILED, 'reason' => 'done', 'metadata' => []]])],
             'attempt below one' => [self::json(['attempt' => 0])],
             'negative timestamp' => [self::json(['createdAt' => -1])],
-            'empty launch intent' => [self::json(['launchIntent' => ''])],
             'oversized configuration fingerprint' => [self::json(['configurationFingerprint' => str_repeat('m', 4097)])],
             'oversized identity' => [self::json(['occurrence' => ['taskKey' => 'task', 'occurrenceId' => 'o' . str_repeat('x', 127)]])],
             'invalid reservation deadline' => [self::json(['dispatchReservation' => ['dispatcherId' => 'dispatcher', 'reservedAt' => 11, 'deadline' => 10]])],
@@ -130,39 +205,20 @@ final class FileExecutionLedgerCodecTest extends TestCase
         ];
     }
 
-    #[DataProvider('unsupportedVersionProvider')]
-    public function testOnlyLatestLedgerSnapshotVersionIsAccepted(string $json): void
+    #[DataProvider('incompatibleSchemaProvider')]
+    public function testIncompatibleSchemasAreRejected(string $json): void
     {
         $this->expectException(InvalidArgumentException::class);
         (new FileExecutionLedgerCodec())->decode($json);
     }
 
-    public static function unsupportedVersionProvider(): array
+    public static function incompatibleSchemaProvider(): array
     {
         $current = json_decode((new FileExecutionLedgerCodec())->encode(self::record()), true, 64, JSON_THROW_ON_ERROR);
-        $v1 = $current;
-        $v1['version'] = 1;
-        $v1['launchObservation']['completion'] = $current['outcome'];
-        unset($v1['launchObservation']['closure']);
-        $v2 = $current;
-        $v2['version'] = 2;
-        $v3 = $current;
-        $v3['version'] = 3;
-        $v4 = $current;
-        $v4['version'] = 4;
-        $v5 = $current;
-        $v5['version'] = 5;
-        $unknown = $current;
-        $unknown['version'] = 99;
-
-        return [
-            'version 1 legacy observation' => [json_encode($v1, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION)],
-            'version 2' => [json_encode($v2, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION)],
-            'version 3' => [json_encode($v3, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION)],
-            'version 4 legacy snapshot' => [json_encode($v4, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION)],
-            'version 5 legacy snapshot' => [json_encode($v5, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION)],
-            'unknown version' => [json_encode($unknown, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION)],
-        ];
+        return array_map(
+            static fn(mixed $schema): array => [json_encode([...$current, 'schema' => $schema], JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION)],
+            [6, 'legacy', 'dev-old'],
+        );
     }
 
     public function testOldManifestKeyIsRejected(): void
@@ -175,7 +231,7 @@ final class FileExecutionLedgerCodecTest extends TestCase
     }
 
     #[DataProvider('malformedPolicyProvider')]
-    public function testMalformedFormatFourPoliciesAreRejectedBeforeDecode(string $json): void
+    public function testMalformedPoliciesAreRejectedBeforeDecode(string $json): void
     {
         $this->expectException(InvalidArgumentException::class);
         (new FileExecutionLedgerCodec())->decode($json);
@@ -186,8 +242,6 @@ final class FileExecutionLedgerCodecTest extends TestCase
         $codec = new FileExecutionLedgerCodec();
         $base = json_decode($codec->encode(self::record()), true, 64, JSON_THROW_ON_ERROR);
 
-        $formatFour = $base;
-        $formatFour['taskSnapshot']['format'] = 3;
         $objectId = $base;
         $objectId['taskSnapshot']['task']['id'] = ['task'];
         $integerTimeout = $base;
@@ -199,35 +253,26 @@ final class FileExecutionLedgerCodecTest extends TestCase
 
         return array_map(
             static fn(array $value): array => [json_encode($value, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION)],
-            [$formatFour, $objectId, $integerTimeout, $reversedTimeout, $invalidTrigger],
+            [$objectId, $integerTimeout, $reversedTimeout, $invalidTrigger],
         );
     }
 
-    public function testEncodeRejectsMalformedPolicyUsingSharedContract(): void
+    public function testDecodeRejectsMalformedPolicyUsingSharedContract(): void
     {
-        $record = self::record();
-        $invalid = new ExecutionLedgerRecord(
-            $record->occurrence,
-            $record->correlation,
-            $record->attempt,
-            $record->fence,
-            $record->state,
-            $record->launchIntent,
-            $record->configurationFingerprint,
-            [...$record->taskSnapshot, 'task' => [...$record->taskSnapshot['task'], 'id' => ['task']]],
-            $record->createdAt,
-            $record->updatedAt,
-            $record->outcome,
-            $record->metadata,
-            $record->dispatchReservation,
-            $record->launchObservation,
-            $record->recoveryFence,
-            $record->revokedAt,
-            $record->claimLeaseDeadline,
-        );
+        $value = json_decode((new FileExecutionLedgerCodec())->encode(self::record()), true, 64, JSON_THROW_ON_ERROR);
+        $value['taskSnapshot']['task']['id'] = ['task'];
 
         $this->expectException(InvalidArgumentException::class);
-        (new FileExecutionLedgerCodec())->encode($invalid);
+        (new FileExecutionLedgerCodec())->decode(json_encode($value, JSON_THROW_ON_ERROR));
+    }
+
+    public function testDuplicateNestedObjectMemberIsRejected(): void
+    {
+        $json = (new FileExecutionLedgerCodec())->encode(self::record());
+        $json = str_replace('"taskKey":"task"', '"taskKey":"task","taskKey":"other"', $json);
+
+        $this->expectException(InvalidArgumentException::class);
+        (new FileExecutionLedgerCodec())->decode($json);
     }
 
     public function testMalformedJsonIsRejected(): void
@@ -275,24 +320,27 @@ final class FileExecutionLedgerCodecTest extends TestCase
     private static function record(): ExecutionLedgerRecord
     {
         $outcome = new ExecutionOutcome(ExecutionOutcome::SUCCEEDED, 'done', ['ratio' => 1.0]);
+        $occurrence = new ExecutionOccurrenceKey('task', 'occurrence');
         return new ExecutionLedgerRecord(
-            new ExecutionOccurrenceKey('task', 'occurrence'),
+            $occurrence,
             new ExecutionIdentity('task', 'occurrence', 'attempt', 'run', 'execution'),
             1,
             new ExecutionFence(1, 'fence-token'),
             ExecutionLedgerState::SUCCEEDED,
-            'launch-intent',
             'manifest',
-            ['format' => 4, 'source' => [null, null], 'task' => ['id' => 'task', 'mode' => 'async', 'timeout' => [1.0, 2.0], 'metadata' => ['ratio' => 1.0, 'nested' => ['value' => 2.5]], 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null]]],
+            ['schema' => 'dev', 'source' => ['source-1', 'revision-1'], 'task' => ['id' => 'task', 'mode' => 'async', 'timeout' => [1.0, 2.0], 'recoveryMaxAge' => 180.0, 'metadata' => ['ratio' => 1.0, 'nested' => ['value' => 2.5]], 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null]]],
             10,
             20,
             $outcome,
             ['ratio' => 1.0],
             new ExecutionDispatchReservation('dispatcher', 11, 15),
-            new ExecutionLaunchObservation(123, null, 'complete', 16, ExecutionProcessClosure::confirmed(0, 'closed')),
-            new ExecutionRecoveryFence('recovery'),
+            new ExecutionLaunchObservation(null, null, 'complete', 16, ExecutionProcessClosure::confirmed(0, 'closed')),
+            new ExecutionRecoveryFence('recovery', 1),
             null,
             30,
+            sourceIdentity: 'source-1',
+            sourceRevision: 'revision-1',
+            launchDescriptor: new ExecutionLaunchDescriptor('execution', 1, 'nonce-1', 'linux-setsid-wait', occurrence: $occurrence),
         );
     }
 }

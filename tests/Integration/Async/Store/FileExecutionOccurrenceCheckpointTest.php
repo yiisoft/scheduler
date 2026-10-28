@@ -34,6 +34,7 @@ final class FileExecutionOccurrenceCheckpointTest extends TestCase
         self::assertNull($checkpoint->read('task'));
 
         $checkpoint->initialize('task', 't0000000001');
+        self::assertSame('dev', json_decode((string) file_get_contents($this->root . '/checkpoints.json'), true)['schema']);
         $restarted = new FileExecutionOccurrenceCheckpoint($this->root);
         self::assertSame('t0000000001', $restarted->read('task'));
         $this->expectException(InvalidArgumentException::class);
@@ -85,11 +86,27 @@ final class FileExecutionOccurrenceCheckpointTest extends TestCase
         self::assertSame('cursor-2', (new FileExecutionOccurrenceCheckpoint($this->root))->read('task'));
     }
 
-    public function testVersionOneCheckpointJsonIsRejected(): void
+    public function testIncompatibleCheckpointSchemaIsRejected(): void
     {
         file_put_contents($this->root . '/checkpoints.json', '{"version":1,"checkpoints":{"schedule":{"task":"cursor-1"}}}');
         $this->expectException(InvalidArgumentException::class);
         (new FileExecutionOccurrenceCheckpoint($this->root))->read('task');
+    }
+
+    #[DataProvider('duplicateMemberProvider')]
+    public function testDuplicateTopLevelMembersAreRejected(string $json): void
+    {
+        file_put_contents($this->root . '/checkpoints.json', $json);
+        $this->expectException(InvalidArgumentException::class);
+        (new FileExecutionOccurrenceCheckpoint($this->root))->read('task');
+    }
+
+    public static function duplicateMemberProvider(): array
+    {
+        return [
+            'schema' => ['{"schema":"dev","schema":"dev","checkpoints":{}}'],
+            'checkpoints' => ['{"schema":"dev","checkpoints":{},"checkpoints":{}}'],
+        ];
     }
 
     public function testMalformedAndUnexpectedStateIsRejected(): void

@@ -16,6 +16,9 @@ use Yiisoft\Scheduler\Tests\Support\{RuntimeCallableProbe, TestCommandExecutorRu
 use Yiisoft\Scheduler\Config\TaskDefinition;
 use Yiisoft\Scheduler\Executor\ShellCommand;
 use RuntimeException;
+use Yiisoft\Scheduler\Integration\Async\ExecutionLaunchDescriptor;
+use Yiisoft\Scheduler\Integration\Async\Process\ProcessIdentity;
+use Yiisoft\Scheduler\Integration\Async\Process\ProcessScopeProof;
 
 final class PreparedConfigurationExecutionWorkerRuntimeFactoryTest extends TestCase
 {
@@ -88,6 +91,11 @@ final class PreparedConfigurationExecutionWorkerRuntimeFactoryTest extends TestC
                         public function launch(ProcessLaunchRequest $request): ProcessLaunchResult
                         {
                             return new ProcessLaunchResult(new class implements ProcessHandleInterface {
+                                public function scopeProof(): ProcessScopeProof
+                                {
+                                    return ProcessScopeProof::closedTerminalFromRetainedPoll(new ExecutionLaunchDescriptor('test', 1, 'test'), new ProcessIdentity(10, 10, 10, '1', 'boot', new ExecutionLaunchDescriptor('test', 1, 'test')));
+                                }
+
                                 public function isRunning(): bool
                                 {
                                     return false;
@@ -178,13 +186,14 @@ final class PreparedConfigurationExecutionWorkerRuntimeFactoryTest extends TestC
             $record->attempt,
             new ExecutionFence(2, 'different-fence'),
             $record->state,
-            $record->launchIntent,
             $record->configurationFingerprint,
             $record->taskSnapshot,
             $record->createdAt,
             $record->updatedAt,
             $record->outcome,
             metadata: $record->metadata,
+            sourceIdentity: $record->sourceIdentity,
+            sourceRevision: $record->sourceRevision,
         );
 
         try {
@@ -243,13 +252,14 @@ final class PreparedConfigurationExecutionWorkerRuntimeFactoryTest extends TestC
             $record->attempt,
             $record->fence,
             $record->state,
-            $record->launchIntent,
             $record->configurationFingerprint,
             array_replace($capability->policy, ['task' => array_replace($capability->policy['task'], ['overlap' => 'allow'])]),
             $record->createdAt,
             $record->updatedAt,
             $record->outcome,
             metadata: $record->metadata,
+            sourceIdentity: $record->sourceIdentity,
+            sourceRevision: $record->sourceRevision,
         );
 
         $this->expectException(InvalidArgumentException::class);
@@ -258,12 +268,9 @@ final class PreparedConfigurationExecutionWorkerRuntimeFactoryTest extends TestC
     }
 
     #[DataProvider('admittedSourceIdentityProvider')]
-    public function testAdmittedSourceIdentityIsRequiredAndBoundedBeforeClaim(array $metadata): void
+    public function testNonCanonicalSourceMetadataIsRejectedAtRecordConstruction(array $metadata): void
     {
-        [$factory, $capability, $record] = $this->factory(['command' => 'callable:fixture'], null, $metadata);
-
-        $this->expectException(InvalidArgumentException::class);
-        $factory->validate($capability, $record);
+        $this->assertRecordMetadataRejected($metadata);
     }
 
     public static function admittedSourceIdentityProvider(): array
@@ -277,68 +284,60 @@ final class PreparedConfigurationExecutionWorkerRuntimeFactoryTest extends TestC
     }
 
     #[DataProvider('admittedSourceIdentityProvider')]
-    public function testClaimedSourceIdentityIsRequiredAndBoundedBeforePreparation(array $metadata): void
+    public function testNonCanonicalSourceMetadataCannotReachPreparation(array $metadata): void
     {
-        [$factory, $capability, $record] = $this->factory(['command' => 'callable:fixture'], null, $metadata);
-
-        $this->expectException(InvalidArgumentException::class);
-        $factory->create($capability, $record);
+        $this->assertRecordMetadataRejected($metadata);
     }
 
     public function testAdmittedSourceRevisionBindsCapabilityBeforeClaim(): void
     {
-        [$factory, $capability, $record] = $this->factory(['command' => 'callable:fixture'], 'forged-current', ['sourceId' => '__current__', 'sourceRevision' => 'old']);
+        [$factory, $capability, $record] = $this->factory(['command' => 'callable:fixture']);
+        $policy = $capability->policy;
+        $policy['source'][1] = 'forged-current';
+        $forged = new ExecutionWorkerCapability(
+            $capability->occurrence,
+            $capability->attemptId,
+            $capability->runId,
+            $capability->executionId,
+            $capability->generation,
+            $capability->fenceToken,
+            $capability->configurationFingerprint,
+            hash('sha256', PreparedConfiguration::canonical($policy)),
+            $capability->ledgerLocator,
+            $capability->runtimeLocator,
+            'forged-current',
+            $policy,
+        );
         try {
-            $factory->validate($capability, $record);
+            $factory->validate($forged, $record);
             self::fail('A capability revision forged against the admitted record must be rejected.');
         } catch (InvalidArgumentException $e) {
-            self::assertSame('Worker source revisions do not match.', $e->getMessage());
+            self::assertSame('Worker source facts do not match the canonical record.', $e->getMessage());
         }
     }
 
-    public function testAdmittedSourceRevisionIsUsedWhenCapabilityOmitsIt(): void
+    public function testValidRecordMayOmitSourceFactsFromMetadata(): void
     {
-        [$factory, , $record] = $this->factory(['command' => 'callable:fixture'], null, ['sourceId' => '__current__', 'sourceRevision' => 'old']);
-        /** @var string $taskVersion */
-        $taskVersion = hash('sha256', PreparedConfiguration::canonical($record->taskSnapshot));
-        try {
-            $factory->validate(new ExecutionWorkerCapability(
-                $record->occurrence,
-                'attempt',
-                'run',
-                'execution',
-                1,
-                'fence',
-                $record->configurationFingerprint,
-                $taskVersion,
-                'ledger',
-                'runtime',
-                $record->metadata['sourceRevision'] ?? 'source-revision',
-                $record->taskSnapshot,
-            ), $record);
-            self::fail('The admitted source revision must be checked when capability omits it.');
-        } catch (InvalidArgumentException $e) {
-            self::assertSame('Worker source revisions do not match.', $e->getMessage());
-        }
+        [$factory, $capability, $record] = $this->factory(['command' => 'callable:fixture']);
+
+        self::assertSame([], $record->metadata);
+        $factory->validate($capability, $record);
     }
 
     #[DataProvider('claimedSourceRevisionProvider')]
-    public function testClaimedSourceRevisionIsRevalidatedBeforeRuntimeCreation(mixed $claimedRevision): void
+    public function testClaimedSourceRevisionIsRevalidatedAtRecordConstruction(mixed $claimedRevision): void
     {
-        [$factory, $capability, $record] = $this->factory(
-            ['command' => 'callable:fixture'],
-            recordMetadata: $claimedRevision === '__missing__' ? ['sourceId' => '__current__'] : ['sourceId' => '__current__', 'sourceRevision' => $claimedRevision],
+        $this->assertRecordMetadataRejected(
+            $claimedRevision === '__missing__'
+                ? ['sourceId' => 'canonical-source']
+                : ['sourceId' => 'canonical-source', 'sourceRevision' => $claimedRevision],
         );
-
-        $this->expectException(InvalidArgumentException::class);
-        $factory->create($capability, $record);
     }
 
     /** @return array<string, array{mixed}> */
     public static function claimedSourceRevisionProvider(): array
     {
         return [
-            'missing' => ['__missing__'],
             'invalid type' => [['revision']],
             'empty' => [''],
             'too long' => [str_repeat('x', 513)],
@@ -364,14 +363,52 @@ final class PreparedConfigurationExecutionWorkerRuntimeFactoryTest extends TestC
 
     public function testValidMismatchedSourceIdentityIsRejected(): void
     {
-        [$factory, $capability, $record] = $this->factory(
-            ['command' => 'callable:fixture'],
-            null,
-            ['sourceId' => 'another-valid-source', 'sourceRevision' => '__current__'],
+        [$factory, $capability, $record] = $this->factory(['command' => 'callable:fixture']);
+        $policy = $capability->policy;
+        $policy['source'][0] = 'another-valid-source';
+        $forged = new ExecutionWorkerCapability(
+            $capability->occurrence,
+            $capability->attemptId,
+            $capability->runId,
+            $capability->executionId,
+            $capability->generation,
+            $capability->fenceToken,
+            $capability->configurationFingerprint,
+            hash('sha256', PreparedConfiguration::canonical($policy)),
+            $capability->ledgerLocator,
+            $capability->runtimeLocator,
+            $capability->sourceRevision,
+            $policy,
         );
 
         $this->expectException(InvalidArgumentException::class);
-        $factory->validate($capability, $record);
+        $factory->validate($forged, $record);
+    }
+
+    /** @param array<string, mixed> $metadata */
+    private function assertRecordMetadataRejected(array $metadata): void
+    {
+        [, , $record] = $this->factory(['command' => 'callable:fixture']);
+        if (($metadata['sourceId'] ?? null) === 'canonical-source') {
+            $metadata['sourceId'] = $record->sourceIdentity;
+        }
+
+        $this->expectException(InvalidArgumentException::class);
+        new ExecutionLedgerRecord(
+            $record->occurrence,
+            $record->correlation,
+            $record->attempt,
+            $record->fence,
+            $record->state,
+            $record->configurationFingerprint,
+            $record->taskSnapshot,
+            $record->createdAt,
+            $record->updatedAt,
+            $record->outcome,
+            metadata: $metadata,
+            sourceIdentity: $record->sourceIdentity,
+            sourceRevision: $record->sourceRevision,
+        );
     }
 
     /** @return array{PreparedConfigurationExecutionWorkerRuntimeFactory, ExecutionWorkerCapability, ExecutionLedgerRecord} */
@@ -390,7 +427,7 @@ final class PreparedConfigurationExecutionWorkerRuntimeFactoryTest extends TestC
         $timeout = isset($task['timeout']) ? '->timeout(' . var_export($task['timeout']['soft'], true) . ', ' . var_export($task['timeout']['hard'], true) . ')' : '';
         file_put_contents($path, "<?php return static function (): \\Yiisoft\\Scheduler\\Config\\SchedulerConfig { \$config = new \\Yiisoft\\Scheduler\\Config\\SchedulerConfig(); \$config->periodic('task', {$commandSource})->every(60){$mode}{$timeout}->overlap({$overlap}); return \$config; }; ");
         $this->source = new MutableTestConfigurationSource(new PhpConfigurationSource($path), $prepareDelay);
-        $recordMetadata = $recordMetadata ?? ['sourceId' => $this->source->sourceId(), 'sourceRevision' => $this->source->revision()];
+        $recordMetadata = $recordMetadata ?? [];
         if (($recordMetadata['sourceId'] ?? null) === '__current__') {
             $recordMetadata['sourceId'] = $this->source->sourceId();
         }
@@ -406,10 +443,11 @@ final class PreparedConfigurationExecutionWorkerRuntimeFactoryTest extends TestC
         // synchronous definition is rejected by the runtime factory after identity checks.
         if (($task['sync'] ?? false) === true) {
             $policy['task']['mode'] = 'async';
+            $policy['task']['recoveryMaxAge'] = 180.0;
         }
         $taskVersion = hash('sha256', PreparedConfiguration::canonical($policy));
         $capability = new ExecutionWorkerCapability($occurrence, 'attempt', 'run', 'execution', 4, 'fence-4', $configuration->fingerprint(), $taskVersion, 'ledger', 'runtime', $capabilityRevision ?? $this->source->revision(), $policy);
-        $record = new ExecutionLedgerRecord($occurrence, new ExecutionIdentity('task', 'occurrence', 'attempt', 'run', 'execution'), 1, new ExecutionFence(4, 'fence-4'), 'launch-required', 'dispatch', $capability->configurationFingerprint, $policy, metadata: $recordMetadata);
+        $record = new ExecutionLedgerRecord($occurrence, new ExecutionIdentity('task', 'occurrence', 'attempt', 'run', 'execution'), 1, new ExecutionFence(4, 'fence-4'), 'launch-required', $capability->configurationFingerprint, $policy, metadata: $recordMetadata, sourceIdentity: $policy['source'][0], sourceRevision: $policy['source'][1]);
         return [new PreparedConfigurationExecutionWorkerRuntimeFactory($this->source, new TestCommandExecutorRuntimeFactory($executors)), $capability, $record];
     }
 }

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Yiisoft\Scheduler\Tests\Support;
 
 use RuntimeException;
-use Yiisoft\Scheduler\Integration\Async\ExecutionLedgerInterface;
+use Yiisoft\Scheduler\Integration\Async\ExecutionLedgerCommandInterface;
 use Yiisoft\Scheduler\Integration\Async\ExecutionLedgerLocatorInterface;
 use Yiisoft\Scheduler\Integration\Async\Store\FileExecutionLedger;
 
@@ -15,7 +15,7 @@ use function is_string;
 
 final class BlackBoxLedgerLocator implements ExecutionLedgerLocatorInterface
 {
-    public function resolve(string $locator): ExecutionLedgerInterface
+    public function resolve(string $locator): ExecutionLedgerCommandInterface
     {
         if ($locator !== BlackBoxApplication::LEDGER_LOCATOR) {
             throw new RuntimeException('unlisted fixture locator');

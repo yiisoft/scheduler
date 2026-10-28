@@ -186,7 +186,7 @@ final class ExecutionOccurrenceSourceTest extends TestCase
 
     private function policy(string $value = 'snapshot-v1'): array
     {
-        return ['format' => 4, 'source' => [null, null], 'task' => ['id' => 'task', 'mode' => 'async', 'timeout' => [100.0, null], 'metadata' => ['snapshot' => $value], 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null]]];
+        return ['schema' => 'dev', 'source' => ['source', 'source-revision'], 'task' => ['id' => 'task', 'mode' => 'async', 'timeout' => [100.0, null], 'recoveryMaxAge' => 180.0, 'metadata' => ['snapshot' => $value], 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null]]];
     }
 
     private function record(
@@ -210,7 +210,6 @@ final class ExecutionOccurrenceSourceTest extends TestCase
             1,
             new ExecutionFence(1, 'fence'),
             ExecutionLedgerState::LAUNCH_REQUIRED,
-            'launch',
             $configurationFingerprint ?? $candidate->mapping->configurationFingerprint,
             $snapshot ?? $candidate->mapping->payload,
             1,
@@ -220,6 +219,8 @@ final class ExecutionOccurrenceSourceTest extends TestCase
                 'taskMappingIdentity' => $mappingIdentity ?? $candidate->taskMappingIdentity(),
                 'taskMappingContext' => $context ?? $candidate->mapping->context,
             ],
+            sourceIdentity: 'source',
+            sourceRevision: 'source-revision',
         );
     }
 

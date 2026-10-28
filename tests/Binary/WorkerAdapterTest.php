@@ -13,7 +13,7 @@ use ReflectionNamedType;
 use Yiisoft\Scheduler\Binary\{WorkerAdapter, WorkerArgumentParser, WorkerInvocation};
 use Yiisoft\Scheduler\Executor\ShellVariableOverrides;
 use DateTimeImmutable;
-use Yiisoft\Scheduler\Integration\Async\{ExecutionClaimResult, ExecutionFence, ExecutionIdentity, ExecutionLedgerInterface, ExecutionLedgerLocatorInterface, ExecutionLedgerRecord, ExecutionOccurrenceKey, ExecutionOutcome, ExecutionTerminalResult, ExecutionWorkerCapability, ExecutionWorkerEntrypoint, ExecutionWorkerRuntimeFactoryInterface, ExecutionWorkerRuntimeInterface};
+use Yiisoft\Scheduler\Integration\Async\{ExecutionClaimResult, ExecutionFence, ExecutionIdentity, ExecutionLedgerCommandInterface, ExecutionLedgerQueryInterface, ExecutionLedgerLocatorInterface, ExecutionLedgerRecord, ExecutionOccurrenceKey, ExecutionOutcome, ExecutionTerminalResult, ExecutionWorkerCapability, ExecutionWorkerEntrypoint, ExecutionWorkerRuntimeFactoryInterface, ExecutionWorkerRuntimeInterface};
 
 final class WorkerAdapterTest extends TestCase
 {
@@ -47,10 +47,10 @@ final class WorkerAdapterTest extends TestCase
     {
         $occurrence = new ExecutionOccurrenceKey('send', 'occurrence');
         $policy = [
-            'format' => 4,
+            'schema' => 'dev',
             'source' => ['source', 'source-revision'],
             'task' => [
-                'id' => 'send', 'mode' => 'async', 'timeout' => null, 'metadata' => [],
+                'id' => 'send', 'mode' => 'async', 'timeout' => null, 'recoveryMaxAge' => 180.0, 'metadata' => [],
                 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60]],
                 'overlap' => 'allow', 'missed' => ['skip', null],
             ],
@@ -75,11 +75,13 @@ final class WorkerAdapterTest extends TestCase
             1,
             new ExecutionFence(1, 'fence'),
             'launch-required',
-            'dispatch',
             'configuration',
             $policy,
+            sourceIdentity: 'source',
+            sourceRevision: 'source-revision',
         );
-        $ledger = $this->createMock(ExecutionLedgerInterface::class);
+        $ledger = $this->createMockForIntersectionOfInterfaces([ExecutionLedgerCommandInterface::class, ExecutionLedgerQueryInterface::class]);
+        $ledger->method('observe')->willReturn($record);
         $ledger->method('claim')->willReturn(ExecutionClaimResult::accepted($record));
         $ledger->method('recordOutcome')->willReturn(ExecutionTerminalResult::accepted($record));
         $locator = $this->createMock(ExecutionLedgerLocatorInterface::class);

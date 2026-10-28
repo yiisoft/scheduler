@@ -22,6 +22,9 @@ use LogicException;
 use ReflectionClass;
 use ReflectionMethod;
 use RuntimeException;
+use Yiisoft\Scheduler\Integration\Async\ExecutionLaunchDescriptor;
+use Yiisoft\Scheduler\Integration\Async\Process\ProcessIdentity;
+use Yiisoft\Scheduler\Integration\Async\Process\ProcessScopeProof;
 
 use function count;
 use function strlen;
@@ -68,6 +71,11 @@ final class FakeProcessHandle implements ProcessHandleInterface
         private readonly bool $quiescent = true,
         private readonly bool $quiescenceFails = false,
     ) {}
+
+    public function scopeProof(): ProcessScopeProof
+    {
+        return ProcessScopeProof::closedTerminalFromRetainedPoll(new ExecutionLaunchDescriptor('test', 1, 'test'), new ProcessIdentity(10, 10, 10, '1', 'boot', new ExecutionLaunchDescriptor('test', 1, 'test')));
+    }
 
     public function isRunning(): bool
     {
@@ -162,6 +170,12 @@ final class ShellCommandRuntimeTest extends TestCase
             }
         };
         $handle = new class ($clock) implements ProcessHandleInterface {
+            public function scopeProof(): ProcessScopeProof
+            {
+                return ProcessScopeProof::closedTerminalFromRetainedPoll(new ExecutionLaunchDescriptor('test', 1, 'test'), new ProcessIdentity(10, 10, 10, '1', 'boot', new ExecutionLaunchDescriptor('test', 1, 'test')));
+            }
+
+
             public int $polls = 0;
             public int $softTerminations = 0;
 
@@ -292,6 +306,11 @@ final class ShellCommandRuntimeTest extends TestCase
                 {
                     $this->request = $request;
                     $handle = new class implements ProcessHandleInterface {
+                        public function scopeProof(): ProcessScopeProof
+                        {
+                            return ProcessScopeProof::closedTerminalFromRetainedPoll(new ExecutionLaunchDescriptor('test', 1, 'test'), new ProcessIdentity(10, 10, 10, '1', 'boot', new ExecutionLaunchDescriptor('test', 1, 'test')));
+                        }
+
                         public function isRunning(): bool
                         {
                             return false;
@@ -429,6 +448,12 @@ final class ShellCommandRuntimeTest extends TestCase
                 }
             };
             $handle = new class ($clock) implements ProcessHandleInterface {
+                public function scopeProof(): ProcessScopeProof
+                {
+                    return ProcessScopeProof::closedTerminalFromRetainedPoll(new ExecutionLaunchDescriptor('test', 1, 'test'), new ProcessIdentity(10, 10, 10, '1', 'boot', new ExecutionLaunchDescriptor('test', 1, 'test')));
+                }
+
+
                 public int $softTerminations = 0;
                 public int $hardTerminations = 0;
 

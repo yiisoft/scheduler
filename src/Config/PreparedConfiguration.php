@@ -22,7 +22,7 @@ use function is_string;
 /** Process-local prepared scheduling policy. Command handles never enter its projections. */
 final class PreparedConfiguration
 {
-    public const TASK_FORMAT = 4;
+    public const TASK_SCHEMA = 'dev';
 
     /** @var array<string, TaskDefinition> */
     public readonly array $tasks;
@@ -30,6 +30,7 @@ final class PreparedConfiguration
     public readonly ?string $sourceId;
     public readonly ?string $sourceRevision;
     public readonly int $asyncWorkerCapacity;
+    public readonly float $recoveryMaxAge;
 
     /** @param list<TaskDefinition> $tasks */
     public function __construct(
@@ -40,7 +41,9 @@ final class PreparedConfiguration
         int $asyncWorkerCapacity = 16,
         public readonly ?CommandExecutorMap $commandExecutorMap = null,
         public readonly ContainerProvider $containerProvider = new ContainerProvider(),
+        float $recoveryMaxAge = 180.0,
     ) {
+        SchedulerConfig::assertRecoveryMaxAge($recoveryMaxAge);
         if ($asyncWorkerCapacity < 1) {
             throw new InvalidArgumentException('Async worker capacity must be positive.');
         }
@@ -48,6 +51,7 @@ final class PreparedConfiguration
             throw new InvalidArgumentException('Prepared configuration source identity and revision must be provided together.');
         }
         $this->asyncWorkerCapacity = $asyncWorkerCapacity;
+        $this->recoveryMaxAge = $recoveryMaxAge;
         $this->timeout = $timeout ?? new TimeoutPolicy();
         $this->sourceId = $sourceId;
         $this->sourceRevision = $sourceRevision;
@@ -92,12 +96,12 @@ final class PreparedConfiguration
     public static function assertTaskPolicyProjection(mixed $policy): void
     {
         if (!is_array($policy)
-            || array_keys($policy) !== ['format', 'source', 'task']
-            || $policy['format'] !== self::TASK_FORMAT
+            || array_keys($policy) !== ['schema', 'source', 'task']
+            || $policy['schema'] !== self::TASK_SCHEMA
             || !is_array($policy['source'])
             || array_keys($policy['source']) !== [0, 1]
             || !is_array($policy['task'])
-            || array_keys($policy['task']) !== ['id', 'mode', 'timeout', 'metadata', 'trigger', 'overlap', 'missed']) {
+            || array_keys($policy['task']) !== ['id', 'mode', 'timeout', 'recoveryMaxAge', 'metadata', 'trigger', 'overlap', 'missed']) {
             throw new InvalidArgumentException('Task policy projection shape is invalid.');
         }
 
@@ -131,19 +135,29 @@ final class PreparedConfiguration
             throw new InvalidArgumentException('Task policy missed occurrence limit is invalid.');
         }
 
+        $recoveryMaxAge = $task['recoveryMaxAge'];
+        if ($task['mode'] === 'async' && (!is_float($recoveryMaxAge) || !is_finite($recoveryMaxAge) || $recoveryMaxAge <= 0)) {
+            throw new InvalidArgumentException('Asynchronous task policy recovery max age is invalid.');
+        }
+        if ($task['mode'] === 'sync' && $recoveryMaxAge !== null) {
+            throw new InvalidArgumentException('Synchronous task policy recovery max age is invalid.');
+        }
+
         $timeout = $task['timeout'];
         if ($task['mode'] === 'sync' && $timeout !== null) {
             throw new InvalidArgumentException('Synchronous task policy timeout is invalid.');
         }
         if ($timeout !== null) {
-            if (!is_array($timeout) || array_keys($timeout) !== [0, 1]
-                || ($timeout[0] === null && $timeout[1] === null)) {
+            if (!is_array($timeout) || array_keys($timeout) !== [0, 1]) {
                 throw new InvalidArgumentException('Task policy timeout is invalid.');
             }
             foreach ($timeout as $value) {
                 if ($value !== null && (!is_float($value) || !is_finite($value) || $value <= 0)) {
                     throw new InvalidArgumentException('Task policy timeout is invalid.');
                 }
+            }
+            if ($timeout[0] === null && $timeout[1] === null) {
+                throw new InvalidArgumentException('Task policy timeout is invalid.');
             }
             if ($timeout[0] !== null && $timeout[1] !== null && $timeout[1] < $timeout[0]) {
                 throw new InvalidArgumentException('Task policy timeout ordering is invalid.');
@@ -170,9 +184,18 @@ final class PreparedConfiguration
         return $effective->enforced() ? $effective : null;
     }
 
+    public function recoveryMaxAgeFor(TaskDefinition $task): ?float
+    {
+        if ($task->mode !== ExecutionMode::ASYNC) {
+            return null;
+        }
+
+        return $task->recoveryMaxAge ?? $this->recoveryMaxAge;
+    }
+
     public function withSource(string $sourceId, string $sourceRevision): self
     {
-        return new self(array_values($this->tasks), $this->timeout, $sourceId, $sourceRevision, $this->asyncWorkerCapacity, $this->commandExecutorMap, $this->containerProvider);
+        return new self(array_values($this->tasks), $this->timeout, $sourceId, $sourceRevision, $this->asyncWorkerCapacity, $this->commandExecutorMap, $this->containerProvider, $this->recoveryMaxAge);
     }
 
     public function fingerprint(): string
@@ -184,14 +207,16 @@ final class PreparedConfiguration
     public function taskPolicyProjection(TaskDefinition $task): array
     {
         $timeout = $this->timeoutFor($task);
+        $recoveryMaxAge = $this->recoveryMaxAgeFor($task);
         ScalarMetadata::assertAggregateSupported($task->metadata, $task->trigger->definition);
         return [
-            'format' => self::TASK_FORMAT,
+            'schema' => self::TASK_SCHEMA,
             'source' => [$this->sourceId, $this->sourceRevision],
             'task' => [
                 'id' => (string) $task->id,
                 'mode' => $task->mode->value,
                 'timeout' => $timeout === null ? null : [$timeout->softSeconds, $timeout->hardSeconds],
+                'recoveryMaxAge' => $recoveryMaxAge,
                 'metadata' => $task->metadata,
                 'trigger' => [$task->trigger->reference, $task->trigger->definition],
                 'overlap' => $task->overlap->value,
@@ -212,16 +237,18 @@ final class PreparedConfiguration
         $tasks = [];
         foreach ($this->tasks as $id => $task) {
             $timeout = $this->timeoutFor($task);
+            $recoveryMaxAge = $this->recoveryMaxAgeFor($task);
             $tasks[$id] = [
                 'id' => (string) $task->id,
                 'mode' => $task->mode->value,
                 'timeout' => $timeout === null ? null : [$timeout->softSeconds, $timeout->hardSeconds],
+                'recoveryMaxAge' => $recoveryMaxAge,
                 'metadata' => $task->metadata,
                 'trigger' => [$task->trigger->reference, $task->trigger->definition],
                 'missed' => [$task->missedOccurrences->policy->value, $task->missedOccurrences->max],
                 'overlap' => $task->overlap->value,
             ];
         }
-        return ['format' => self::TASK_FORMAT, 'source' => [$this->sourceId, $this->sourceRevision], 'timeout' => [$this->timeout->softSeconds, $this->timeout->hardSeconds], 'asyncWorkerCapacity' => $this->asyncWorkerCapacity, 'tasks' => $tasks];
+        return ['schema' => self::TASK_SCHEMA, 'source' => [$this->sourceId, $this->sourceRevision], 'timeout' => [$this->timeout->softSeconds, $this->timeout->hardSeconds], 'recoveryMaxAge' => $this->recoveryMaxAge, 'asyncWorkerCapacity' => $this->asyncWorkerCapacity, 'tasks' => $tasks];
     }
 }

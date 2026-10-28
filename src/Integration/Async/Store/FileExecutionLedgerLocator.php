@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Yiisoft\Scheduler\Integration\Async\Store;
 
 use InvalidArgumentException;
-use Yiisoft\Scheduler\Integration\Async\{ExecutionLedgerInterface, ExecutionLedgerLocatorInterface};
+use Yiisoft\Scheduler\Integration\Async\{ExecutionLedgerCommandInterface, ExecutionLedgerLocatorInterface};
 
 use const DIRECTORY_SEPARATOR;
 
@@ -23,7 +23,7 @@ final class FileExecutionLedgerLocator implements ExecutionLedgerLocatorInterfac
         $this->root = rtrim($real, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR;
     }
 
-    public function resolve(string $locator): ExecutionLedgerInterface
+    public function resolve(string $locator): ExecutionLedgerCommandInterface
     {
         if ($locator === '' || str_contains($locator, "\0") || str_contains($locator, '..') || str_starts_with($locator, '/')) {
             throw new InvalidArgumentException('Ledger locator is not allowed.');

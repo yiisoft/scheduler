@@ -42,12 +42,16 @@ final class SameFileExecutionWorkerProcessCommandBuilder implements ExecutionWor
             $arguments = [...$this->phpConfiguration->arguments, $this->executable, ...$arguments];
             $executable = $this->phpConfiguration->binary;
         }
+        $environment = $this->environment ?? $this->inheritedEnvironment();
+        // Reserved discovery markers are injected by the final process adapter,
+        // where inherited values can be explicitly masked.
         return new ProcessLaunchRequest(
             $executable,
             $arguments,
             $this->cwd,
-            $this->environment ?? $this->inheritedEnvironment(),
+            $environment,
             $capability->encode(),
+            $request->descriptor,
         );
     }
 

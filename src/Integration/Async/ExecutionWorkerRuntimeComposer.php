@@ -17,15 +17,38 @@ final class ExecutionWorkerRuntimeComposer
     /** Distinguishes an accepted claim whose returned record cannot be trusted. */
     public const POST_CLAIM_MISMATCH = 1001;
 
-    public function __construct(
-        private readonly ExecutionLedgerInterface $ledger,
-        private readonly ExecutionWorkerRuntimeFactoryInterface $factory,
-    ) {}
+    private readonly ExecutionLedgerQueryInterface $query;
 
-    public function compose(ExecutionWorkerCapability $capability, int $at, ?int $claimLeaseDeadline): ExecutionWorkerRuntimeInterface
-    {
+    public function __construct(
+        private readonly ExecutionLedgerCommandInterface $ledger,
+        private readonly ExecutionWorkerRuntimeFactoryInterface $factory,
+        ?ExecutionLedgerQueryInterface $query = null,
+    ) {
+        /** @var ExecutionLedgerQueryInterface $resolvedQuery */
+        $resolvedQuery = $query ?? $ledger;
+        $this->query = $resolvedQuery;
+    }
+
+    public function compose(
+        ExecutionWorkerCapability $capability,
+        int $at,
+        ?int $claimLeaseDeadline,
+        ?ExecutionLaunchDescriptor $descriptor = null,
+        ?string $permissionId = null,
+    ): ExecutionWorkerRuntimeInterface {
+        // These are the bounded handoff facts published by the root
+        // dispatcher. Never manufacture them from current configuration: the
+        // ledger is authoritative for the exact admitted values and rejects
+        // missing or mismatched facts atomically.
+        if ($capability->launchDescriptor === null || $capability->permissionId === null
+            || ($descriptor !== null && !$descriptor->equals($capability->launchDescriptor))
+            || ($permissionId !== null && $permissionId !== $capability->permissionId)) {
+            throw new ExecutionWorkerClaimRejectedException('Worker launch handoff is missing or mismatched.');
+        }
+        $descriptor = $capability->launchDescriptor;
+        $permissionId = $capability->permissionId;
         try {
-            $observed = $this->ledger->observe($capability->occurrence);
+            $observed = $this->query->observe($capability->occurrence);
         } catch (Throwable $e) {
             throw new ExecutionWorkerClaimRejectedException('Worker capability could not be checked.', 0, $e);
         }
@@ -59,6 +82,8 @@ final class ExecutionWorkerRuntimeComposer
                 new ExecutionFence($capability->generation, $capability->fenceToken),
                 $at,
                 $claimLeaseDeadline,
+                $descriptor,
+                $permissionId,
             );
         } catch (Throwable $e) {
             throw new ExecutionWorkerClaimRejectedException('Fresh worker claim could not be established.', 0, $e);
@@ -75,7 +100,7 @@ final class ExecutionWorkerRuntimeComposer
                 self::POST_CLAIM_MISMATCH,
             );
         }
-        return $this->factory->create($capability, $record);
+        return $this->factory->create($capability, $record, $this->ledger);
     }
 
     private function isAvailable(ExecutionLedgerRecord $record): bool
@@ -85,6 +110,7 @@ final class ExecutionWorkerRuntimeComposer
             && in_array($record->state, [
                 ExecutionLedgerState::LAUNCH_REQUIRED,
                 ExecutionLedgerState::LAUNCH_REQUESTED,
+                ExecutionLedgerState::NEEDS_RESOLUTION,
             ], true);
     }
 
@@ -98,6 +124,12 @@ final class ExecutionWorkerRuntimeComposer
             && $record->fence->equals(new ExecutionFence($capability->generation, $capability->fenceToken))
             && $record->configurationFingerprint === $capability->configurationFingerprint
             && $taskVersion === $capability->taskVersion
-            && $record->taskSnapshot === $capability->policy;
+            && $record->taskSnapshot === $capability->policy
+            && $record->sourceIdentity === ($capability->policy['source'][0] ?? null)
+            && $record->sourceRevision === $capability->sourceRevision
+            && $record->recoveryFence !== null
+            && $record->recoveryFence->equals($capability->recoveryFence)
+            && ($record->recoveryAge === null
+                || $record->recoveryAge === ($capability->policy['task']['recoveryMaxAge'] ?? null));
     }
 }

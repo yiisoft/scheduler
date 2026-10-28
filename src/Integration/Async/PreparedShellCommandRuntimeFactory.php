@@ -24,6 +24,17 @@ final class PreparedShellCommandRuntimeFactory implements ShellCommandRuntimeFac
         private readonly ShellVariableResolver $resolver = new ShellVariableResolver(),
     ) {}
 
+    public function launcher(): ProcessLauncherInterface
+    {
+        return $this->launcher;
+    }
+
+    /** Create the same prepared factory with a process-local launcher. */
+    public function withLauncher(ProcessLauncherInterface $launcher): self
+    {
+        return new self($launcher, $this->clock, $this->waiter, $this->overrides, $this->environment, $this->cwd, $this->resolver);
+    }
+
     public function create(ShellCommandSpecification $command, TimeoutPolicy $timeout): ShellCommandRuntime
     {
         return new ShellCommandRuntime(

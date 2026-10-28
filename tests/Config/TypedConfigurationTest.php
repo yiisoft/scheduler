@@ -10,6 +10,7 @@ use Yiisoft\Scheduler\Config\{ConfigurationConverter,SchedulerConfig};
 use Yiisoft\Scheduler\Executor\{CallableCommand,ShellCommand};
 use Yiisoft\Scheduler\ExecutionMode;
 use Yiisoft\Scheduler\Config\PreparedConfiguration;
+use ArgumentCountError;
 
 final class TypedConfigurationTest extends TestCase
 {
@@ -54,7 +55,7 @@ final class TypedConfigurationTest extends TestCase
     public function testIncompletePeriodicDescriptorIsRejected(): void
     {
         $c = new SchedulerConfig();
-        $this->expectException(\ArgumentCountError::class);
+        $this->expectException(ArgumentCountError::class);
         $c->periodic();
     }
 

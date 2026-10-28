@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Yiisoft\Scheduler\Tests\Planner;
 
 use DateTimeImmutable;
+use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 use Psr\Clock\ClockInterface;
 use Yiisoft\Scheduler\Binary\{WorkerAdapter, WorkerCompositionInput};
@@ -12,15 +13,18 @@ use Yiisoft\Scheduler\Callable\ContainerProvider;
 use Yiisoft\Scheduler\Config\{PreparedConfiguration, RuntimeConfigurationSourceInterface, TaskDefinition, TriggerDefinition};
 use Yiisoft\Scheduler\Executor\{CommandExecutorMap, CommandExecutorRuntimeFactory, ProcessLocalCommandExecutorRuntimeFactory, ShellCommand};
 use Yiisoft\Scheduler\Integration\Async\PreparedShellCommandRuntimeFactory;
-use Yiisoft\Scheduler\Integration\Async\{ExecutionClaimResult, ExecutionFence, ExecutionIdentity, ExecutionLedgerInterface, ExecutionLedgerLocatorInterface, ExecutionLedgerRecord, ExecutionOccurrenceCheckpointInterface, ExecutionOccurrenceKey, ExecutionTerminalResult, ExecutionWorkerCapability, ExecutionWorkerInvocationResult, MonotonicClockInterface, PollWaiterInterface};
+use Yiisoft\Scheduler\Integration\Async\{ExecutionAdmission, ExecutionClaimResult, ExecutionCommandScope, ExecutionDispatchReservation, ExecutionDispatchResult, ExecutionFence, ExecutionIdentity, ExecutionLaunchDescriptor, ExecutionLaunchObservation, ExecutionLedgerCommandInterface, ExecutionLedgerLocatorInterface, ExecutionLedgerQueryInterface, ExecutionLedgerRecord, ExecutionLedgerRecoveryPage, ExecutionLedgerState, ExecutionOccurrenceCheckpointInterface, ExecutionOccurrenceKey, ExecutionProcessClosure, ExecutionProcessIdentity, ExecutionStartObservation, ExecutionTerminalResult, ExecutionWorkerCapability, ExecutionWorkerInvocationResult, MonotonicClockInterface, PollWaiterInterface};
 use Yiisoft\Scheduler\Planner\{PlannerCompositionInput, PlannerOwnerInterface, SourcePlannerRuntime};
 use Yiisoft\Scheduler\SchedulerFactory;
 use Yiisoft\Scheduler\ExecutionMode;
 use Yiisoft\Scheduler\Integration\Async\ExecutionWorkerLauncherInterface;
-use Yiisoft\Scheduler\Integration\Async\Process\{ProcessHandleInterface, ProcessLaunchResult, ProcessLauncherInterface, ProcessResult};
+use Yiisoft\Scheduler\Integration\Async\Process\{ProcessHandleInterface, ProcessIdentity as LauncherProcessIdentity, ProcessLaunchResult, ProcessLauncherInterface, ProcessResult};
 use Yiisoft\Scheduler\Task\TaskId;
 
+use function extension_loaded;
+
 use const DIRECTORY_SEPARATOR;
+use const PHP_INT_MAX;
 
 final class SchedulerFactoryCompositionTest extends TestCase
 {
@@ -28,15 +32,83 @@ final class SchedulerFactoryCompositionTest extends TestCase
     {
         $stateDirectory = $this->temporaryDirectory('schedule-planner-');
         $checkpoint = $this->createMock(ExecutionOccurrenceCheckpointInterface::class);
-        $checkpoint->expects(self::once())->method('read')->with('task')->willReturn(null);
+        $checkpoint->expects(self::exactly(2))->method('read')->with('task')->willReturnOnConsecutiveCalls(null, 't1700000000');
         $checkpoint->expects(self::once())->method('initialize')->with('task', 't1700000000');
+        $command = $this->createMock(ExecutionLedgerCommandInterface::class);
+        $command->method('admit')->willReturnCallback(static fn(ExecutionLedgerRecord $record): ExecutionAdmission => new ExecutionAdmission($record, true));
+        $command->method('reserveDispatch')->willReturn(ExecutionDispatchResult::rejected('fixture'));
 
         try {
-            $input = $this->plannerInput($checkpoint, $stateDirectory);
+            $input = $this->plannerInputWithPorts($checkpoint, $stateDirectory, null, $command, $this->queryMock());
             $planner = (new SchedulerFactory())->createPlanner($input);
 
             self::assertInstanceOf(SourcePlannerRuntime::class, $planner);
             self::assertSame(0, $planner->tick()->admitted);
+        } finally {
+            $this->removeDirectory($stateDirectory);
+        }
+    }
+
+    public function testPlannerCompositionRejectsCommandWithoutQueryPort(): void
+    {
+        $stateDirectory = $this->temporaryDirectory('schedule-planner-');
+        try {
+            $input = $this->plannerInputWithPorts(
+                $this->createMock(ExecutionOccurrenceCheckpointInterface::class),
+                $stateDirectory,
+                null,
+                $this->createMock(ExecutionLedgerCommandInterface::class),
+                null,
+            );
+
+            $this->expectException(InvalidArgumentException::class);
+            $this->expectExceptionMessage('command and query ports must be supplied together');
+            (new SchedulerFactory())->createPlanner($input);
+        } finally {
+            $this->removeDirectory($stateDirectory);
+        }
+    }
+
+    public function testPlannerCompositionRejectsQueryWithoutCommandPort(): void
+    {
+        $stateDirectory = $this->temporaryDirectory('schedule-planner-');
+        try {
+            $input = $this->plannerInputWithPorts(
+                $this->createMock(ExecutionOccurrenceCheckpointInterface::class),
+                $stateDirectory,
+                null,
+                null,
+                $this->queryMock(),
+            );
+
+            $this->expectException(InvalidArgumentException::class);
+            $this->expectExceptionMessage('command and query ports must be supplied together');
+            (new SchedulerFactory())->createPlanner($input);
+        } finally {
+            $this->removeDirectory($stateDirectory);
+        }
+    }
+
+    public function testPlannerCompositionUsesDefaultLedgerWhenNoCustomPortsAreProvided(): void
+    {
+        $stateDirectory = $this->temporaryDirectory('schedule-planner-');
+        if (!extension_loaded('pdo_sqlite') || !extension_loaded('mbstring') || !class_exists('Yiisoft\\Db\\Sqlite\\Connection')) {
+            self::markTestSkipped('SQLite ledger dependencies are not installed.');
+        }
+        $checkpoint = $this->createMock(ExecutionOccurrenceCheckpointInterface::class);
+        $checkpoint->expects(self::once())->method('read')->with('task')->willReturn(null);
+        $checkpoint->expects(self::once())->method('initialize')->with('task', 't1700000000');
+
+        try {
+            $planner = (new SchedulerFactory())->createPlanner($this->plannerInputWithPorts(
+                $checkpoint,
+                $stateDirectory,
+                null,
+                null,
+                null,
+            ));
+
+            self::assertInstanceOf(SourcePlannerRuntime::class, $planner);
         } finally {
             $this->removeDirectory($stateDirectory);
         }
@@ -51,7 +123,7 @@ final class SchedulerFactoryCompositionTest extends TestCase
         $plannerOwner->method('stateDirectory')->willReturn($plannerState);
         $workerConfiguration = $this->configuration(withTask: true);
         $workerSource = new WorkerRuntimeConfigurationSource($workerConfiguration);
-        $workerLedger = $this->createMock(ExecutionLedgerInterface::class);
+        $workerLedger = $this->createMockForIntersectionOfInterfaces([ExecutionLedgerCommandInterface::class, ExecutionLedgerQueryInterface::class]);
         $workerLedgerLocator = $this->createMock(ExecutionLedgerLocatorInterface::class);
         $workerLedgerLocator->expects(self::exactly(2))->method('resolve')->with('worker-ledger')->willReturn($workerLedger);
         $workerCommand = $workerConfiguration->task('task')->command;
@@ -69,27 +141,57 @@ final class SchedulerFactoryCompositionTest extends TestCase
             'worker-runtime',
             'revision',
             $workerConfiguration->taskPolicyProjection($workerTask),
+            launchDescriptor: new ExecutionLaunchDescriptor('execution', 1, 'nonce', occurrence: new ExecutionOccurrenceKey('task', 'occurrence')),
+            permissionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
         );
+        $processIdentity = new ExecutionProcessIdentity(123, 123, 123, 'start-ticks', 'boot-id');
         $record = new ExecutionLedgerRecord(
             $capability->occurrence,
             new ExecutionIdentity('task', 'occurrence', 'attempt', 'run', 'execution'),
             1,
             new ExecutionFence(1, 'fence'),
-            'launch-required',
-            'dispatch',
+            ExecutionLedgerState::NEEDS_RESOLUTION,
             $capability->configurationFingerprint,
             $workerConfiguration->taskPolicyProjection($workerTask),
             metadata: ['sourceId' => 'source', 'sourceRevision' => 'revision'],
+            dispatchReservation: new ExecutionDispatchReservation('dispatcher', 0, PHP_INT_MAX, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', ExecutionDispatchReservation::OBSERVED),
+            launchObservation: new ExecutionLaunchObservation(123, null, 'complete', 0, ExecutionProcessClosure::confirmed(0, 'closed'), processIdentity: $processIdentity, startObservation: new ExecutionStartObservation(1700000000, 123456789)),
+            recoveryFence: $capability->recoveryFence,
+            launchDescriptor: $capability->launchDescriptor,
+            sourceIdentity: 'source',
+            sourceRevision: 'revision',
+            processIdentity: $processIdentity,
+            startAnchorIdentity: $processIdentity,
+            startObservation: new ExecutionStartObservation(1700000000, 123456789),
+            attemptStartObservation: new ExecutionStartObservation(1700000000, 123456789),
+            recoveryAge: 180.0,
+            recoveryDeadline: 1880000000,
         );
         $workerLedger->method('observe')->willReturn($record);
         $workerLedger->expects(self::once())->method('claim')->willReturn(ExecutionClaimResult::accepted($record));
         $workerLedger->expects(self::once())->method('recordOutcome')->willReturn(ExecutionTerminalResult::accepted($record));
+        $workerLedger->expects(self::once())->method('prepareCommandUnderLock')->willReturnCallback(static function (...$arguments) use ($record): ExecutionDispatchResult {
+            return ExecutionDispatchResult::accepted($record->transition(commandScope: new ExecutionCommandScope(
+                $arguments[5],
+                new ExecutionDispatchReservation('fixture-command', $arguments[6], PHP_INT_MAX, str_repeat('a', 32)),
+            )));
+        });
+        $workerLedger->expects(self::once())->method('launchCommandUnderLock')->willReturnCallback(static function (...$arguments) use ($record): ExecutionDispatchResult {
+            ($arguments[7])();
+            return ExecutionDispatchResult::accepted($record);
+        });
+        $workerLedger->expects(self::once())->method('observeCommandUnderLock')->willReturnCallback(static function (...$arguments) use ($record): ExecutionDispatchResult {
+            $observation = $arguments[6];
+            self::assertTrue($observation->closure?->isConfirmed());
+            self::assertSame(0, $observation->closure?->exitCode);
+            return ExecutionDispatchResult::accepted($record);
+        });
         $process = $this->createMock(ProcessHandleInterface::class);
         $process->method('isRunning')->willReturn(false);
         $process->method('isQuiescent')->willReturn(true);
         $process->method('poll')->willReturn(new ProcessResult(0));
         $processLauncher = $this->createMock(ProcessLauncherInterface::class);
-        $processLauncher->expects(self::once())->method('launch')->willReturn(new ProcessLaunchResult($process, 0.0));
+        $processLauncher->expects(self::once())->method('launch')->willReturn(new ProcessLaunchResult($process, 0.0, 1700000000000000, new LauncherProcessIdentity(123, 123, 123, 'ticks', 'boot', $capability->launchDescriptor)));
         $monotonicClock = $this->createMock(MonotonicClockInterface::class);
         $monotonicClock->method('now')->willReturn(0.0);
         try {
@@ -147,6 +249,22 @@ final class SchedulerFactoryCompositionTest extends TestCase
         string $stateDirectory,
         ?PlannerOwnerInterface $owner = null,
     ): PlannerCompositionInput {
+        return $this->plannerInputWithPorts(
+            $checkpoint,
+            $stateDirectory,
+            $owner,
+            $this->createMock(ExecutionLedgerCommandInterface::class),
+            $this->queryMock(),
+        );
+    }
+
+    private function plannerInputWithPorts(
+        ExecutionOccurrenceCheckpointInterface $checkpoint,
+        string $stateDirectory,
+        ?PlannerOwnerInterface $owner,
+        ?ExecutionLedgerCommandInterface $command,
+        ?ExecutionLedgerQueryInterface $query,
+    ): PlannerCompositionInput {
         $source = new WorkerRuntimeConfigurationSource($this->configuration(withTask: true));
         if ($owner === null) {
             $owner = $this->createMock(PlannerOwnerInterface::class);
@@ -160,13 +278,21 @@ final class SchedulerFactoryCompositionTest extends TestCase
             workerExecutable: '/bin/scheduler',
             source: $source,
             owner: $owner,
-            ledger: $this->createMock(ExecutionLedgerInterface::class),
+            command: $command,
+            query: $query,
             occurrenceCheckpoint: $checkpoint,
             wallClock: $this->clock(),
             monotonicClock: $this->createMock(MonotonicClockInterface::class),
             waiter: $this->createMock(PollWaiterInterface::class),
             workerLauncher: $this->createMock(ExecutionWorkerLauncherInterface::class),
         );
+    }
+
+    private function queryMock(): ExecutionLedgerQueryInterface
+    {
+        $query = $this->createMock(ExecutionLedgerQueryInterface::class);
+        $query->method('recoveryPage')->willReturn(new ExecutionLedgerRecoveryPage([], null));
+        return $query;
     }
 
     private function configuration(bool $withTask = false): PreparedConfiguration

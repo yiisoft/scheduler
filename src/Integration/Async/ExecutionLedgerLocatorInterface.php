@@ -7,5 +7,5 @@ namespace Yiisoft\Scheduler\Integration\Async;
 /** Resolves an application allow-listed ledger locator. */
 interface ExecutionLedgerLocatorInterface
 {
-    public function resolve(string $locator): ExecutionLedgerInterface;
+    public function resolve(string $locator): ExecutionLedgerCommandInterface;
 }

@@ -9,10 +9,13 @@ use InvalidArgumentException;
 use RuntimeException;
 use Throwable;
 
+use function array_pop;
+use function count;
 use function function_exists;
 use function is_array;
 use function is_int;
 use function is_string;
+use function in_array;
 use function strlen;
 
 use const DIRECTORY_SEPARATOR;
@@ -31,6 +34,7 @@ use const LOCK_SH;
 final class PlannerHealthSnapshot
 {
     public const FILE = 'planner-health.json';
+    public const SCHEMA = 'dev';
     public const DEFAULT_MAX_AGE = 15;
     public const MAX_ERROR_LENGTH = 1024;
     public const PHASE_RUNNING = 'running';
@@ -38,7 +42,7 @@ final class PlannerHealthSnapshot
     public const PHASE_FAILED = 'failed';
 
     /** @var list<string> */
-    private const FIELDS = ['sourceId', 'sourceRevision', 'ownerToken', 'ownerPid', 'startedAt', 'progressAt', 'phase', 'error'];
+    private const FIELDS = ['schema', 'sourceId', 'sourceRevision', 'ownerToken', 'ownerPid', 'startedAt', 'progressAt', 'phase', 'error'];
 
     private readonly ?string $error;
 
@@ -58,6 +62,7 @@ final class PlannerHealthSnapshot
     public function write(string $directory): void
     {
         $data = [
+            'schema' => self::SCHEMA,
             'sourceId' => $this->sourceId, 'sourceRevision' => $this->revision,
             'ownerToken' => $this->ownerToken, 'ownerPid' => $this->ownerPid,
             'startedAt' => $this->startedAt, 'progressAt' => $this->progressAt,
@@ -114,7 +119,7 @@ final class PlannerHealthSnapshot
             return 'planner.snapshot_missing';
         }
         $raw = @file_get_contents($snapshotPath);
-        $data = is_string($raw) ? json_decode($raw, true) : null;
+        $data = is_string($raw) && !self::hasDuplicateObjectMembers($raw) ? json_decode($raw, true) : null;
         if (!is_array($data)) {
             return 'planner.snapshot_malformed';
         }
@@ -122,7 +127,7 @@ final class PlannerHealthSnapshot
         if (array_keys($data) !== self::FIELDS || !self::valid($data)) {
             return 'planner.snapshot_malformed';
         }
-        /** @var array{sourceId: string, sourceRevision: string, ownerToken: string, ownerPid: int, startedAt: int, progressAt: int, phase: string, error: ?string} $data */
+        /** @var array{schema: string, sourceId: string, sourceRevision: string, ownerToken: string, ownerPid: int, startedAt: int, progressAt: int, phase: string, error: ?string} $data */
         try {
             $currentRevision = $source->revision();
         } catch (Throwable) {
@@ -149,10 +154,50 @@ final class PlannerHealthSnapshot
         return null;
     }
 
+    private static function hasDuplicateObjectMembers(string $json): bool
+    {
+        /** @var list<array<string, true>> $objects */
+        $objects = [];
+        $length = strlen($json);
+        for ($i = 0; $i < $length; $i++) {
+            if ($json[$i] === '"') {
+                $start = $i++;
+                for (; $i < $length; $i++) {
+                    if ($json[$i] === '\\') {
+                        $i++;
+                    } elseif ($json[$i] === '"') {
+                        break;
+                    }
+                }
+                $key = json_decode(substr($json, $start, $i - $start + 1), true);
+                if (!is_string($key)) {
+                    continue;
+                }
+                $j = $i + 1;
+                while ($j < $length && in_array($json[$j], [' ', "\t", "\r", "\n"], true)) {
+                    $j++;
+                }
+                if ($j < $length && $json[$j] === ':' && $objects !== []) {
+                    $object = count($objects) - 1;
+                    if (isset($objects[$object][$key])) {
+                        return true;
+                    }
+                    $objects[$object][$key] = true;
+                }
+            } elseif ($json[$i] === '{') {
+                $objects[] = [];
+            } elseif ($json[$i] === '}' && $objects !== []) {
+                array_pop($objects);
+            }
+        }
+        return false;
+    }
+
     /** @param array<string,mixed> $data */
     private static function valid(array $data): bool
     {
-        return is_string($data['sourceId']) && $data['sourceId'] !== '' && strlen($data['sourceId']) <= 4096
+        return $data['schema'] === self::SCHEMA
+            && is_string($data['sourceId']) && $data['sourceId'] !== '' && strlen($data['sourceId']) <= 4096
             && is_string($data['sourceRevision']) && $data['sourceRevision'] !== '' && strlen($data['sourceRevision']) <= 256
             && is_string($data['ownerToken']) && preg_match('/^owner-[a-f0-9]{32}$/', $data['ownerToken']) === 1
             && is_int($data['ownerPid']) && $data['ownerPid'] > 0

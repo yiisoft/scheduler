@@ -9,9 +9,8 @@ use PHPUnit\Framework\TestCase;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use Symfony\Component\Process\Process;
-use Yiisoft\Scheduler\Config\PreparedConfiguration;
 use Throwable;
-use Yiisoft\Scheduler\Integration\Async\{ExecutionDispatchReservation,ExecutionFence,ExecutionIntegrationCoordinator,ExecutionLaunchObservation,ExecutionLedgerInterface,ExecutionLedgerState,ExecutionOccurrenceKey,ExecutionWorkerCapability,ExecutionWorkerLaunchRequest};
+use Yiisoft\Scheduler\Integration\Async\{ExecutionDispatchReservation,ExecutionFence,ExecutionIntegrationCoordinator,ExecutionLaunchObservation,ExecutionLedgerCommandInterface,ExecutionLedgerState,ExecutionOccurrenceKey,ExecutionWorkerCapability,ExecutionWorkerLaunchRequest};
 use Yiisoft\Scheduler\Integration\Async\Process\{ProcessResult,SymfonyExecutionWorkerLauncher};
 use Yiisoft\Scheduler\Integration\Async\Store\FileExecutionLedger;
 use Yiisoft\Scheduler\Tests\Support\{BlackBoxApplication,BlackBoxApplicationLauncher,BlackBoxApplicationSource,BlackBoxCommandBuilder,BlackBoxObserver};
@@ -74,7 +73,7 @@ final class BlackBoxProcessTest extends TestCase
         self::assertFileDoesNotExist($marker);
         self::assertFileDoesNotExist($effect);
         $record = $ledger->observe($capability->occurrence);
-        self::assertSame('launch-required', $record?->state);
+        self::assertSame('needs-resolution', $record?->state);
         self::assertNull($record?->outcome);
     }
 
@@ -92,14 +91,14 @@ final class BlackBoxProcessTest extends TestCase
     public function testCleanParentExitWithoutOutcomeIsRecordedAsAmbiguous(): void
     {
         [$ledger, $capability, $marker, $effect] = $this->fixture();
-        self::assertSame('accepted', $ledger->reserveDispatch($capability->occurrence, new ExecutionFence($capability->generation, $capability->fenceToken), new ExecutionDispatchReservation('fixture-dispatcher', 1000, 2000))->status);
+        self::assertSame('already-launched', $ledger->reserveDispatch($capability->occurrence, new ExecutionFence($capability->generation, $capability->fenceToken), new ExecutionDispatchReservation('fixture-dispatcher', 1000, 2000))->status);
         $result = $this->awaitWorker($capability, $marker, $effect, 'exit-before-entrypoint');
 
         // A process result is only an observation here: it is not a task outcome.
         self::assertSame(0, $result->exitCode);
         self::assertSame('', $result->stdout);
         $observation = new ExecutionLaunchObservation(null, null, 'clean-exit-without-outcome', 2000);
-        $dispatch = (new ExecutionIntegrationCoordinator($ledger, new BlackBoxApplicationSource(), new BlackBoxApplicationLauncher()))
+        $dispatch = (new ExecutionIntegrationCoordinator($ledger, new BlackBoxApplicationSource(), new BlackBoxApplicationLauncher(), $ledger, 'fixture-source'))
             ->observeLaunch($capability->occurrence, new ExecutionFence($capability->generation, $capability->fenceToken), $observation);
         self::assertSame('ambiguous', $dispatch->status);
         $record = $ledger->observe($capability->occurrence);
@@ -121,12 +120,12 @@ final class BlackBoxProcessTest extends TestCase
             self::fail('Expected builder failure.');
         } catch (Throwable) {
             self::assertFileDoesNotExist($effect);
-            self::assertSame('launch-required', $ledger->observe($capability->occurrence)?->state);
+            self::assertSame('needs-resolution', $ledger->observe($capability->occurrence)?->state);
             self::assertNull($ledger->observe($capability->occurrence)?->outcome);
         }
     }
 
-    /** @return array{ExecutionLedgerInterface,ExecutionWorkerCapability,string,string} */
+    /** @return array{ExecutionLedgerCommandInterface,ExecutionWorkerCapability,string,string} */
     private function fixture(): array
     {
         $ledgerPath = $this->directory . '/ledger';
@@ -134,7 +133,6 @@ final class BlackBoxProcessTest extends TestCase
         $ledger = new FileExecutionLedger($ledgerPath);
         $occurrence = new ExecutionOccurrenceKey('fixture-task', 'occurrence-' . bin2hex(random_bytes(4)));
         $capability = BlackBoxApplication::capability($occurrence);
-        $capability = new ExecutionWorkerCapability($capability->occurrence, $capability->attemptId, $capability->runId, $capability->executionId, $capability->generation, $capability->fenceToken, $capability->configurationFingerprint, hash('sha256', PreparedConfiguration::canonical($capability->policy)), $capability->ledgerLocator, $capability->runtimeLocator, $capability->sourceRevision, $capability->policy);
         self::assertTrue($ledger->admit(BlackBoxApplication::record($capability))->newlyAdmitted);
         return [$ledger, $capability, $this->directory . '/marker', $this->directory . '/effect'];
     }

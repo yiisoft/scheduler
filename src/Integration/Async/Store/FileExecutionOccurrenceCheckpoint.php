@@ -30,7 +30,9 @@ use function strcmp;
 use function strlen;
 use function unlink;
 use function array_key_exists;
+use function array_pop;
 use function function_exists;
+use function in_array;
 
 use const JSON_THROW_ON_ERROR;
 use const LOCK_EX;
@@ -52,7 +54,7 @@ use const LOCK_UN;
  */
 final class FileExecutionOccurrenceCheckpoint implements ExecutionOccurrenceCheckpointInterface
 {
-    private const VERSION = 2;
+    private const SCHEMA = 'dev';
     private const MAX_STATE_BYTES = 1_048_576;
     private const MAX_ENTRIES = 10_000;
 
@@ -126,7 +128,7 @@ final class FileExecutionOccurrenceCheckpoint implements ExecutionOccurrenceChec
         });
     }
 
-    /** @param array{version: int, checkpoints: array<string, string>} $state */
+    /** @param array{schema: string, checkpoints: array<string, string>} $state */
     private function replaceState(array $state, string $taskKey, string $cursor): void
     {
         /** @var array<string, string> $checkpoints */
@@ -178,11 +180,11 @@ final class FileExecutionOccurrenceCheckpoint implements ExecutionOccurrenceChec
         return strlen($left) <=> strlen($right) ?: strcmp($left, $right);
     }
 
-    /** @return array{version: int, checkpoints: array<string, string>} */
+    /** @return array{schema: string, checkpoints: array<string, string>} */
     private function load(): array
     {
         if (!is_file($this->statePath)) {
-            return ['version' => self::VERSION, 'checkpoints' => []];
+            return ['schema' => self::SCHEMA, 'checkpoints' => []];
         }
         $size = filesize($this->statePath);
         if ($size === false || $size > self::MAX_STATE_BYTES) {
@@ -191,6 +193,9 @@ final class FileExecutionOccurrenceCheckpoint implements ExecutionOccurrenceChec
         $contents = @file_get_contents($this->statePath);
         if ($contents === false || $contents === '') {
             throw new InvalidArgumentException('Occurrence checkpoint state cannot be read.');
+        }
+        if ($this->hasDuplicateObjectMembers($contents)) {
+            throw new InvalidArgumentException('Occurrence checkpoint state has duplicate members.');
         }
         try {
             $decoded = json_decode($contents, true, 8, JSON_THROW_ON_ERROR);
@@ -202,11 +207,11 @@ final class FileExecutionOccurrenceCheckpoint implements ExecutionOccurrenceChec
 
     /**
      * @param mixed $state
-     * @return array{version: int, checkpoints: array<string, string>}
+     * @return array{schema: string, checkpoints: array<string, string>}
      */
     private function validateState(mixed $state): array
     {
-        if (!is_array($state) || count($state) !== 2 || !array_key_exists('version', $state) || !array_key_exists('checkpoints', $state) || $state['version'] !== self::VERSION || !is_array($state['checkpoints'])) {
+        if (!is_array($state) || count($state) !== 2 || !array_key_exists('schema', $state) || !array_key_exists('checkpoints', $state) || $state['schema'] !== self::SCHEMA || !is_array($state['checkpoints'])) {
             throw new InvalidArgumentException('Occurrence checkpoint state has an unexpected shape.');
         }
         $entries = 0;
@@ -226,7 +231,46 @@ final class FileExecutionOccurrenceCheckpoint implements ExecutionOccurrenceChec
         if ($entries > self::MAX_ENTRIES) {
             throw new InvalidArgumentException('Occurrence checkpoint state is too large.');
         }
-        return ['version' => self::VERSION, 'checkpoints' => $checkpoints];
+        return ['schema' => self::SCHEMA, 'checkpoints' => $checkpoints];
+    }
+
+    private function hasDuplicateObjectMembers(string $json): bool
+    {
+        /** @var list<array<string, true>> $objects */
+        $objects = [];
+        $length = strlen($json);
+        for ($i = 0; $i < $length; $i++) {
+            if ($json[$i] === '"') {
+                $start = $i++;
+                for (; $i < $length; $i++) {
+                    if ($json[$i] === '\\') {
+                        $i++;
+                    } elseif ($json[$i] === '"') {
+                        break;
+                    }
+                }
+                $key = json_decode(substr($json, $start, $i - $start + 1), true);
+                if (!is_string($key)) {
+                    continue;
+                }
+                $j = $i + 1;
+                while ($j < $length && in_array($json[$j], [' ', "\t", "\r", "\n"], true)) {
+                    $j++;
+                }
+                if ($j < $length && $json[$j] === ':' && $objects !== []) {
+                    $object = count($objects) - 1;
+                    if (isset($objects[$object][$key])) {
+                        return true;
+                    }
+                    $objects[$object][$key] = true;
+                }
+            } elseif ($json[$i] === '{') {
+                $objects[] = [];
+            } elseif ($json[$i] === '}' && $objects !== []) {
+                array_pop($objects);
+            }
+        }
+        return false;
     }
 
     private function encode(array $state): string

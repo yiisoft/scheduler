@@ -18,12 +18,17 @@ final class ExecutionLaunchObservation
         public readonly int $observedAt,
         public readonly ?ExecutionProcessClosure $closure = null,
         public readonly ?ExecutionWorkerLaunchHandle $launchHandle = null,
+        public readonly ?ExecutionProcessIdentity $processIdentity = null,
+        public readonly ?ExecutionStartObservation $startObservation = null,
     ) {
         if (($pid !== null && $pid < 1) || $observedAt < 0 || $classification === '' || strlen($classification) > 128 || preg_match('/[\x00-\x1F\x7F]/', $classification) === 1) {
             throw new InvalidArgumentException('Launch observation facts are invalid.');
         }
         if ($error !== null && ($error === '' || strlen($error) > 4096)) {
             throw new InvalidArgumentException('Launch observation error is invalid.');
+        }
+        if ($this->processIdentity === null && $this->startObservation !== null) {
+            throw new InvalidArgumentException('Launch observation start facts require process identity.');
         }
     }
 }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Yiisoft\Scheduler\Tests\Integration\Async;
 
+use Yiisoft\Scheduler\Integration\Async\ExecutionLaunchDescriptor;
 use Closure;
 use DateTimeImmutable;
 use LogicException;
@@ -17,17 +18,20 @@ use Yiisoft\Scheduler\Config\PreparedConfiguration;
 use Yiisoft\Scheduler\Executor\{CallableCommand, CommandExecutorMap, ExecutionContext, ExecutorInterface};
 use Yiisoft\Scheduler\Integration\Async\ExecutionAdmission;
 use Yiisoft\Scheduler\Integration\Async\ExecutionClaimResult;
+use Yiisoft\Scheduler\Integration\Async\ExecutionCommandScope;
 use Yiisoft\Scheduler\Integration\Async\ExecutionDispatchReservation;
 use Yiisoft\Scheduler\Integration\Async\ExecutionDispatchResult;
 use Yiisoft\Scheduler\Integration\Async\ExecutionFence;
 use Yiisoft\Scheduler\Integration\Async\ExecutionGenerationResult;
 use Yiisoft\Scheduler\Integration\Async\ExecutionIdentity;
 use Yiisoft\Scheduler\Integration\Async\ExecutionLaunchObservation;
-use Yiisoft\Scheduler\Integration\Async\ExecutionLedgerInterface;
+use Yiisoft\Scheduler\Integration\Async\{ExecutionLedgerCommandInterface, ExecutionLedgerQueryInterface, ExecutionLedgerRecoveryPage};
 use Yiisoft\Scheduler\Integration\Async\ExecutionLedgerLocatorInterface;
 use Yiisoft\Scheduler\Integration\Async\ExecutionLedgerRecord;
 use Yiisoft\Scheduler\Integration\Async\ExecutionOccurrenceKey;
 use Yiisoft\Scheduler\Integration\Async\ExecutionOutcome;
+use Yiisoft\Scheduler\Integration\Async\ExecutionProcessIdentity;
+use Yiisoft\Scheduler\Integration\Async\ExecutionStartObservation;
 use Yiisoft\Scheduler\Integration\Async\ExecutionRecoveryFence;
 use Yiisoft\Scheduler\Integration\Async\ExecutionRecoveryResult;
 use Yiisoft\Scheduler\Integration\Async\ExecutionRevocationResult;
@@ -81,7 +85,7 @@ final class ExecutionWorkerEntrypointTest extends TestCase
         $locator = new class implements ExecutionLedgerLocatorInterface {
             public string $value = '';
 
-            public function resolve(string $locator): ExecutionLedgerInterface
+            public function resolve(string $locator): ExecutionLedgerCommandInterface
             {
                 $this->value = $locator;
                 throw new RuntimeException('unavailable');
@@ -120,6 +124,8 @@ final class ExecutionWorkerEntrypointTest extends TestCase
         self::assertSame(['claim', 'terminal'], $ledger->events);
         self::assertTrue($factory->called);
         self::assertSame([100, 777], $ledger->claimArgs);
+        self::assertEquals($capability->launchDescriptor, $ledger->claimDescriptor);
+        self::assertSame($capability->permissionId, $ledger->claimPermissionId);
         self::assertSame([100, 'succeeded'], $ledger->terminalArgs);
         self::assertSame('fence-4', $ledger->terminalFence?->token);
         self::assertEquals($capability->occurrence, $ledger->terminalOccurrence);
@@ -245,6 +251,8 @@ final class ExecutionWorkerEntrypointTest extends TestCase
         $configuration = $source->prepare(new TestCommandExecutorRuntimeFactory());
         $definition = $configuration->tasks['task'];
         $occurrence = new ExecutionOccurrenceKey('task', 'occurrence');
+        $descriptor = new ExecutionLaunchDescriptor('execution-1', 4, 'worker-nonce', occurrence: $occurrence);
+        $permissionId = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
         $capability = new ExecutionWorkerCapability(
             $occurrence,
             'attempt',
@@ -258,17 +266,31 @@ final class ExecutionWorkerEntrypointTest extends TestCase
             'runtime://one',
             $source->revision(),
             $configuration->taskPolicyProjection($definition),
+            new ExecutionRecoveryFence('recovery-4', 4),
+            launchDescriptor: $descriptor,
+            permissionId: $permissionId,
         );
         $record = new ExecutionLedgerRecord(
             $occurrence,
             new ExecutionIdentity('task', 'occurrence', 'attempt', 'run-1', 'execution-1'),
             1,
             new ExecutionFence(4, 'fence-4'),
-            'launch-required',
-            'dispatch',
+            'needs-resolution',
             $capability->configurationFingerprint,
             $configuration->taskPolicyProjection($definition),
             metadata: ['sourceId' => $source->sourceId(), 'sourceRevision' => $source->revision()],
+            dispatchReservation: new ExecutionDispatchReservation('fixture', 10, 20, $permissionId, ExecutionDispatchReservation::OBSERVED),
+            launchObservation: new ExecutionLaunchObservation(123, null, 'started', 1700000000, processIdentity: new ExecutionProcessIdentity(123, 123, 123, 'start-ticks', 'boot-id'), startObservation: new ExecutionStartObservation(1700000000, 123456789)),
+            attemptStartObservation: new ExecutionStartObservation(1700000000, 123456789),
+            recoveryFence: new ExecutionRecoveryFence('recovery-4', 4),
+            launchDescriptor: $descriptor,
+            sourceIdentity: $source->sourceId(),
+            sourceRevision: $source->revision(),
+            processIdentity: new ExecutionProcessIdentity(123, 123, 123, 'start-ticks', 'boot-id'),
+            startAnchorIdentity: new ExecutionProcessIdentity(123, 123, 123, 'start-ticks', 'boot-id'),
+            startObservation: new ExecutionStartObservation(1700000000, 123456789),
+            recoveryAge: 180.0,
+            recoveryDeadline: 1880000000,
         );
         $ledger = new EntrypointLedger(ExecutionClaimResult::accepted($record));
         $invoked = false;
@@ -371,27 +393,27 @@ final class ExecutionWorkerEntrypointTest extends TestCase
 
     private function capability(): ExecutionWorkerCapability
     {
-        return new ExecutionWorkerCapability(new ExecutionOccurrenceKey('task', 'occurrence'), 'attempt', 'run-1', 'execution-1', 4, 'fence-4', 'manifest-v1', hash('sha256', PreparedConfiguration::canonical($this->policy())), 'ledger://allow-listed', 'runtime://one', 'source-revision', $this->policy());
+        return new ExecutionWorkerCapability(new ExecutionOccurrenceKey('task', 'occurrence'), 'attempt', 'run-1', 'execution-1', 4, 'fence-4', 'manifest-v1', hash('sha256', PreparedConfiguration::canonical($this->policy())), 'ledger://allow-listed', 'runtime://one', 'source-revision', $this->policy(), new ExecutionRecoveryFence('recovery-4', 4), new ExecutionLaunchDescriptor('execution-1', 4, 'worker-nonce', occurrence: new ExecutionOccurrenceKey('task', 'occurrence')), 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
     }
 
     private function policy(): array
     {
-        return ['format' => 4, 'source' => [null, null], 'task' => ['id' => 'task', 'mode' => 'async', 'timeout' => null, 'metadata' => [], 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null]]];
+        return ['schema' => 'dev', 'source' => ['source', 'source-revision'], 'task' => ['id' => 'task', 'mode' => 'async', 'timeout' => null, 'recoveryMaxAge' => 180.0, 'metadata' => [], 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null]]];
     }
 
-    private function record(ExecutionWorkerCapability $capability, string $configurationFingerprint = 'manifest-v1', string $taskVersion = '', string $state = 'launch-required', ?ExecutionOutcome $outcome = null): ExecutionLedgerRecord
+    private function record(ExecutionWorkerCapability $capability, string $configurationFingerprint = 'manifest-v1', string $taskVersion = '', string $state = 'needs-resolution', ?ExecutionOutcome $outcome = null): ExecutionLedgerRecord
     {
         $taskVersion = $taskVersion === '' ? $capability->taskVersion : $taskVersion;
         $snapshot = $taskVersion === $capability->taskVersion ? $capability->policy : array_replace($capability->policy, ['task' => array_replace($capability->policy['task'], ['metadata' => ['version' => $taskVersion]])]);
-        return new ExecutionLedgerRecord($capability->occurrence, new ExecutionIdentity('task', 'occurrence', 'attempt', 'run-1', 'execution-1'), 1, new ExecutionFence(4, 'fence-4'), $state, 'dispatch', $configurationFingerprint, $snapshot, 1, 1, $outcome);
+        return new ExecutionLedgerRecord($capability->occurrence, new ExecutionIdentity('task', 'occurrence', 'attempt', 'run-1', 'execution-1'), 1, new ExecutionFence(4, 'fence-4'), $state, $configurationFingerprint, $snapshot, 1, 1, $outcome, dispatchReservation: new ExecutionDispatchReservation('fixture', 1, 2, $capability->permissionId, ExecutionDispatchReservation::OBSERVED), launchObservation: new ExecutionLaunchObservation(123, null, 'started', 1700000000, processIdentity: new ExecutionProcessIdentity(123, 123, 123, 'start-ticks', 'boot-id'), startObservation: new ExecutionStartObservation(1700000000, 123456789)), attemptStartObservation: new ExecutionStartObservation(1700000000, 123456789), recoveryFence: new ExecutionRecoveryFence('recovery-4', 4), launchDescriptor: $capability->launchDescriptor, sourceIdentity: $snapshot['source'][0], sourceRevision: $snapshot['source'][1], processIdentity: new ExecutionProcessIdentity(123, 123, 123, 'start-ticks', 'boot-id'), startAnchorIdentity: new ExecutionProcessIdentity(123, 123, 123, 'start-ticks', 'boot-id'), startObservation: new ExecutionStartObservation(1700000000, 123456789), recoveryAge: 180.0, recoveryDeadline: 1880000000);
     }
 
     private function entrypoint(EntrypointLedger $ledger, ExecutionWorkerRuntimeFactoryInterface $factory, bool &$resolved = false, array $times = [10, 20]): ExecutionWorkerEntrypoint
     {
         $locator = new class ($ledger, $resolved) implements ExecutionLedgerLocatorInterface {
-            public function __construct(private readonly ExecutionLedgerInterface $ledger, private bool &$resolved) {}
+            public function __construct(private readonly ExecutionLedgerCommandInterface $ledger, private bool &$resolved) {}
 
-            public function resolve(string $locator): ExecutionLedgerInterface
+            public function resolve(string $locator): ExecutionLedgerCommandInterface
             {
                 $this->resolved = true;
                 return $this->ledger;
@@ -417,7 +439,7 @@ final class EntrypointFactory implements ExecutionWorkerRuntimeFactoryInterface
 
     public function __construct(private readonly ExecutionOutcome $outcome, private readonly ?Throwable $failure = null, private readonly ?string $runtimeFailure = null, private readonly bool $nonExecutable = false) {}
 
-    public function create(ExecutionWorkerCapability $capability, ExecutionLedgerRecord $claimedRecord): ExecutionWorkerRuntimeInterface
+    public function create(ExecutionWorkerCapability $capability, ExecutionLedgerRecord $claimedRecord, ExecutionLedgerCommandInterface $ledger): ExecutionWorkerRuntimeInterface
     {
         $this->called = true;
         if ($this->failure !== null) {
@@ -440,13 +462,15 @@ final class EntrypointFactory implements ExecutionWorkerRuntimeFactoryInterface
     }
 }
 
-final class EntrypointLedger implements ExecutionLedgerInterface
+final class EntrypointLedger implements ExecutionLedgerCommandInterface, ExecutionLedgerQueryInterface
 {
     public array $events = [];
     public ?ExecutionLedgerRecord $observedRecord = null;
     public ?ExecutionLedgerRecord $terminalObservation = null;
     public int $observeCalls = 0;
     public array $claimArgs = [];
+    public ?ExecutionLaunchDescriptor $claimDescriptor = null;
+    public ?string $claimPermissionId = null;
     public array $terminalArgs = [];
     public ?ExecutionFence $terminalFence = null;
     public ?ExecutionOutcome $terminalOutcome = null;
@@ -456,6 +480,16 @@ final class EntrypointLedger implements ExecutionLedgerInterface
     public function __construct(public ExecutionClaimResult $claimResult, private readonly bool $claimThrows = false, private readonly ?ExecutionTerminalResult $terminalResult = null, private readonly bool $terminalThrows = false)
     {
         $this->observedRecord = $claimResult->record;
+    }
+
+    public function markRecoveryExpired(
+        ExecutionOccurrenceKey $occurrence,
+        ExecutionFence $expectedFence,
+        ExecutionRecoveryFence $recoveryFence,
+        int $nowUs,
+        string $sourceIdentity,
+    ): ExecutionRecoveryResult {
+        return ExecutionRecoveryResult::result(ExecutionRecoveryResult::STALE);
     }
 
     public function admit(ExecutionLedgerRecord $record): ExecutionAdmission
@@ -474,13 +508,73 @@ final class EntrypointLedger implements ExecutionLedgerInterface
         return false;
     }
 
-    public function claim(ExecutionOccurrenceKey $occurrence, ExecutionFence $fence, int $at, ?int $claimLeaseDeadline): ExecutionClaimResult
+    public function activeExecutions(string $sourceIdentity): array
+    {
+        return [];
+    }
+
+    public function ownershipHoldingExecutions(string $sourceIdentity): array
+    {
+        return [];
+    }
+
+    public function recoveryPage(string $sourceIdentity, ?string $cursor, int $limit): ExecutionLedgerRecoveryPage
+    {
+        return new ExecutionLedgerRecoveryPage([], null);
+    }
+
+    public function claim(ExecutionOccurrenceKey $occurrence, ExecutionFence $fence, int $at, ?int $claimLeaseDeadline, ?ExecutionLaunchDescriptor $descriptor = null, ?string $permissionId = null): ExecutionClaimResult
     {
         $this->events[] = 'claim';
         $this->claimArgs = [$at, $claimLeaseDeadline];
+        $this->claimDescriptor = $descriptor;
+        $this->claimPermissionId = $permissionId;
         if ($this->claimThrows) {
             throw new RuntimeException();
-        } return $this->claimResult;
+        }
+        $record = $this->claimResult->record;
+        if ($record === null || $record->state !== 'needs-resolution' || $record->dispatchReservation?->launchPhase !== ExecutionDispatchReservation::OBSERVED || $record->launchDescriptor === null || $descriptor === null || !$record->launchDescriptor->equals($descriptor) || $record->dispatchReservation->permissionId !== $permissionId || $record->launchObservation === null || $record->launchObservation->pid === null || $record->launchObservation->processIdentity === null || $record->launchObservation->startObservation === null) {
+            return ExecutionClaimResult::rejected('fixture requires complete observed launch receipt');
+        }
+        return $this->claimResult;
+    }
+
+    public function launchUnderLock(ExecutionOccurrenceKey $o, ExecutionFence $f, ExecutionRecoveryFence $r, string $s, ExecutionLaunchDescriptor $d, string $p, int $at, callable $start, int $nowUs): ExecutionDispatchResult
+    {
+        throw new LogicException();
+    }
+
+    public function prepareCommandUnderLock(ExecutionOccurrenceKey $o, ExecutionFence $f, ExecutionRecoveryFence $r, string $s, ExecutionLaunchDescriptor $rootDescriptor, ExecutionLaunchDescriptor $commandDescriptor, int $at, int $nowUs): ExecutionDispatchResult
+    {
+        $record = $this->claimResult->record;
+        if ($record === null) {
+            return ExecutionDispatchResult::stale();
+        }
+        return ExecutionDispatchResult::accepted($record->transition(commandScope: new ExecutionCommandScope(
+            $commandDescriptor,
+            new ExecutionDispatchReservation('fixture-command', $at, PHP_INT_MAX, str_repeat('a', 32)),
+        )));
+    }
+
+    public function launchCommandUnderLock(ExecutionOccurrenceKey $o, ExecutionFence $f, ExecutionRecoveryFence $r, string $s, ExecutionLaunchDescriptor $rootDescriptor, ExecutionCommandScope $preparedScope, int $at, callable $start, int $nowUs): ExecutionDispatchResult
+    {
+        $start();
+        return ExecutionDispatchResult::accepted($this->claimResult->record);
+    }
+
+    public function observeCommandUnderLock(ExecutionOccurrenceKey $o, ExecutionFence $f, ExecutionRecoveryFence $r, string $s, ExecutionLaunchDescriptor $rootDescriptor, ExecutionLaunchDescriptor $commandDescriptor, ExecutionLaunchObservation $observation): ExecutionDispatchResult
+    {
+        return ExecutionDispatchResult::accepted($this->claimResult->record);
+    }
+
+    public function repairBeforeStartUnderLock(ExecutionOccurrenceKey $o, ExecutionFence $f, ExecutionRecoveryFence $r, string $s, callable $absenceProof, int $nowUs): ExecutionDispatchResult
+    {
+        throw new LogicException();
+    }
+
+    public function rotateAfterClosureUnderLock(ExecutionOccurrenceKey $o, ExecutionRecoveryFence $r, ExecutionFence $n, int $nowUs, ExecutionFence $e, string $s): ExecutionGenerationResult
+    {
+        throw new LogicException();
     }
 
     public function reserveDispatch(ExecutionOccurrenceKey $o, ExecutionFence $f, ExecutionDispatchReservation $r): ExecutionDispatchResult
@@ -488,30 +582,32 @@ final class EntrypointLedger implements ExecutionLedgerInterface
         throw new LogicException();
     }
 
-    public function redispatchSameGeneration(ExecutionOccurrenceKey $o, ExecutionFence $f, ExecutionDispatchReservation $r, int $at): ExecutionDispatchResult
+    public function redispatchSameGeneration(ExecutionOccurrenceKey $o, ExecutionFence $f, ExecutionRecoveryFence $recoveryFence, ExecutionDispatchReservation $r, int $nowUs, string $sourceIdentity): ExecutionDispatchResult
     {
         throw new LogicException();
     }
 
-    public function observeLaunch(ExecutionOccurrenceKey $o, ExecutionFence $f, ExecutionLaunchObservation $observation): ExecutionDispatchResult
+    public function observeLaunch(ExecutionOccurrenceKey $o, ExecutionFence $f, ExecutionRecoveryFence $recoveryFence, ExecutionLaunchObservation $observation, string $sourceIdentity): ExecutionDispatchResult
     {
         throw new LogicException();
     }
 
-    public function recover(ExecutionOccurrenceKey $o, ExecutionRecoveryFence $f, int $at): ExecutionRecoveryResult
+    public function recover(ExecutionOccurrenceKey $o, ExecutionRecoveryFence $f, int $nowUs, ExecutionFence $expectedFence, string $sourceIdentity): ExecutionRecoveryResult
     {
         throw new LogicException();
     }
 
-    public function revoke(ExecutionOccurrenceKey $o, ExecutionRecoveryFence $f, int $at): ExecutionRevocationResult
+    public function revoke(ExecutionOccurrenceKey $o, ExecutionRecoveryFence $f, int $nowUs, ExecutionFence $expectedFence, string $sourceIdentity): ExecutionRevocationResult
     {
         throw new LogicException();
     }
 
-    public function allocateGeneration(ExecutionOccurrenceKey $o, ExecutionRecoveryFence $f, ExecutionFence $newFence, int $at): ExecutionGenerationResult
+    public function allocateGeneration(ExecutionOccurrenceKey $o, ExecutionRecoveryFence $f, ExecutionFence $newFence, int $nowUs, ExecutionFence $expectedFence, string $sourceIdentity): ExecutionGenerationResult
     {
         throw new LogicException();
     }
+
+    public function repairIndexes(): void {}
 
     public function recordOutcome(ExecutionOccurrenceKey $o, ExecutionFence $f, ExecutionOutcome $outcome, int $at): ExecutionTerminalResult
     {
@@ -523,6 +619,6 @@ final class EntrypointLedger implements ExecutionLedgerInterface
         $this->terminalOccurrence = $o;
         if ($this->terminalThrows) {
             throw new RuntimeException();
-        } return $this->terminalResult ?? ExecutionTerminalResult::accepted(new ExecutionLedgerRecord($o, new ExecutionIdentity('task', 'occurrence', 'attempt', 'run-1', 'execution-1'), 1, $f, $outcome->status, 'dispatch', 'manifest-v1', $this->observedRecord?->taskSnapshot ?? [], 1, 1, $outcome));
+        } return $this->terminalResult ?? ExecutionTerminalResult::accepted(new ExecutionLedgerRecord($o, new ExecutionIdentity('task', 'occurrence', 'attempt', 'run-1', 'execution-1'), 1, $f, $outcome->status, 'manifest-v1', $this->observedRecord?->taskSnapshot ?? [], 1, 1, $outcome, recoveryFence: new ExecutionRecoveryFence('recovery-4', 4), sourceIdentity: $this->observedRecord?->sourceIdentity, sourceRevision: $this->observedRecord?->sourceRevision, processIdentity: new ExecutionProcessIdentity(123, 123, 123, 'start-ticks', 'boot-id'), startAnchorIdentity: new ExecutionProcessIdentity(123, 123, 123, 'start-ticks', 'boot-id'), startObservation: new ExecutionStartObservation(1700000000, 123456789), recoveryAge: 180.0, recoveryDeadline: 1880000000));
     }
 }

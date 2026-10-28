@@ -6,7 +6,7 @@ namespace Yiisoft\Scheduler\Integration\Async\Process;
 
 use DateTimeImmutable;
 use Symfony\Component\Process\Process;
-use Yiisoft\Scheduler\Integration\Async\MonotonicClockInterface;
+use Yiisoft\Scheduler\Integration\Async\{ExecutionLaunchDescriptor, MonotonicClockInterface};
 
 use function constant;
 use function ctype_digit;
@@ -36,8 +36,32 @@ final class SymfonyProcessHandle implements ProcessHandleInterface
     private bool $stderrTruncated = false;
     private bool $callbackAttached = false;
     private ?int $processGroupId = null;
+    private ?int $wallStartedAtMicros = null;
+    private ?ProcessIdentity $identity = null;
+    private readonly ExecutionLaunchDescriptor $descriptor;
 
-    public function __construct(private readonly Process $process) {}
+    public function __construct(private readonly Process $process, ?ExecutionLaunchDescriptor $descriptor = null)
+    {
+        $this->descriptor = $descriptor ?? new ExecutionLaunchDescriptor('unbound', 1, 'unbound');
+    }
+
+    public function bindIdentity(ProcessIdentity $identity): void
+    {
+        if (!$this->descriptor->equals($identity->descriptor)) {
+            throw new ProcessScopeException('Launched identity does not match its descriptor.');
+        }
+        $this->identity = $identity;
+        $this->processGroupId = $identity->processGroupId;
+    }
+
+    public function scopeProof(): ProcessScopeProof
+    {
+        if ($this->identity === null) {
+            return ProcessScopeProof::uncertainFromRetainedPoll($this->descriptor, ProcessScopeProof::REASON_UNBOUND_SCOPE);
+        }
+        $attached = new AttachedProcessHandle($this->identity);
+        return $attached->scopeProof();
+    }
 
     /** Start with a callback so output is collected and discarded incrementally. */
     public function start(?MonotonicClockInterface $clock = null): float
@@ -74,27 +98,30 @@ final class SymfonyProcessHandle implements ProcessHandleInterface
         // established the target's owned scope. Sample only then, so setup of
         // the wrapper and scope is excluded from the launch timestamp.
         $this->processGroupId = $groupId;
+        // Both samples are taken at the owned-scope boundary, never by a
+        // later supervisor poll. The monotonic value is used only in-process.
+        $this->wallStartedAtMicros = (int) floor(microtime(true) * 1000000.0);
         return $clock?->now() ?? microtime(true);
+    }
+
+    public function wallStartedAtMicros(): ?int
+    {
+        return $this->wallStartedAtMicros;
+    }
+
+    public function processGroupId(): ?int
+    {
+        return $this->processGroupId;
     }
 
     public function isRunning(): bool
     {
-        return $this->result === null && $this->process->isRunning();
+        return $this->scopeProof()->status === ProcessScopeProof::LIVE;
     }
 
     public function isQuiescent(): bool
     {
-        if ($this->process->isRunning()) {
-            return false;
-        }
-        if ($this->processGroupId === null) {
-            return true;
-        }
-
-        // kill(2) reports a process group containing only zombies as alive.
-        // Inspect the members instead: a zombie cannot execute work and is
-        // therefore not a reason to keep the handle open forever.
-        return $this->processGroupHasLiveMembers() === false;
+        return $this->scopeProof()->isClosed();
     }
 
     public function poll(): ?ProcessResult
@@ -102,7 +129,11 @@ final class SymfonyProcessHandle implements ProcessHandleInterface
         if ($this->result !== null) {
             return $this->result;
         }
-        if (!$this->isQuiescent()) {
+        // Advance Symfony's pipe/callback state even while scope proof is
+        // being obtained from /proc; otherwise a verbose child can block on
+        // a full pipe while its setsid wrapper remains apparently live.
+        $this->process->isRunning();
+        if (!$this->scopeProof()->isClosed()) {
             return null;
         }
         if (!$this->callbackAttached) {
@@ -156,16 +187,18 @@ final class SymfonyProcessHandle implements ProcessHandleInterface
 
     private function terminate(int $signal): void
     {
-        if ($this->processGroupId !== null) {
-            if (!posix_kill(-$this->processGroupId, $signal) && $this->processGroupHasLiveMembers() !== false) {
+        $proof = $this->scopeProof();
+        if ($proof->status !== ProcessScopeProof::LIVE) {
+            if ($proof->isClosed()) {
+                return;
+            }
+            throw new ProcessScopeException('Unable to safely signal an unproven process scope.');
+        }
+        if ($this->processGroupId === null || !@posix_kill(-$this->processGroupId, $signal)) {
+            $after = $this->scopeProof();
+            if (!$after->isClosed()) {
                 throw new ProcessScopeException('Unable to terminate the owned process scope.');
             }
-            return;
-        }
-        // Handles created by this adapter always have a group.  Keep this
-        // branch for portable test doubles and avoid asking isRunning twice.
-        if ($this->process->isRunning()) {
-            $this->process->signal($signal);
         }
     }
 

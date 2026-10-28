@@ -21,8 +21,9 @@ final class ExecutionLedgerState
     public const LAUNCH_AMBIGUOUS = 'launch-ambiguous';
     public const NEEDS_RESOLUTION = 'needs-resolution';
     public const REVOKED = 'revoked';
+    public const RECOVERY_EXPIRED = 'recovery-expired';
 
-    private const ALL = [self::LAUNCH_REQUIRED, self::LAUNCH_REQUESTED, self::CLAIMED, self::RUNNING, self::SUCCEEDED, self::FAILED, self::CANCELLED, self::LAUNCH_AMBIGUOUS, self::NEEDS_RESOLUTION, self::REVOKED];
+    private const ALL = [self::LAUNCH_REQUIRED, self::LAUNCH_REQUESTED, self::CLAIMED, self::RUNNING, self::SUCCEEDED, self::FAILED, self::CANCELLED, self::LAUNCH_AMBIGUOUS, self::NEEDS_RESOLUTION, self::REVOKED, self::RECOVERY_EXPIRED];
     private const TERMINAL = [self::SUCCEEDED, self::FAILED, self::CANCELLED];
 
     public static function assertValid(string $state): void

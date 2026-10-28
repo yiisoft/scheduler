@@ -13,6 +13,8 @@ use FilesystemIterator;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 
+use const JSON_THROW_ON_ERROR;
+
 final class PlannerHealthSnapshotTest extends TestCase
 {
     private string $root;
@@ -42,12 +44,63 @@ final class PlannerHealthSnapshotTest extends TestCase
         try {
             (new PlannerHealthSnapshot($source->sourceId(), $source->revision, $owner->ownerToken(), (int) getmypid(), 100, 100))
                 ->write($owner->stateDirectory());
+            $written = json_decode((string) file_get_contents($owner->stateDirectory() . '/' . PlannerHealthSnapshot::FILE), true, 16, JSON_THROW_ON_ERROR);
+            self::assertSame('dev', $written['schema']);
 
             self::assertNull(PlannerHealthSnapshot::probe($source, $this->root, 115, 15));
             self::assertSame('planner.snapshot_stale', PlannerHealthSnapshot::probe($source, $this->root, 116, 15));
             self::assertSame('planner.snapshot_stale', PlannerHealthSnapshot::probe($source, $this->root, 116));
             self::assertNull(PlannerHealthSnapshot::probe($source, $this->root, 120, 20));
             self::assertSame('planner.snapshot_stale', PlannerHealthSnapshot::probe($source, $this->root, 121, 20));
+        } finally {
+            $owner->release();
+        }
+    }
+
+    public function testIncompatibleSnapshotSchemaIsRejectedWithoutChangingTheFile(): void
+    {
+        $source = new MutableHealthSource('revision-one');
+        $owner = (new FilePlannerOwner($this->root))->acquire($source->sourceId());
+        try {
+            $path = $owner->stateDirectory() . '/' . PlannerHealthSnapshot::FILE;
+            file_put_contents($path, '{"schema":"legacy"}');
+            self::assertSame('planner.snapshot_malformed', PlannerHealthSnapshot::probe($source, $this->root, 10));
+            self::assertSame('{"schema":"legacy"}', file_get_contents($path));
+        } finally {
+            $owner->release();
+        }
+    }
+
+    public function testDuplicateSnapshotMembersAreReportedMalformed(): void
+    {
+        $source = new MutableHealthSource('revision-one');
+        $owner = (new FilePlannerOwner($this->root))->acquire($source->sourceId());
+        try {
+            $path = $owner->stateDirectory() . '/' . PlannerHealthSnapshot::FILE;
+            $snapshot = [
+                'schema' => 'dev',
+                'sourceId' => $source->sourceId(),
+                'sourceRevision' => $source->revision,
+                'ownerToken' => $owner->ownerToken(),
+                'ownerPid' => (int) getmypid(),
+                'startedAt' => 10,
+                'progressAt' => 10,
+                'phase' => PlannerHealthSnapshot::PHASE_RUNNING,
+                'error' => null,
+            ];
+            $valid = json_encode($snapshot, JSON_THROW_ON_ERROR);
+            foreach (array_keys($snapshot) as $field) {
+                $needle = '"' . $field . '":';
+                $count = 0;
+                $duplicate = str_replace(
+                    $needle,
+                    $needle . json_encode($snapshot[$field], JSON_THROW_ON_ERROR) . ',' . $needle,
+                    $valid,
+                    $count,
+                );
+                file_put_contents($path, $duplicate);
+                self::assertSame('planner.snapshot_malformed', PlannerHealthSnapshot::probe($source, $this->root, 10), $field);
+            }
         } finally {
             $owner->release();
         }

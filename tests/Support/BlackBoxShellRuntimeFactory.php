@@ -9,6 +9,7 @@ use Yiisoft\Scheduler\Config\TimeoutPolicy;
 use Yiisoft\Scheduler\Executor\{ShellCommandSpecification,ShellVariableOverrides};
 use Yiisoft\Scheduler\Integration\Async\{ExecutionLedgerRecord,ExecutionWorkerCapability,ExecutionWorkerRuntimeFactoryInterface,ExecutionWorkerRuntimeInterface,ShellCommandRuntime,SystemMonotonicClock,UsleepPollWaiter};
 use Yiisoft\Scheduler\Integration\Async\Process\SymfonyProcessLauncher;
+use Yiisoft\Scheduler\Integration\Async\ExecutionLedgerCommandInterface;
 
 use function file_get_contents;
 use function file_put_contents;
@@ -22,7 +23,7 @@ use const JSON_THROW_ON_ERROR;
 /** Application-owned composition for the shell fixture; configuration is not transported in the capability. */
 final class BlackBoxShellRuntimeFactory implements ExecutionWorkerRuntimeFactoryInterface
 {
-    public function create(ExecutionWorkerCapability $capability, ExecutionLedgerRecord $claimedRecord): ExecutionWorkerRuntimeInterface
+    public function create(ExecutionWorkerCapability $capability, ExecutionLedgerRecord $claimedRecord, ExecutionLedgerCommandInterface $ledger): ExecutionWorkerRuntimeInterface
     {
         $path = getenv('BLACKBOX_SHELL_CONFIG');
         if (!is_string($path)) {

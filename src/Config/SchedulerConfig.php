@@ -20,6 +20,7 @@ final class SchedulerConfig
     /** @var array<int, ScheduleBuilder> */
     private array $schedules = [];
     private ?TimeoutPolicy $timeout = null;
+    private float $recoveryMaxAge = 180.0;
     private int $asyncWorkerCapacity = 16;
     private readonly ContainerProvider $containerProvider;
     /** @var callable|null */
@@ -41,6 +42,13 @@ final class SchedulerConfig
     public function timeout(float $soft, ?float $hard = null): self
     {
         $this->timeout = new TimeoutPolicy($soft, $hard);
+        return $this;
+    }
+
+    public function recoveryMaxAge(float $seconds): self
+    {
+        self::assertRecoveryMaxAge($seconds);
+        $this->recoveryMaxAge = $seconds;
         return $this;
     }
 
@@ -80,6 +88,18 @@ final class SchedulerConfig
     public function asyncWorkerCapacityValue(): int
     {
         return $this->asyncWorkerCapacity;
+    }
+
+    public function recoveryMaxAgeValue(): float
+    {
+        return $this->recoveryMaxAge;
+    }
+
+    public static function assertRecoveryMaxAge(float $seconds): void
+    {
+        if (!is_finite($seconds) || $seconds <= 0) {
+            throw new InvalidArgumentException('Recovery max age must be positive and finite.');
+        }
     }
 
     public function containerProvider(): ContainerProvider

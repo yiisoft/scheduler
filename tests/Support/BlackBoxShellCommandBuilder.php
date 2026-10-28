@@ -21,6 +21,6 @@ final class BlackBoxShellCommandBuilder implements ExecutionWorkerProcessCommand
         return new ProcessLaunchRequest(PHP_BINARY, [$this->target], dirname($this->target, 4), [
             'BLACKBOX_LEDGER_PATH' => $this->ledgerPath,
             'BLACKBOX_SHELL_CONFIG' => $this->configPath,
-        ], $request->capability->encode());
+        ], $request->capability->encode(), $request->descriptor);
     }
 }

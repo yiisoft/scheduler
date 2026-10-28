@@ -26,7 +26,11 @@ final class ScheduleBuilder
         public readonly OverlapPolicy $overlap = OverlapPolicy::ALLOW,
         ?TriggerDefinition $trigger = null,
         public readonly array $metadata = [],
+        public readonly ?float $recoveryMaxAge = null,
     ) {
+        if ($recoveryMaxAge !== null) {
+            SchedulerConfig::assertRecoveryMaxAge($recoveryMaxAge);
+        }
         ScalarMetadata::assertAggregateSupported($metadata);
         $this->trigger = $trigger ?? new TriggerDefinition('periodic');
     }
@@ -44,6 +48,12 @@ final class ScheduleBuilder
     public function timeout(float $soft, ?float $hard = null): self
     {
         return $this->copy(timeout: new TimeoutPolicy($soft, $hard));
+    }
+
+    public function recoveryMaxAge(float $seconds): self
+    {
+        SchedulerConfig::assertRecoveryMaxAge($seconds);
+        return $this->copy(recoveryMaxAge: $seconds);
     }
 
     public function missedOccurrences(MissedOccurrencePolicy $policy): self
@@ -98,9 +108,9 @@ final class ScheduleBuilder
         return $this->copy(metadata: $metadata);
     }
 
-    private function copy(?ExecutionMode $mode = null, ?TimeoutPolicy $timeout = null, ?MissedOccurrenceSetting $missed = null, ?OverlapPolicy $overlap = null, ?TriggerDefinition $trigger = null, ?array $metadata = null): self
+    private function copy(?ExecutionMode $mode = null, ?TimeoutPolicy $timeout = null, ?MissedOccurrenceSetting $missed = null, ?OverlapPolicy $overlap = null, ?TriggerDefinition $trigger = null, ?array $metadata = null, ?float $recoveryMaxAge = null): self
     {
-        return $this->replace(new self($this->owner, $this->id, $this->command, $this->ordinal, $mode ?? $this->mode, $timeout ?? $this->timeout, $missed ?? $this->missedOccurrences, $overlap ?? $this->overlap, $trigger ?? $this->trigger, $metadata ?? $this->metadata));
+        return $this->replace(new self($this->owner, $this->id, $this->command, $this->ordinal, $mode ?? $this->mode, $timeout ?? $this->timeout, $missed ?? $this->missedOccurrences, $overlap ?? $this->overlap, $trigger ?? $this->trigger, $metadata ?? $this->metadata, $recoveryMaxAge ?? $this->recoveryMaxAge));
     }
 
     private function replace(self $copy): self

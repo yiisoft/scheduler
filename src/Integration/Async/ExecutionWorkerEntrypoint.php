@@ -8,6 +8,8 @@ use Psr\Clock\ClockInterface;
 use Throwable;
 use UnexpectedValueException;
 
+use function preg_match;
+
 /** Framework-neutral, single-use fresh-worker invocation service. */
 final class ExecutionWorkerEntrypoint
 {
@@ -15,15 +17,44 @@ final class ExecutionWorkerEntrypoint
         private readonly ExecutionLedgerLocatorInterface $ledgerLocator,
         private readonly ExecutionWorkerRuntimeFactoryInterface $factory,
         private readonly ClockInterface $clock,
+        private readonly ?ExecutionLedgerQueryInterface $query = null,
     ) {}
 
     /** The transport is deliberately not decoded by an application bootstrap or CLI. */
-    public function invoke(mixed $encodedCapability, ?int $claimLeaseDeadline): ExecutionWorkerInvocationResult
-    {
+    public function invoke(
+        mixed $encodedCapability,
+        ?int $claimLeaseDeadline,
+        mixed $launchDescriptor = null,
+        mixed $permissionId = null,
+    ): ExecutionWorkerInvocationResult {
         try {
             $capability = ExecutionWorkerCapability::decode($encodedCapability);
         } catch (Throwable) {
             return new ExecutionWorkerInvocationResult(ExecutionWorkerInvocationResult::INVALID_CAPABILITY, 'worker.invalid_capability');
+        }
+
+        // Descriptor and permission are deliberately supplied as bounded
+        // launch-handoff facts, not reconstructed from configuration. The
+        // capability may carry the encoded bootstrap facts for the fresh
+        // process; the receipt itself remains process-local.
+        $capabilityLaunchDescriptor = $capability->launchDescriptor;
+        $capabilityPermissionId = $capability->permissionId;
+        if ($capabilityLaunchDescriptor === null || $capabilityPermissionId === null
+            || ($launchDescriptor !== null && (!$launchDescriptor instanceof ExecutionLaunchDescriptor
+                || !$launchDescriptor->equals($capabilityLaunchDescriptor)))
+            || ($permissionId !== null && $permissionId !== $capabilityPermissionId)) {
+            return new ExecutionWorkerInvocationResult(ExecutionWorkerInvocationResult::INVALID_CAPABILITY, 'worker.invalid_launch_handoff');
+        }
+        $launchDescriptor = $capabilityLaunchDescriptor;
+        $permissionId = $capabilityPermissionId;
+        if (preg_match('/^[a-f0-9]{32}$/D', $permissionId) !== 1
+            || $launchDescriptor->role !== ExecutionLaunchDescriptor::ROLE_WORKER
+            || $launchDescriptor->scopeKind !== ExecutionLaunchDescriptor::SCOPE_KIND
+            || $launchDescriptor->executionId !== $capability->executionId
+            || $launchDescriptor->generation !== $capability->generation
+            || $launchDescriptor->occurrence === null
+            || !$launchDescriptor->occurrence->equals($capability->occurrence)) {
+            return new ExecutionWorkerInvocationResult(ExecutionWorkerInvocationResult::INVALID_CAPABILITY, 'worker.invalid_launch_handoff');
         }
 
         try {
@@ -32,20 +63,28 @@ final class ExecutionWorkerEntrypoint
             return new ExecutionWorkerInvocationResult(ExecutionWorkerInvocationResult::LOCATOR_UNAVAILABLE, 'worker.ledger_unavailable');
         }
 
+        $query = $this->query;
+        if ($query === null) {
+            if (!$ledger instanceof ExecutionLedgerQueryInterface) {
+                return new ExecutionWorkerInvocationResult(ExecutionWorkerInvocationResult::LOCATOR_UNAVAILABLE, 'worker.ledger_query_unavailable');
+            }
+            $query = $ledger;
+        }
+
         $claimAt = $this->clock->now()->getTimestamp();
         try {
-            $runtime = (new ExecutionWorkerRuntimeComposer($ledger, $this->factory))
-                ->compose($capability, $claimAt, $claimLeaseDeadline);
+            $runtime = (new ExecutionWorkerRuntimeComposer($ledger, $this->factory, $query))
+                ->compose($capability, $claimAt, $claimLeaseDeadline, $launchDescriptor, $permissionId);
         } catch (ExecutionWorkerClaimRejectedException $e) {
             if ($e->getCode() === ExecutionWorkerRuntimeComposer::POST_CLAIM_MISMATCH) {
                 $outcome = new ExecutionOutcome(ExecutionOutcome::FAILED, 'worker.capability_mismatch_after_claim');
-                return $this->terminalize($ledger, $capability, $claimAt, $outcome, true);
+                return $this->terminalize($ledger, $query, $capability, $claimAt, $outcome, true);
             }
             return new ExecutionWorkerInvocationResult(ExecutionWorkerInvocationResult::CLAIM_REJECTED, 'worker.claim_rejected');
         } catch (Throwable) {
             $runtime = null;
             $outcome = new ExecutionOutcome(ExecutionOutcome::FAILED, 'worker.runtime_factory_failed');
-            return $this->terminalize($ledger, $capability, $claimAt, $outcome, true);
+            return $this->terminalize($ledger, $query, $capability, $claimAt, $outcome, true);
         }
 
         try {
@@ -55,7 +94,7 @@ final class ExecutionWorkerEntrypoint
             }
         } catch (Throwable) {
             $outcome = new ExecutionOutcome(ExecutionOutcome::FAILED, 'worker.runtime_failed');
-            return $this->terminalize($ledger, $capability, $claimAt, $outcome, true);
+            return $this->terminalize($ledger, $query, $capability, $claimAt, $outcome, true);
         }
 
         if ($outcome->status === ExecutionOutcome::UNRESOLVED) {
@@ -66,10 +105,10 @@ final class ExecutionWorkerEntrypoint
             );
         }
 
-        return $this->terminalize($ledger, $capability, $claimAt, $outcome, false);
+        return $this->terminalize($ledger, $query, $capability, $claimAt, $outcome, false);
     }
 
-    private function terminalize(ExecutionLedgerInterface $ledger, ExecutionWorkerCapability $capability, int $claimAt, ExecutionOutcome $outcome, bool $postClaimFailure): ExecutionWorkerInvocationResult
+    private function terminalize(ExecutionLedgerCommandInterface $ledger, ExecutionLedgerQueryInterface $query, ExecutionWorkerCapability $capability, int $claimAt, ExecutionOutcome $outcome, bool $postClaimFailure): ExecutionWorkerInvocationResult
     {
         $terminalAt = max($claimAt, $this->clock->now()->getTimestamp());
         try {
@@ -94,7 +133,18 @@ final class ExecutionWorkerEntrypoint
             // A duplicate is only successful when the durable terminal outcome says so.
             if ($result->status === ExecutionTerminalResult::ALREADY_TERMINAL) {
                 try {
-                    $outcome = $ledger->observe($capability->occurrence)?->outcome;
+                    $terminal = $query->observe($capability->occurrence);
+                    if ($terminal !== null
+                        && $terminal->sourceIdentity !== null
+                        && $terminal->sourceRevision !== null
+                        && $terminal->sourceIdentity === ($capability->policy['source'][0] ?? null)
+                        && $terminal->sourceRevision === $capability->sourceRevision
+                        && ($terminal->taskSnapshot['source'][0] ?? null) === $terminal->sourceIdentity
+                        && ($terminal->taskSnapshot['source'][1] ?? null) === $terminal->sourceRevision) {
+                        $outcome = $terminal->outcome;
+                    } else {
+                        $outcome = null;
+                    }
                 } catch (Throwable) {
                     $outcome = null;
                 }

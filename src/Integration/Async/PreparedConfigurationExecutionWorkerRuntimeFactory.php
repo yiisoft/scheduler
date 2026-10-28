@@ -10,6 +10,7 @@ use Yiisoft\Scheduler\Config\{PreparedConfiguration,RuntimeConfigurationSourceIn
 use Yiisoft\Scheduler\Executor\{CallableCommand,CallableExecutor,CommandExecutorRuntimeFactory,ExecutionContext,ExecutorInterface,PhpCommand,ShellCommand,ShellCommandExecutor};
 use Yiisoft\Scheduler\ExecutionMode;
 use Yiisoft\Scheduler\Executor\Command;
+use Yiisoft\Scheduler\Integration\Async\Process\ExecutionOwnedCommandLauncher;
 
 use function array_key_exists;
 use function hash;
@@ -31,24 +32,18 @@ final class PreparedConfigurationExecutionWorkerRuntimeFactory implements Execut
 
     public function validate(ExecutionWorkerCapability $capability, ExecutionLedgerRecord $observedRecord): void
     {
-        if (!array_key_exists('sourceRevision', $observedRecord->metadata)) {
-            throw new InvalidArgumentException('Admitted source revision is missing.');
-        }
-        $admittedRevision = $observedRecord->metadata['sourceRevision'];
-        $this->assertRevision($admittedRevision);
-        if ($capability->sourceRevision !== $admittedRevision || $this->source->revision() !== $admittedRevision) {
-            throw new InvalidArgumentException('Worker source revisions do not match.');
-        }
-        if (!array_key_exists('sourceId', $observedRecord->metadata)) {
-            throw new InvalidArgumentException('Admitted source identity is missing.');
-        }
-        $admittedSourceId = $this->assertSourceId($observedRecord->metadata['sourceId']);
-        if ($admittedSourceId !== $this->source->sourceId()) {
-            throw new InvalidArgumentException('Worker source identities do not match.');
+        $admittedRevision = $this->assertRevision($observedRecord->sourceRevision);
+        $admittedSourceId = $this->assertSourceId($observedRecord->sourceIdentity);
+        if ($capability->sourceRevision !== $admittedRevision
+            || ($capability->policy['source'][0] ?? null) !== $admittedSourceId
+            || ($capability->policy['source'][1] ?? null) !== $admittedRevision
+            || $this->source->sourceId() !== $admittedSourceId
+            || $this->source->revision() !== $admittedRevision) {
+            throw new InvalidArgumentException('Worker source facts do not match the canonical record.');
         }
     }
 
-    public function create(ExecutionWorkerCapability $capability, ExecutionLedgerRecord $claimedRecord): ExecutionWorkerRuntimeInterface
+    public function create(ExecutionWorkerCapability $capability, ExecutionLedgerRecord $claimedRecord, ?ExecutionLedgerCommandInterface $ledger = null): ExecutionWorkerRuntimeInterface
     {
         if (!$claimedRecord->occurrence->equals($capability->occurrence)
             || $claimedRecord->correlation->attemptId !== $capability->attemptId
@@ -62,9 +57,13 @@ final class PreparedConfigurationExecutionWorkerRuntimeFactory implements Execut
         }
 
         $sourceId = $this->source->sourceId();
-        $claimedSourceId = $this->assertSourceId($claimedRecord->metadata['sourceId'] ?? throw new InvalidArgumentException('Claimed source identity is missing.'));
-        $claimedRevision = $this->assertRevision($claimedRecord->metadata['sourceRevision'] ?? throw new InvalidArgumentException('Claimed source revision is missing.'));
-        if ($claimedSourceId !== $sourceId || $claimedRevision !== $capability->sourceRevision || $this->source->revision() !== $claimedRevision) {
+        $claimedSourceId = $this->assertSourceId($claimedRecord->sourceIdentity);
+        $claimedRevision = $this->assertRevision($claimedRecord->sourceRevision);
+        if ($claimedSourceId !== $sourceId
+            || $claimedRevision !== $capability->sourceRevision
+            || ($capability->policy['source'][0] ?? null) !== $claimedSourceId
+            || ($capability->policy['source'][1] ?? null) !== $claimedRevision
+            || $this->source->revision() !== $claimedRevision) {
             throw new InvalidArgumentException('Claimed worker source identity or revision does not match.');
         }
 
@@ -93,6 +92,19 @@ final class PreparedConfigurationExecutionWorkerRuntimeFactory implements Execut
         }
         $source = $this->source;
         $revision = $this->assertRevision($configuration->sourceRevision);
+        // The built-in shell/php executor is the only runtime that receives
+        // the nested ownership boundary. Application replacements retain
+        // their original launcher and synchronous/local behavior.
+        $shellRuntimeFactory = $this->shellRuntimeFactory;
+        if ($ledger !== null && $shellRuntimeFactory instanceof PreparedShellCommandRuntimeFactory) {
+            $shellRuntimeFactory = $shellRuntimeFactory->withLauncher(new ExecutionOwnedCommandLauncher(
+                $ledger,
+                $capability,
+                $claimedRecord,
+                $capability->launchDescriptor ?? throw new InvalidArgumentException('Worker launch descriptor is missing.'),
+                $shellRuntimeFactory->launcher(),
+            ));
+        }
         $guard = static fn(): bool => $source->sourceId() === $sourceId && $source->revision() === $revision;
         /** @var array<class-string<Command>, ExecutorInterface> $overlay */
         $overlay = [];
@@ -103,13 +115,13 @@ final class PreparedConfigurationExecutionWorkerRuntimeFactory implements Execut
         if (!array_key_exists(CallableCommand::class, $configured) || $configured[CallableCommand::class] instanceof CallableExecutor) {
             $overlay[CallableCommand::class] = new CallableExecutor($configuration->containerProvider, $guard);
         }
-        if ($this->shellRuntimeFactory !== null
+        if ($shellRuntimeFactory !== null
             && (!array_key_exists(ShellCommand::class, $configured) || $configured[ShellCommand::class] instanceof ShellCommandExecutor)) {
-            $overlay[ShellCommand::class] = new ShellCommandExecutor($this->shellRuntimeFactory);
+            $overlay[ShellCommand::class] = new ShellCommandExecutor($shellRuntimeFactory);
         }
-        if ($this->shellRuntimeFactory !== null
+        if ($shellRuntimeFactory !== null
             && (!array_key_exists(PhpCommand::class, $configured) || $configured[PhpCommand::class] instanceof ShellCommandExecutor)) {
-            $overlay[PhpCommand::class] = new ShellCommandExecutor($this->shellRuntimeFactory);
+            $overlay[PhpCommand::class] = new ShellCommandExecutor($shellRuntimeFactory);
         }
         $map = $map->with($overlay);
         $executor = $map->executorFor($command);

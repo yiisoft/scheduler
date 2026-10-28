@@ -10,12 +10,13 @@ use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use Symfony\Component\Process\Process;
 use Throwable;
-use Yiisoft\Scheduler\Integration\Async\UsleepPollWaiter;
+use Yiisoft\Db\Sqlite\{Connection, Driver};
+use Yiisoft\Scheduler\Integration\Async\{ExecutionLedgerRecord, ExecutionOccurrenceKey, ExecutionOutcome, UsleepPollWaiter};
 use Yiisoft\Scheduler\Config\{PhpConfigurationSource, PreparedConfiguration};
 use Yiisoft\Scheduler\Executor\{CommandExecutorMap, CommandExecutorRuntime, CommandExecutorRuntimeFactory};
 use Yiisoft\Scheduler\Callable\ContainerProvider;
 use Yiisoft\Scheduler\Executor\ExecutionContext;
-use Yiisoft\Scheduler\Integration\Async\ExecutionOutcome;
+use Yiisoft\Scheduler\Integration\Async\Store\{FileExecutionLedgerCodec, SQLiteExecutionLedger};
 use LogicException;
 
 use function array_replace;
@@ -27,7 +28,6 @@ use function fopen;
 use function function_exists;
 use function fwrite;
 use function getenv;
-use function glob;
 use function hash_file;
 use function hrtime;
 use function in_array;
@@ -48,6 +48,7 @@ use function stream_set_blocking;
 use function str_ends_with;
 use function defined;
 
+use const JSON_PRESERVE_ZERO_FRACTION;
 use const JSON_THROW_ON_ERROR;
 
 final class AcceptanceScheduler
@@ -206,8 +207,7 @@ final class AcceptanceScheduler
         $clock = $state['clock'];
         do {
             $matches = [];
-            foreach (glob(self::sourceLedgerDirectory($source) . '/*.json') ?: [] as $path) {
-                $record = json_decode((string) file_get_contents($path), true, 32, JSON_THROW_ON_ERROR);
+            foreach (self::ledgerRecords($source) as $record) {
                 $identity = $record['metadata']['taskMappingIdentity'] ?? null;
                 $occurrence = $record['occurrence'] ?? null;
                 $correlation = $record['correlation'] ?? null;
@@ -321,9 +321,9 @@ final class AcceptanceScheduler
             Assert::assertIsString($record['correlation'][$key]);
             Assert::assertNotSame('', $record['correlation'][$key]);
         }
-        Assert::assertSame(6, $record['version'] ?? null);
+        Assert::assertSame('dev', $record['schema'] ?? null);
         Assert::assertIsString($record['configurationFingerprint'] ?? null);
-        Assert::assertSame(4, $record['taskSnapshot']['format'] ?? null);
+        Assert::assertSame('dev', $record['taskSnapshot']['schema'] ?? null);
     }
 
     /** Snapshot all durable planner/ownership/cursor/ledger observations. */
@@ -344,8 +344,12 @@ final class AcceptanceScheduler
     /** Encode only the capability fields emitted by the admitted ledger record. */
     public static function capabilityFromRecord(array $record, string $ledger): string
     {
+        $policy = $record['taskSnapshot'];
+        if (isset($policy['task']['recoveryMaxAge'])) {
+            $policy['task']['recoveryMaxAge'] = (float) $policy['task']['recoveryMaxAge'];
+        }
         $capability = [
-            'version' => 4,
+            'schema' => 'dev',
             'occurrence' => [
                 'task' => $record['occurrence']['taskKey'],
                 'id' => $record['occurrence']['occurrenceId'],
@@ -356,13 +360,32 @@ final class AcceptanceScheduler
             'generation' => $record['fence']['generation'],
             'fence' => $record['fence']['token'],
             'configurationFingerprint' => $record['configurationFingerprint'],
-            'taskVersion' => hash('sha256', PreparedConfiguration::canonical($record['taskSnapshot'])),
+            'taskVersion' => hash('sha256', PreparedConfiguration::canonical($policy)),
             'ledger' => $ledger,
             'runtime' => 'acceptance-runtime',
             'sourceRevision' => $record['metadata']['sourceRevision'] ?? '',
-            'policy' => $record['taskSnapshot'],
+            'policy' => $policy,
+            'recoveryFence' => [
+                'generation' => $record['recoveryFence']['generation'],
+                'token' => $record['recoveryFence']['token'],
+            ],
         ];
-        return json_encode($capability, JSON_THROW_ON_ERROR);
+        if (isset($record['launchDescriptor'], $record['dispatchReservation'])) {
+            $descriptor = $record['launchDescriptor'];
+            $capability['launchDescriptor'] = [
+                'execution' => $descriptor['executionId'],
+                'generation' => $descriptor['generation'],
+                'nonce' => $descriptor['nonce'],
+                'scope' => $descriptor['scopeKind'],
+                'role' => $descriptor['role'],
+                'occurrence' => [
+                    'task' => $descriptor['occurrence']['taskKey'],
+                    'id' => $descriptor['occurrence']['occurrenceId'],
+                ],
+            ];
+            $capability['permissionId'] = $record['dispatchReservation']['permissionId'];
+        }
+        return json_encode($capability, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION);
     }
 
     /** Return the production owner state directory for a canonical source id. */
@@ -376,6 +399,33 @@ final class AcceptanceScheduler
     public static function sourceLedgerDirectory(string $source): string
     {
         return self::sourceStateDirectory($source) . '/ledger';
+    }
+
+    /** @return list<array<string, mixed>> */
+    public static function ledgerRecords(string $source): array
+    {
+        $connection = self::sqliteConnection($source);
+        new SQLiteExecutionLedger($connection);
+        $rows = $connection->createCommand(
+            'SELECT payload FROM execution_ledger WHERE source_identity = :source ORDER BY task_key, occurrence_id',
+            ['source' => self::sourceIdentity($source)],
+        )->queryAll();
+        /** @var list<array<string, mixed>> $rows */
+        $codec = new FileExecutionLedgerCodec();
+        $records = [];
+        foreach ($rows as $row) {
+            if (is_string($row['payload'] ?? null)) {
+                $records[] = self::decodeLedgerRecord($codec, $row['payload']);
+            }
+        }
+        return $records;
+    }
+
+    /** @param array{taskKey: string, occurrenceId: string} $occurrence @return array<string, mixed>|null */
+    public static function ledgerRecord(string $source, array $occurrence): ?array
+    {
+        $record = self::sqliteLedger($source)->observe(new ExecutionOccurrenceKey($occurrence['taskKey'], $occurrence['occurrenceId']));
+        return $record === null ? null : self::encodeLedgerRecord($record);
     }
 
     public static function invoke(string $mode, ?string $task, string $config, string $directory, ?string $input = null): Process
@@ -399,6 +449,39 @@ final class AcceptanceScheduler
         }
         $process->run();
         return $process;
+    }
+
+    private static function sqliteConnection(string $source): Connection
+    {
+        return new Connection(new Driver('sqlite:' . self::sourceStateDirectory($source) . '/ledger.sqlite'));
+    }
+
+    private static function sqliteLedger(string $source): SQLiteExecutionLedger
+    {
+        return new SQLiteExecutionLedger(self::sqliteConnection($source));
+    }
+
+    private static function sourceIdentity(string $source): string
+    {
+        $sourceId = realpath($source);
+        Assert::assertIsString($sourceId);
+        return $sourceId;
+    }
+
+    /** @return array<string, mixed> */
+    private static function encodeLedgerRecord(ExecutionLedgerRecord $record): array
+    {
+        $encoded = json_decode((new FileExecutionLedgerCodec())->encode($record), true, 64, JSON_THROW_ON_ERROR);
+        Assert::assertIsArray($encoded);
+        return $encoded;
+    }
+
+    /** @return array<string, mixed> */
+    private static function decodeLedgerRecord(FileExecutionLedgerCodec $codec, string $payload): array
+    {
+        $encoded = json_decode($codec->encode($codec->decode($payload)), true, 64, JSON_THROW_ON_ERROR);
+        Assert::assertIsArray($encoded);
+        return $encoded;
     }
 
     /** @return array{deadline:int, clock:callable, consumed:bool} */
@@ -440,8 +523,7 @@ final class AcceptanceScheduler
         self::fixtureCorrelation('cron-task', 'o0000000000', $sourceId, $sourceRevision);
         do {
             $matches = [];
-            foreach (glob(self::sourceLedgerDirectory($source) . '/*.json') ?: [] as $path) {
-                $record = json_decode((string) file_get_contents($path), true, 32, JSON_THROW_ON_ERROR);
+            foreach (self::ledgerRecords($source) as $record) {
                 $occurrence = $record['occurrence'] ?? null;
                 $correlation = $record['correlation'] ?? null;
                 $identity = $record['metadata']['taskMappingIdentity'] ?? null;
@@ -554,14 +636,8 @@ final class AcceptanceScheduler
     /** @return array<string, mixed>|null */
     private static function terminalRecord(string $directory, array $expected, string $source): ?array
     {
-        foreach (glob(self::sourceLedgerDirectory($source) . '/*.json') ?: [] as $path) {
-            $record = json_decode((string) file_get_contents($path), true, 32, JSON_THROW_ON_ERROR);
-            if (($record['occurrence'] ?? null) === $expected
-                && in_array($record['state'] ?? null, ['succeeded', 'failed', 'cancelled'], true)) {
-                return $record;
-            }
-        }
-        return null;
+        $record = self::ledgerRecord($source, $expected);
+        return $record !== null && in_array($record['state'] ?? null, ['succeeded', 'failed', 'cancelled'], true) ? $record : null;
     }
 
     /**

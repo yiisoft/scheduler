@@ -61,6 +61,9 @@ final class ShellCommandRuntime implements ExecutionWorkerRuntimeInterface
         }
 
         try {
+            if ($launch->startedAt === null) {
+                return $this->recoverPostLaunchFailure($handle);
+            }
             return $this->poll($handle, $launch->startedAt);
         } catch (Throwable) {
             return $this->recoverPostLaunchFailure($handle);

@@ -9,6 +9,7 @@ use PHPUnit\Framework\TestCase;
 use Yiisoft\Scheduler\Config\PreparedConfiguration;
 use Yiisoft\Scheduler\Integration\Async\WorkerLifecyclePolicy;
 use Yiisoft\Scheduler\Executor\{PhpProcessConfiguration,ShellVariableOverrides};
+use Yiisoft\Scheduler\Integration\Async\ExecutionLaunchDescriptor;
 use Yiisoft\Scheduler\Integration\Async\ExecutionOccurrenceKey;
 use Yiisoft\Scheduler\Integration\Async\ExecutionWorkerCapability;
 use Yiisoft\Scheduler\Integration\Async\ExecutionWorkerLaunchRequest;
@@ -19,11 +20,78 @@ use function putenv;
 
 final class SameFileExecutionWorkerProcessCommandBuilderTest extends TestCase
 {
-    public function testRejectsLegacyCapabilityVersionMarker(): void
+    public function testDescriptorMarkersAreRoleSpecific(): void
+    {
+        $occurrence = new ExecutionOccurrenceKey('task', 'occurrence');
+        $worker = new ExecutionLaunchDescriptor('execution', 1, 'nonce-worker', occurrence: $occurrence);
+        $command = new ExecutionLaunchDescriptor(
+            'execution',
+            1,
+            'nonce-command',
+            role: ExecutionLaunchDescriptor::ROLE_COMMAND,
+            rootDescriptor: $worker,
+            occurrence: $occurrence,
+        );
+
+        self::assertSame(ExecutionLaunchDescriptor::WORKER_MARKER, $worker->markerName());
+        self::assertSame(ExecutionLaunchDescriptor::COMMAND_MARKER, $command->markerName());
+        self::assertNotSame($worker->marker(), $command->marker());
+    }
+
+    public function testCommandDescriptorRequiresMatchingWorkerBinding(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        new ExecutionLaunchDescriptor(
+            'execution',
+            2,
+            'nonce-command',
+            role: ExecutionLaunchDescriptor::ROLE_COMMAND,
+            rootDescriptor: new ExecutionLaunchDescriptor('execution', 1, 'nonce-worker', occurrence: new ExecutionOccurrenceKey('task', 'root-occurrence')),
+            occurrence: new ExecutionOccurrenceKey('task', 'occurrence'),
+        );
+    }
+
+    public function testCommandDescriptorRejectsWorkerRootWithWrongScope(): void
+    {
+        $occurrence = new ExecutionOccurrenceKey('task', 'occurrence');
+        $worker = new ExecutionLaunchDescriptor(
+            'execution',
+            1,
+            'nonce-worker',
+            scopeKind: 'other-scope',
+            occurrence: $occurrence,
+        );
+
+        $this->expectException(InvalidArgumentException::class);
+        new ExecutionLaunchDescriptor(
+            'execution',
+            1,
+            'nonce-command',
+            role: ExecutionLaunchDescriptor::ROLE_COMMAND,
+            rootDescriptor: $worker,
+            occurrence: $occurrence,
+        );
+    }
+
+    public function testWorkerLaunchRequiresCapabilityOccurrenceBinding(): void
+    {
+        $request = $this->request();
+        $this->expectException(InvalidArgumentException::class);
+        new ExecutionWorkerLaunchRequest(
+            $request->capability,
+            descriptor: new ExecutionLaunchDescriptor(
+                $request->capability->executionId,
+                $request->capability->generation,
+                occurrence: new ExecutionOccurrenceKey('task', 'different-occurrence'),
+            ),
+        );
+    }
+
+    public function testRejectsLegacyCapabilitySchemaMarker(): void
     {
         $encoded = $this->request()->capability->encode();
         $this->expectException(InvalidArgumentException::class);
-        ExecutionWorkerCapability::decode(str_replace('"version":4', '"version":3', $encoded));
+        ExecutionWorkerCapability::decode(str_replace('"schema":"dev"', '"schema":"legacy"', $encoded));
     }
 
     public function testBuilderDoesNotTransportRemainingBudget(): void
@@ -96,7 +164,13 @@ final class SameFileExecutionWorkerProcessCommandBuilderTest extends TestCase
             ['run', 'task', '--config', '/app/config.php', '--source', '/app/source.php', '--state', '/app/state', '--var', 'APP_MODE=override'],
             $process->argv,
         );
-        self::assertSame(['APP_MODE' => 'application', 'APP_SECRET' => 'in-memory'], $process->environment);
+        self::assertSame(
+            [
+                'APP_MODE' => 'application',
+                'APP_SECRET' => 'in-memory',
+            ],
+            $process->environment,
+        );
         self::assertSame($request->capability->encode(), $process->protocolInput);
     }
 
@@ -123,7 +197,7 @@ final class SameFileExecutionWorkerProcessCommandBuilderTest extends TestCase
 
     private function request(): ExecutionWorkerLaunchRequest
     {
-        $policy = ['format' => 4, 'source' => [null, null], 'task' => ['id' => 'task', 'mode' => 'async', 'timeout' => null, 'metadata' => [], 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null]]];
+        $policy = ['schema' => 'dev', 'source' => ['source', 'source-revision'], 'task' => ['id' => 'task', 'mode' => 'async', 'timeout' => null, 'recoveryMaxAge' => 180.0, 'metadata' => [], 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null]]];
         return new ExecutionWorkerLaunchRequest(new ExecutionWorkerCapability(
             new ExecutionOccurrenceKey('task', 'occurrence'),
             'attempt',
@@ -137,6 +211,13 @@ final class SameFileExecutionWorkerProcessCommandBuilderTest extends TestCase
             'runtime',
             'source-revision',
             $policy,
+            launchDescriptor: new ExecutionLaunchDescriptor(
+                'execution',
+                1,
+                'fixture-worker',
+                occurrence: new ExecutionOccurrenceKey('task', 'occurrence'),
+            ),
+            permissionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
         ), launchStartedAt: 0.0);
     }
 }

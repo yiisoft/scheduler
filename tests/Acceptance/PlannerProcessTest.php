@@ -28,18 +28,11 @@ final class PlannerProcessTest extends TestCase
             self::assertFileExists($directory . '/cron-effect.effect', 'cron work must be dispatched by the planner');
             self::assertFileExists($directory . '/external.completed', 'completion must be durable before the handshake returns');
             self::assertSame("succeeded\n", file_get_contents($directory . '/external.completed'));
-            $ledger = glob(AcceptanceScheduler::sourceLedgerDirectory($config) . '/*.json') ?: [];
-            self::assertNotEmpty($ledger, 'planner must leave a durable ledger record');
-            $records = array_map(static fn(string $path): array => json_decode((string) file_get_contents($path), true, 32, JSON_THROW_ON_ERROR), $ledger);
-            $external = array_values(array_filter($records, static fn(array $record): bool
-                => ($record['occurrence'] ?? null) === ($externalAdmission['occurrence'] ?? null)
-                && ($record['correlation'] ?? null) === ($externalAdmission['correlation'] ?? null)
-                && ($record['occurrence']['taskKey'] ?? null) === ($record['correlation']['taskKey'] ?? null)
-                && ($record['occurrence']['occurrenceId'] ?? null) === ($record['correlation']['occurrenceId'] ?? null)
-                && ($record['occurrence']['taskKey'] ?? null) === 'external-task'
-                && ($record['state'] ?? null) === 'succeeded'
-                && ($record['outcome']['status'] ?? null) === 'succeeded'));
-            self::assertCount(1, $external, 'ledger must contain one exact completed external-task identity');
+            $externalRecord = AcceptanceScheduler::ledgerRecord($config, $externalAdmission['occurrence']);
+            self::assertNotNull($externalRecord, 'planner must leave a durable ledger record');
+            $external = [$externalRecord];
+            self::assertSame('succeeded', $external[0]['state'] ?? null, 'external-task must be terminal');
+            self::assertSame('succeeded', $external[0]['outcome']['status'] ?? null, 'external-task outcome must be successful');
             AcceptanceScheduler::assertCompleteSourceIdentity($external[0], $config, $externalAdmission, $directory);
             self::assertIsString($external[0]['metadata']['occurrenceCursor'] ?? null);
             self::assertSame([
@@ -50,13 +43,10 @@ final class PlannerProcessTest extends TestCase
             AcceptanceScheduler::assertTerminalRecord($directory, $cronAdmission, $config);
             // The admission snapshot predates terminalization; read the ledger
             // again after the exact occurrence wait.
-            $terminalLedger = glob(AcceptanceScheduler::sourceLedgerDirectory($config) . '/*.json') ?: [];
-            $records = array_map(static fn(string $path): array => json_decode((string) file_get_contents($path), true, 32, JSON_THROW_ON_ERROR), $terminalLedger);
-            $cron = array_values(array_filter($records, static fn(array $record): bool
-                => ($record['occurrence'] ?? null) === ($cronAdmission['occurrence'] ?? null)
-                && ($record['correlation'] ?? null) === ($cronAdmission['correlation'] ?? null)
-                && ($record['state'] ?? null) === 'succeeded'));
-            self::assertCount(1, $cron, 'ledger must record the exact admitted cron occurrence');
+            $cronRecord = AcceptanceScheduler::ledgerRecord($config, $cronAdmission['occurrence']);
+            self::assertNotNull($cronRecord, 'ledger must record the exact admitted cron occurrence');
+            $cron = [$cronRecord];
+            self::assertSame('succeeded', $cron[0]['state'] ?? null, 'cron-task must be terminal');
             AcceptanceScheduler::assertCompleteSourceIdentity($cron[0], $config, $cronAdmission, $directory);
             $plannerPid = (string) $planner->getPid();
             $workerPid = trim((string) file_get_contents($directory . '/worker.pid'));

@@ -27,6 +27,6 @@ final class BlackBoxCommandBuilder implements ExecutionWorkerProcessCommandBuild
             'BLACKBOX_MARKER_PATH' => $this->markerPath,
             'BLACKBOX_EFFECT_PATH' => $this->effectPath,
             'BLACKBOX_MODE' => $this->mode,
-        ], $request->capability->encode());
+        ], $request->capability->encode(), $request->descriptor);
     }
 }

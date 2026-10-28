@@ -4,10 +4,11 @@ declare(strict_types=1);
 
 namespace Yiisoft\Scheduler\Tests\Integration\Async;
 
+use Yiisoft\Scheduler\Integration\Async\ExecutionLaunchDescriptor;
 use DateTimeImmutable;
 use PHPUnit\Framework\TestCase;
 use Yiisoft\Scheduler\Config\{MissedOccurrencePolicy, MissedOccurrenceSetting, TimeoutPolicy};
-use Yiisoft\Scheduler\Integration\Async\{ExecutionAdmission, ExecutionBinding, ExecutionBindingSourceInterface, ExecutionClaimResult, ExecutionDispatchReservation, ExecutionDispatchResult, ExecutionFence, ExecutionGenerationResult, ExecutionIdentity, ExecutionLedgerInterface, ExecutionLedgerRecord, ExecutionOccurrenceCheckpointInterface, ExecutionOccurrenceKey, ExecutionOccurrenceSource, OccurrenceSkipReason, ExecutionOutcome, ExecutionRecoveryFence, ExecutionRecoveryResult, ExecutionRevocationResult, ExecutionLaunchObservation, ExecutionTerminalResult};
+use Yiisoft\Scheduler\Integration\Async\{ExecutionAdmission, ExecutionBinding, ExecutionBindingSourceInterface, ExecutionClaimResult, ExecutionCommandScope, ExecutionDispatchReservation, ExecutionDispatchResult, ExecutionFence, ExecutionGenerationResult, ExecutionIdentity, ExecutionLedgerCommandInterface, ExecutionLedgerQueryInterface, ExecutionLedgerRecord, ExecutionLedgerRecoveryPage, ExecutionOccurrenceCheckpointInterface, ExecutionOccurrenceKey, ExecutionOccurrenceSource, OccurrenceSkipReason, ExecutionOutcome, ExecutionRecoveryFence, ExecutionRecoveryResult, ExecutionRevocationResult, ExecutionLaunchObservation, ExecutionTerminalResult};
 use Yiisoft\Scheduler\Tests\Support\TestClock;
 use Yiisoft\Scheduler\Trigger\{CronExpressionTrigger, PeriodicTrigger, TriggerInterface};
 use Yiisoft\Scheduler\Integration\Async\ExecutionLedgerState;
@@ -191,7 +192,7 @@ final class ExecutionOccurrenceSourceRuntimeTest extends TestCase
             $candidate->mapping->correlation->attemptId,
             $candidate->mapping->correlation->runId,
             $candidate->mapping->correlation->executionId,
-        ), 1, new ExecutionFence(1, 'fence'), ExecutionLedgerState::LAUNCH_REQUIRED, 'launch', $candidate->mapping->configurationFingerprint, $candidate->mapping->payload, 1, 1, metadata: ['occurrenceCursor' => $candidate->cursor, 'taskMappingIdentity' => $candidate->taskMappingIdentity(), 'taskMappingContext' => $candidate->mapping->context]);
+        ), 1, new ExecutionFence(1, 'fence'), ExecutionLedgerState::LAUNCH_REQUIRED, $candidate->mapping->configurationFingerprint, $candidate->mapping->payload, 1, 1, metadata: ['occurrenceCursor' => $candidate->cursor, 'taskMappingIdentity' => $candidate->taskMappingIdentity(), 'taskMappingContext' => $candidate->mapping->context], sourceIdentity: 'source', sourceRevision: 'source-revision');
     }
 }
 
@@ -256,15 +257,25 @@ final class RuntimeBindingFactory implements ExecutionBindingSourceInterface
 {
     public function map(string $taskKey, string $occurrenceId, int $occurrenceTime): ExecutionBinding
     {
-        return new ExecutionBinding($taskKey, $occurrenceId, $occurrenceTime, new ExecutionIdentity($taskKey, $occurrenceId, 'attempt', 'run', 'execution'), 'manifest', payload: ['format' => 4, 'source' => [null, null], 'task' => ['id' => 'task', 'mode' => 'async', 'timeout' => [300.0, null], 'metadata' => [], 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null]]], runId: 'run', timeout: new TimeoutPolicy(300.0), mode: 'async');
+        return new ExecutionBinding($taskKey, $occurrenceId, $occurrenceTime, new ExecutionIdentity($taskKey, $occurrenceId, 'attempt', 'run', 'execution'), 'manifest', payload: ['schema' => 'dev', 'source' => ['source', 'source-revision'], 'task' => ['id' => 'task', 'mode' => 'async', 'timeout' => [300.0, null], 'recoveryMaxAge' => 180.0, 'metadata' => [], 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null]]], runId: 'run', timeout: new TimeoutPolicy(300.0), mode: 'async');
     }
 }
 
-final class RuntimeLedger implements ExecutionLedgerInterface
+final class RuntimeLedger implements ExecutionLedgerCommandInterface, ExecutionLedgerQueryInterface
 {
     public int $admissions = 0;
 
     public function __construct(private readonly bool $history) {}
+
+    public function markRecoveryExpired(
+        ExecutionOccurrenceKey $occurrence,
+        ExecutionFence $expectedFence,
+        ExecutionRecoveryFence $recoveryFence,
+        int $nowUs,
+        string $sourceIdentity,
+    ): ExecutionRecoveryResult {
+        return ExecutionRecoveryResult::result(ExecutionRecoveryResult::STALE);
+    }
 
     public function admit(ExecutionLedgerRecord $record): ExecutionAdmission
     {
@@ -282,7 +293,52 @@ final class RuntimeLedger implements ExecutionLedgerInterface
         return $this->history;
     }
 
-    public function claim(ExecutionOccurrenceKey $occurrence, ExecutionFence $fence, int $at, ?int $claimLeaseDeadline): ExecutionClaimResult
+    public function activeExecutions(string $sourceIdentity): array
+    {
+        return [];
+    }
+
+    public function ownershipHoldingExecutions(string $sourceIdentity): array
+    {
+        return [];
+    }
+
+    public function recoveryPage(string $sourceIdentity, ?string $cursor, int $limit): ExecutionLedgerRecoveryPage
+    {
+        return new ExecutionLedgerRecoveryPage([], null);
+    }
+
+    public function claim(ExecutionOccurrenceKey $occurrence, ExecutionFence $fence, int $at, ?int $claimLeaseDeadline, ?ExecutionLaunchDescriptor $descriptor = null, ?string $permissionId = null): ExecutionClaimResult
+    {
+        throw new LogicException();
+    }
+
+    public function launchUnderLock(ExecutionOccurrenceKey $o, ExecutionFence $f, ExecutionRecoveryFence $r, string $s, ExecutionLaunchDescriptor $d, string $p, int $at, callable $start, int $nowUs): ExecutionDispatchResult
+    {
+        throw new LogicException();
+    }
+
+    public function prepareCommandUnderLock(ExecutionOccurrenceKey $o, ExecutionFence $f, ExecutionRecoveryFence $r, string $s, ExecutionLaunchDescriptor $rootDescriptor, ExecutionLaunchDescriptor $commandDescriptor, int $at, int $nowUs): ExecutionDispatchResult
+    {
+        return ExecutionDispatchResult::stale();
+    }
+
+    public function launchCommandUnderLock(ExecutionOccurrenceKey $o, ExecutionFence $f, ExecutionRecoveryFence $r, string $s, ExecutionLaunchDescriptor $rootDescriptor, ExecutionCommandScope $preparedScope, int $at, callable $start, int $nowUs): ExecutionDispatchResult
+    {
+        return ExecutionDispatchResult::stale();
+    }
+
+    public function observeCommandUnderLock(ExecutionOccurrenceKey $o, ExecutionFence $f, ExecutionRecoveryFence $r, string $s, ExecutionLaunchDescriptor $rootDescriptor, ExecutionLaunchDescriptor $commandDescriptor, ExecutionLaunchObservation $observation): ExecutionDispatchResult
+    {
+        return ExecutionDispatchResult::stale();
+    }
+
+    public function repairBeforeStartUnderLock(ExecutionOccurrenceKey $o, ExecutionFence $f, ExecutionRecoveryFence $r, string $s, callable $absenceProof, int $nowUs): ExecutionDispatchResult
+    {
+        throw new LogicException();
+    }
+
+    public function rotateAfterClosureUnderLock(ExecutionOccurrenceKey $o, ExecutionRecoveryFence $r, ExecutionFence $n, int $nowUs, ExecutionFence $e, string $s): ExecutionGenerationResult
     {
         throw new LogicException();
     }
@@ -292,30 +348,32 @@ final class RuntimeLedger implements ExecutionLedgerInterface
         throw new LogicException();
     }
 
-    public function redispatchSameGeneration(ExecutionOccurrenceKey $occurrence, ExecutionFence $fence, ExecutionDispatchReservation $reservation, int $at): ExecutionDispatchResult
+    public function redispatchSameGeneration(ExecutionOccurrenceKey $occurrence, ExecutionFence $fence, ExecutionRecoveryFence $recoveryFence, ExecutionDispatchReservation $reservation, int $nowUs, string $sourceIdentity): ExecutionDispatchResult
     {
         throw new LogicException();
     }
 
-    public function observeLaunch(ExecutionOccurrenceKey $occurrence, ExecutionFence $fence, ExecutionLaunchObservation $observation): ExecutionDispatchResult
+    public function observeLaunch(ExecutionOccurrenceKey $occurrence, ExecutionFence $fence, ExecutionRecoveryFence $recoveryFence, ExecutionLaunchObservation $observation, string $sourceIdentity): ExecutionDispatchResult
     {
         throw new LogicException();
     }
 
-    public function recover(ExecutionOccurrenceKey $occurrence, ExecutionRecoveryFence $fence, int $at): ExecutionRecoveryResult
+    public function recover(ExecutionOccurrenceKey $occurrence, ExecutionRecoveryFence $fence, int $nowUs, ExecutionFence $expectedFence, string $sourceIdentity): ExecutionRecoveryResult
     {
         throw new LogicException();
     }
 
-    public function revoke(ExecutionOccurrenceKey $occurrence, ExecutionRecoveryFence $fence, int $at): ExecutionRevocationResult
+    public function revoke(ExecutionOccurrenceKey $occurrence, ExecutionRecoveryFence $fence, int $nowUs, ExecutionFence $expectedFence, string $sourceIdentity): ExecutionRevocationResult
     {
         throw new LogicException();
     }
 
-    public function allocateGeneration(ExecutionOccurrenceKey $occurrence, ExecutionRecoveryFence $fence, ExecutionFence $newFence, int $at): ExecutionGenerationResult
+    public function allocateGeneration(ExecutionOccurrenceKey $occurrence, ExecutionRecoveryFence $fence, ExecutionFence $newFence, int $nowUs, ExecutionFence $expectedFence, string $sourceIdentity): ExecutionGenerationResult
     {
         throw new LogicException();
     }
+
+    public function repairIndexes(): void {}
 
     public function recordOutcome(ExecutionOccurrenceKey $occurrence, ExecutionFence $fence, ExecutionOutcome $outcome, int $at): ExecutionTerminalResult
     {

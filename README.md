@@ -18,6 +18,7 @@ Recurring task scheduling for PHP applications. Define schedules in a package-ne
 ## Requirements
 
 - PHP 8.1 - 8.5.
+- The default local execution ledger uses SQLite through optional `yiisoft/db`, `yiisoft/db-sqlite`, `pdo_sqlite`, and `mbstring` dependencies. Applications supplying both custom ledger ports do not need the default adapter.
 
 ## Installation
 
@@ -50,9 +51,11 @@ return static function (): SchedulerConfig {
 
 The planner and a fresh worker each evaluate the configuration source independently. A worker never receives a prepared configuration, planner services, command objects, callable bodies, or a parent container. It reconstructs its own process-local runtime, then resolves the direct command handle through an exact concrete-class `CommandExecutorMap`.
 
-The async boundary carries only bounded scalar records. Task transport is command-free format **4**: the task policy contains identity, mode, timeout, metadata, trigger, overlap, missed-occurrence policy, and source identity/revision. Callable declarations, their scalar inputs, and dependency resolution are rebuilt in the worker from its configuration factory. Shell `argv` remains literal and is not shell-parsed.
+The async boundary carries only bounded scalar records. Task transport is command-free and uses the current `schema: dev` envelope: the task policy contains identity, mode, timeout, `recoveryMaxAge`, metadata, trigger, overlap, missed-occurrence policy, and source identity/revision. Callable declarations, their scalar inputs, and dependency resolution are rebuilt in the worker from its configuration factory. Shell `argv` remains literal and is not shell-parsed.
 
-Capability transport is version **4**. The durable file ledger format is version **6**, the checkpoint schema is version **2**, and the planner runtime state marker is runtime version **4**. These are independent compatibility fences; an unknown or mismatched fence fails closed rather than being silently upgraded.
+Asynchronous delivery is **at least once within a recoverable configuration revision**. `recoveryMaxAge` defaults to `180.0` seconds; a task override replaces that default. The recovery window begins at the first authoritative start and its original deadline is preserved across attempts and generations. Each attempt has a separate process-start timeout; it does not extend the original recovery window. Recovery fairly reconsiders the union of active and ownership-held records through bounded source-scoped SQLite keyset pages and opaque cursors bound to the source and last key; malformed or stale cursors are rejected. Terminal ownership remains observable, including a separately owned command scope, and aggregate closure is required before atomic redelivery and generation rotation. Recovery favors delivery over suppressing duplicates: if durable facts do not prove that a child worker never started, the planner must reattach to the still-running worker or launch the execution again using the admitted execution's source revision. Commands may therefore run more than once and should be idempotent or provide their own deduplication. Missed-occurrence policy does not apply to an admitted execution that remains unresolved. After the recovery deadline, the planner continues observing owned processes but launches nothing new. Historical configuration loading is out of scope; if the admitted revision is unavailable after a configuration change, the execution remains recovery-blocked or unresolved rather than silently running under the new configuration.
+
+Capability transport and durable ledger records use the current `schema: dev` envelope. The checkpoint schema and planner runtime state marker remain independent compatibility fences; an unknown or mismatched fence fails closed rather than being silently upgraded.
 
 Scheduling policy belongs to `TaskDefinition`, including execution mode, timeout, trigger, overlap, and missed-occurrence policy. Synchronous execution is local and cannot declare an enforced timeout. Asynchronous execution is supervised by the parent through `WorkerLifecyclePolicy`; a configured process timeout starts when the launched process starts, not during worker preparation. The command does not own a timeout policy.
 
@@ -72,7 +75,7 @@ The default command is the planner; `run` is the worker protocol entrypoint and 
 
 Progress is healthy through 15 seconds by default (`PlannerHealthSnapshot::DEFAULT_MAX_AGE`). Blocking synchronous user code can make progress stale, so long-running work should be asynchronous. Worker exit classes are stable: `0` success, `1` execution failure, `2` argument/protocol/catch failure, and `3` unresolved ownership or ambiguous completion.
 
-The CLI does not provide status/history commands, `--once`, detach mode, framework adapters, queue integration, distributed backends, legacy runtime restoration, or destructive retention cleanup.
+The CLI does not provide status/history commands, `--once`, detach mode, framework adapters, queue integration, distributed backends, legacy runtime restoration, or destructive retention cleanup. Framework integration and distributed coordination remain application-owned; exactly-once external effects are not a package guarantee.
 
 ## Documentation
 

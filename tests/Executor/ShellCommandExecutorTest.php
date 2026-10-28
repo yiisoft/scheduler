@@ -14,6 +14,9 @@ use Yiisoft\Scheduler\Executor\{ExecutionContext, ExecutorInterface, ShellComman
 use Yiisoft\Scheduler\Integration\Async\{ExecutionOutcome, MonotonicClockInterface, PollWaiterInterface, ShellCommandRuntime, ShellCommandRuntimeFactoryInterface};
 use Yiisoft\Scheduler\Integration\Async\Process\{ProcessHandleInterface, ProcessLaunchRequest, ProcessLaunchResult, ProcessLauncherInterface, ProcessResult};
 use Yiisoft\Scheduler\Executor\CallableCommand;
+use Yiisoft\Scheduler\Integration\Async\ExecutionLaunchDescriptor;
+use Yiisoft\Scheduler\Integration\Async\Process\ProcessIdentity;
+use Yiisoft\Scheduler\Integration\Async\Process\ProcessScopeProof;
 
 final class ShellCommandExecutorTest extends TestCase
 {
@@ -58,6 +61,11 @@ final class ShellCommandExecutorTest extends TestCase
                         {
                             $this->launches[] = $request;
                             return new ProcessLaunchResult(new class implements ProcessHandleInterface {
+                                public function scopeProof(): ProcessScopeProof
+                                {
+                                    return ProcessScopeProof::closedTerminalFromRetainedPoll(new ExecutionLaunchDescriptor('test', 1, 'test'), new ProcessIdentity(10, 10, 10, '1', 'boot', new ExecutionLaunchDescriptor('test', 1, 'test')));
+                                }
+
                                 public function isRunning(): bool
                                 {
                                     return false;

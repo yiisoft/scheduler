@@ -10,7 +10,7 @@ use Yiisoft\Scheduler\Config\TimeoutPolicy;
 use Yiisoft\Scheduler\Integration\Async\ExecutionBinding;
 use Yiisoft\Scheduler\Integration\Async\ExecutionFence;
 use Yiisoft\Scheduler\Integration\Async\ExecutionIdentity;
-use Yiisoft\Scheduler\Integration\Async\ExecutionLedgerInterface;
+use Yiisoft\Scheduler\Integration\Async\ExecutionLedgerQueryInterface;
 use Yiisoft\Scheduler\Integration\Async\ExecutionLedgerRecord;
 use Yiisoft\Scheduler\Integration\Async\ExecutionLedgerState;
 use Yiisoft\Scheduler\Integration\Async\ExecutionRecoveryFence;
@@ -26,7 +26,7 @@ final class ExecutionAdmissionMaterialFactoryTest extends TestCase
 {
     public function testUnenforcedTimeoutUsesUnboundedReservationDeadline(): void
     {
-        $ledger = $this->createMock(ExecutionLedgerInterface::class);
+        $ledger = $this->createMock(ExecutionLedgerQueryInterface::class);
         $ledger->method('observe')->willReturn(null);
 
         $material = (new ExecutionAdmissionMaterialFactory(
@@ -41,11 +41,28 @@ final class ExecutionAdmissionMaterialFactoryTest extends TestCase
         self::assertSame(PHP_INT_MAX, $material->reservation->deadline);
     }
 
+    public function testEffectiveUnenforcedTimeoutUsesUnboundedReservationDeadline(): void
+    {
+        $ledger = $this->createMock(ExecutionLedgerQueryInterface::class);
+        $ledger->method('observe')->willReturn(null);
+
+        $material = (new ExecutionAdmissionMaterialFactory(
+            $ledger,
+            new TestClock(new DateTimeImmutable('@100')),
+            'dispatcher-1',
+            'ledger://one',
+            'runtime://one',
+            static fn(int $generation): string => 'new-fence-' . $generation,
+        ))->forCandidate($this->candidate([null, null]), new TimeoutPolicy(null, null));
+
+        self::assertSame(PHP_INT_MAX, $material->reservation->deadline);
+    }
+
     public function testValidExistingRecordRemainsUnchanged(): void
     {
-        $candidate = $this->candidate([3.0, 5.0], 'source-1', 'source-revision', 'durable-manifest');
-        $existing = $this->durableRecord($this->policy(), $candidate);
-        $ledger = $this->createMock(ExecutionLedgerInterface::class);
+        $candidate = $this->candidate([3.0, 5.0], 'source-1', 'durable-revision', 'durable-manifest');
+        $existing = $this->durableRecord($candidate->mapping->payload, $candidate);
+        $ledger = $this->createMock(ExecutionLedgerQueryInterface::class);
         $ledger->method('observe')->willReturn($existing);
 
         $material = (new ExecutionAdmissionMaterialFactory(
@@ -67,7 +84,7 @@ final class ExecutionAdmissionMaterialFactoryTest extends TestCase
     public function testExistingRecordRejectsAforgedCandidateIdentity(): void
     {
         $existing = $this->durableRecord($this->policy(), $this->candidate([3.0, 5.0], 'source-1', 'source-revision', 'durable-manifest'));
-        $ledger = $this->createMock(ExecutionLedgerInterface::class);
+        $ledger = $this->createMock(ExecutionLedgerQueryInterface::class);
         $ledger->method('observe')->willReturn($existing);
 
         $this->expectException(InvalidArgumentException::class);
@@ -78,12 +95,12 @@ final class ExecutionAdmissionMaterialFactoryTest extends TestCase
             'ledger://one',
             'runtime://one',
             static fn(int $generation): string => 'new-fence-' . $generation,
-        ))->forCandidate($this->candidate([9.0, 10.0], 'source-1', 'source-revision', 'durable-manifest'), null);
+        ))->forCandidate($this->candidate([9.0, 10.0], 'source-1', 'different-revision', 'durable-manifest'), null);
     }
 
     public function testFirstRunConvertsPortableCorrelationAtLedgerBoundary(): void
     {
-        $ledger = $this->createMock(ExecutionLedgerInterface::class);
+        $ledger = $this->createMock(ExecutionLedgerQueryInterface::class);
         $ledger->method('observe')->willReturn(null);
         $candidate = new ExecutionOccurrenceCandidate(
             new ExecutionOccurrenceKey('task', 'occurrence'),
@@ -132,7 +149,6 @@ final class ExecutionAdmissionMaterialFactoryTest extends TestCase
             1,
             new ExecutionFence(3, 'durable-fence'),
             ExecutionLedgerState::LAUNCH_REQUIRED,
-            'durable-launch',
             'durable-manifest',
             $taskSnapshot,
             90,
@@ -142,19 +158,21 @@ final class ExecutionAdmissionMaterialFactoryTest extends TestCase
                 'taskMappingIdentity' => $candidate->taskMappingIdentity(),
                 'taskMappingContext' => $candidate->mapping->context,
                 'sourceId' => $candidate->mapping->locator,
-                'sourceRevision' => 'durable-revision',
+                'sourceRevision' => $taskSnapshot['source'][1],
             ],
-            recoveryFence: new ExecutionRecoveryFence('durable-recovery'),
+            recoveryFence: new ExecutionRecoveryFence('durable-recovery', 3),
+            sourceIdentity: $taskSnapshot['source'][0],
+            sourceRevision: $taskSnapshot['source'][1],
         );
     }
 
     private function policy(string $sourceId = 'source-1', string $revision = 'source-revision', ?array $timeout = [3.0, 5.0]): array
     {
         return [
-            'format' => 4,
+            'schema' => 'dev',
             'source' => [$sourceId, $revision],
             'task' => [
-                'id' => 'task', 'mode' => 'async', 'timeout' => $timeout, 'metadata' => [],
+                'id' => 'task', 'mode' => 'async', 'timeout' => $timeout, 'recoveryMaxAge' => 180.0, 'metadata' => [],
                 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60]],
                 'overlap' => 'allow', 'missed' => ['skip', null],
             ],
