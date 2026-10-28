@@ -2,6 +2,7 @@
 
 ## 1.0.0 under development
 
+- Bug #4: Fix a failing task being retried by every `schedule:run` invocation and keeping the tasks due after it from running; the remaining due tasks now run and the failure is reported after them (@samdark)
 - Bug #2: Fix `RecurringTask::every()` never running under `schedule:run` when the interval is longer than the time between invocations, by anchoring an interval without a `from` date to a fixed point in time (@samdark)
 - Bug #5: Fix console command tasks not finding their command with the bundled configuration, by passing the running `yiisoft/yii-console` application to the task handler (@samdark)
 - Bug #6: Fix a single failing task stopping `schedule:work` and terminating the other running tasks; the daemon now logs the failure and carries on (@samdark)
