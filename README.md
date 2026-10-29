@@ -19,7 +19,8 @@ catch-up, overlap prevention and failure handling included.
 
 ## Features
 
-- Cron expressions and fixed intervals through a single `TriggerInterface` contract
+- Cron expressions and fixed intervals through a single `TriggerInterface` contract, written
+  by hand or built a field at a time (`RecurringTask::daily()->at('05:00')`)
 - Tasks as callables, console commands, or queue messages (via [yiisoft/queue](https://github.com/yiisoft/queue))
 - Catch-up of missed runs and crash-resume through persisted checkpoints (any PSR-16 cache)
 - Overlap prevention across processes through [yiisoft/mutex](https://github.com/yiisoft/mutex)
@@ -66,6 +67,84 @@ A task is one of:
   is better off as a console command;
 - a queue message, pushed to the queue when the container has a
   [yiisoft/queue](https://github.com/yiisoft/queue) producer (`QueueProducerInterface`).
+
+## Building the expression
+
+A cron expression says when a task runs in five positional fields, which is terse to write and
+slow to read. `RecurringTask` also opens a builder that sets them one at a time:
+
+```php
+use Yiisoft\Scheduler\RecurringTask;
+
+RecurringTask::daily()->at('05:00')->run('report:daily');
+RecurringTask::everyFiveMinutes()->between('08:00', '17:00')->run('cache:warm');
+RecurringTask::weekly()->on('monday')->at('09:30')->run('report:weekly');
+RecurringTask::monthly()->onLastDayOfMonth()->at('23:00')->run('invoice:issue');
+```
+
+The chain starts with how often the task runs — `everyMinute()`, `everyMinutes()`,
+`everyFiveMinutes()`, `everyTenMinutes()`, `everyFifteenMinutes()`, `everyThirtyMinutes()`,
+`hourly()`, `everyHours()`, `daily()`, `weekly()`, `monthly()`, `quarterly()` or `yearly()` —
+and narrows it down from there:
+
+| Method | What it sets |
+| --- | --- |
+| `at('09:30')` | the time of day, on a chain that already runs once a day |
+| `atHours(1, 13)` | the hours of the day |
+| `atMinutes(15, 45)` | the minutes of every hour |
+| `on('monday', 'thursday')` | the days of the week, named or numbered the way cron numbers them |
+| `weekdays()` / `weekends()` | Monday to Friday / Saturday and Sunday |
+| `onDays(1, 15)` | the days of the month |
+| `onLastDayOfMonth()` | the last day of the month, whichever day that is |
+| `inMonths(6, 7, 8)` | the months |
+| `between('08:00', '17:00')` | keeps only the runs within those hours |
+| `unlessBetween('22:00', '06:00')` | keeps only the runs outside those hours |
+| `timezone('Europe/Skopje')` | the timezone the expression is read in |
+
+The chain ends with `run($task)` for a task, `toTrigger()` for a trigger alone, or
+`getExpression()` for the expression as a string. A task built this way is the one the same
+expression passed to `RecurringTask::cron()` would give, identifier included, so a schedule can
+be rewritten into the builder without any task being treated as new.
+
+Every step returns a new builder, leaving the one it was called on alone, so a half-built
+expression can be kept and finished in more than one way:
+
+```php
+$nightly = RecurringTask::daily()->at('02:00');
+
+$tasks = [
+    $nightly->run('cache:clear'),
+    $nightly->weekdays()->run('report:daily'),
+];
+```
+
+A time window is compiled into the expression rather than checked when the task is about to
+run, so `schedule:list` and the next run date of the trigger account for it. That is why
+`between()` takes whole hours: a cron field cannot say "from 08:30". The start hour is included
+and the end hour is not, so `everyFiveMinutes()->between('08:00', '17:00')` last runs at 16:55,
+and a window whose end is earlier than its start crosses midnight.
+
+`between()` and `unlessBetween()` narrow the hours the expression already runs at rather than
+replacing them, so `everyHours(6)->between('08:00', '17:00')` keeps the one run of the four
+that falls in the window instead of turning the task into an hourly one. A window that would
+leave no run at all is refused rather than given hours nobody asked for.
+
+Each step guards the frequency the step before it set. `at()` replaces both the hour and the
+minute, so it needs a chain that already runs once a day — on `hourly()` or
+`everyFiveMinutes()` it would quietly drop the repetition, and is refused; use `atMinutes()`
+and `atHours()` to place the runs of a repeating chain. A day of the week and a day of the
+month cannot both be set, because cron runs a task on a day matching *either* field once both
+are narrowed: `weekly()->onLastDayOfMonth()` would run on every Monday as well as on the last
+day of the month, so it is refused too. Write the expression by hand and pass it to
+`new CronBuilder(...)` when that union is what you mean.
+
+An interval has to divide its unit evenly — `everyMinutes()` takes 1, 2, 3, 4, 5, 6, 10, 12, 15,
+20 or 30, and `everyHours()` takes 1, 2, 3, 4, 6, 8 or 12 — so that the last run of one hour or
+day and the first of the next are an interval apart like every other pair. Anything else is
+refused rather than quietly left with a short gap at the boundary.
+
+`weekly()` runs on Mondays, the day `every('1 week')` runs on as well. Pass the day to `on()`
+rather than rely on the default when it matters which one it is.
 
 Run them either with a single system cron entry:
 

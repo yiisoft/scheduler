@@ -67,6 +67,121 @@ final class RecurringTask
         return new self($trigger, $task, self::generateId('trigger', (string) $trigger, $task));
     }
 
+    /**
+     * Runs every minute.
+     *
+     * This and the named constructors below open a {@see CronBuilder} chain, which is finished
+     * with the task to run: `RecurringTask::daily()->at('05:00')->run('report:daily')`. They
+     * build a cron expression, so the task they return is the one the same expression passed to
+     * {@see cron()} would give, identifier included.
+     */
+    public static function everyMinute(): CronBuilder
+    {
+        return CronBuilder::everyMinutes(1);
+    }
+
+    /**
+     * Runs every given number of minutes, counted from the top of the hour. The number has to
+     * divide an hour evenly: 1, 2, 3, 4, 5, 6, 10, 12, 15, 20 or 30.
+     */
+    public static function everyMinutes(int $minutes): CronBuilder
+    {
+        return CronBuilder::everyMinutes($minutes);
+    }
+
+    /**
+     * Runs at :00, :05, :10 and so on.
+     */
+    public static function everyFiveMinutes(): CronBuilder
+    {
+        return CronBuilder::everyMinutes(5);
+    }
+
+    /**
+     * Runs at :00, :10, :20 and so on.
+     */
+    public static function everyTenMinutes(): CronBuilder
+    {
+        return CronBuilder::everyMinutes(10);
+    }
+
+    /**
+     * Runs at :00, :15, :30 and :45.
+     */
+    public static function everyFifteenMinutes(): CronBuilder
+    {
+        return CronBuilder::everyMinutes(15);
+    }
+
+    /**
+     * Runs at :00 and :30.
+     */
+    public static function everyThirtyMinutes(): CronBuilder
+    {
+        return CronBuilder::everyMinutes(30);
+    }
+
+    /**
+     * Runs on the hour, every hour.
+     */
+    public static function hourly(): CronBuilder
+    {
+        return CronBuilder::everyHours(1);
+    }
+
+    /**
+     * Runs every given number of hours, on the hour, counted from midnight. The number has to
+     * divide a day evenly: 1, 2, 3, 4, 6, 8 or 12.
+     */
+    public static function everyHours(int $hours): CronBuilder
+    {
+        return CronBuilder::everyHours($hours);
+    }
+
+    /**
+     * Runs at midnight, every day.
+     */
+    public static function daily(): CronBuilder
+    {
+        return new CronBuilder('0 0 * * *');
+    }
+
+    /**
+     * Runs at midnight on Mondays.
+     *
+     * The day follows the rest of the package, where `every('1 week')` runs on Mondays too.
+     * Pass the day to {@see CronBuilder::on()} to say which one it is rather than rely on the
+     * default.
+     */
+    public static function weekly(): CronBuilder
+    {
+        return new CronBuilder('0 0 * * 1');
+    }
+
+    /**
+     * Runs at midnight on the first day of the month.
+     */
+    public static function monthly(): CronBuilder
+    {
+        return new CronBuilder('0 0 1 * *');
+    }
+
+    /**
+     * Runs at midnight on the first day of January, April, July and October.
+     */
+    public static function quarterly(): CronBuilder
+    {
+        return new CronBuilder('0 0 1 1,4,7,10 *');
+    }
+
+    /**
+     * Runs at midnight on the first day of January.
+     */
+    public static function yearly(): CronBuilder
+    {
+        return new CronBuilder('0 0 1 1 *');
+    }
+
     public function getId(): string
     {
         return $this->id;
