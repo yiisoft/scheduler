@@ -5,15 +5,13 @@ declare(strict_types=1);
 namespace Yiisoft\Scheduler\Tests\Planner;
 
 use PHPUnit\Framework\TestCase;
-use Yiisoft\Scheduler\Integration\Async\Store\FileExecutionLedger;
+use Yiisoft\Db\Sqlite\{Connection, Driver};
+use Yiisoft\Scheduler\Integration\Async\Store\SQLiteExecutionLedger;
 use Yiisoft\Scheduler\Integration\Async\{ExecutionDispatchReservation,ExecutionFence,ExecutionIdentity,ExecutionLedgerQueryInterface,ExecutionLedgerRecord,ExecutionLedgerRecoveryPage,ExecutionLedgerState,ExecutionLaunchDescriptor,ExecutionLaunchObservation,ExecutionOccurrenceKey,ExecutionOutcome,ExecutionProcessIdentity,ExecutionRecoveryFence,ExecutionStartObservation};
 use Yiisoft\Scheduler\Integration\Async\Process\{AttachedProcessHandle,ProcessLookupResult,ProcessScopeProof};
 use Yiisoft\Scheduler\Integration\Async\Recovery\{RecoveryAdmissionValidatorInterface,RecoveryAction,RecoveryClassifier,RecoveryProcessObserverInterface};
 use Yiisoft\Scheduler\Integration\Async\Process\ProcessIdentity;
 
-use function getmypid;
-use function is_dir;
-use function is_file;
 use function assert;
 
 final class BoundedRedeliveryTest extends TestCase
@@ -22,19 +20,14 @@ final class BoundedRedeliveryTest extends TestCase
 
     protected function setUp(): void
     {
-        static $sequence = 0;
-        do {
-            $this->directory = sys_get_temp_dir() . '/bounded-recovery-' . (int) getmypid() . '-' . (int) $sequence++;
-        } while (is_dir($this->directory));
+        $this->directory = sys_get_temp_dir() . '/bounded-recovery-' . bin2hex(random_bytes(4));
         mkdir($this->directory, 0700, true);
     }
 
     protected function tearDown(): void
     {
         foreach (glob($this->directory . '/*') ?: [] as $file) {
-            if (is_file($file)) {
-                unlink($file);
-            }
+            unlink($file);
         }
         rmdir($this->directory);
     }
@@ -42,7 +35,7 @@ final class BoundedRedeliveryTest extends TestCase
     public function testDescriptorFreeAsyncRecoveryReachesFreshSameGenerationDescriptorPath(): void
     {
         $record = $this->record(false, 'async', ExecutionLedgerState::LAUNCH_REQUIRED);
-        $ledger = new FileExecutionLedger($this->directory);
+        $ledger = $this->ledger();
         $ledger->admit($record);
         $action = (new RecoveryClassifier($ledger, new BoundedRedeliveryObserver(new ProcessLookupResult(ProcessLookupResult::NO_MATCH)), new BoundedRedeliveryAdmission(true)))->classify('source', 2_000_000, 1)[0];
         self::assertSame(RecoveryAction::RELAUNCH, $action->kind);
@@ -52,13 +45,13 @@ final class BoundedRedeliveryTest extends TestCase
         $descriptor = new ExecutionLaunchDescriptor('execution', 1, 'fresh-nonce', occurrence: $record->occurrence);
         assert($record->recoveryFence !== null);
         self::assertSame('accepted', $ledger->recordLaunchDescriptor($record->occurrence, $record->fence, $record->recoveryFence, $descriptor, 'source')->status);
-        self::assertEquals($descriptor, (new FileExecutionLedger($this->directory))->observe($record->occurrence)?->launchDescriptor);
+        self::assertEquals($descriptor, ($this->ledger())->observe($record->occurrence)?->launchDescriptor);
     }
 
     public function testExactSecondRecoveryWindowAcceptsExclusiveReservationUntilDeadline(): void
     {
         $record = $this->record(false, 'async', ExecutionLedgerState::LAUNCH_REQUIRED, started: true);
-        $ledger = new FileExecutionLedger($this->directory);
+        $ledger = $this->ledger();
         $ledger->admit($record);
 
         $reservation = new ExecutionDispatchReservation('planner', 2, 3, '00000000000000000000000000000003');
@@ -104,12 +97,12 @@ final class BoundedRedeliveryTest extends TestCase
     public function testDescriptorFreeSynchronousRecoveryNeverRelaunches(): void
     {
         $record = $this->record(false, 'sync', ExecutionLedgerState::LAUNCH_REQUIRED);
-        $ledger = new FileExecutionLedger($this->directory);
+        $ledger = $this->ledger();
         $ledger->admit($record);
         $action = (new RecoveryClassifier($ledger, new BoundedRedeliveryObserver(new ProcessLookupResult(ProcessLookupResult::NO_MATCH)), new BoundedRedeliveryAdmission(true)))->classify('source', 2_000_000, 1)[0];
 
         self::assertSame(RecoveryAction::BLOCKED, $action->kind);
-        self::assertNull((new FileExecutionLedger($this->directory))->observe($record->occurrence)?->launchDescriptor);
+        self::assertNull(($this->ledger())->observe($record->occurrence)?->launchDescriptor);
     }
 
     /** @dataProvider noRotationCases */
@@ -138,6 +131,11 @@ final class BoundedRedeliveryTest extends TestCase
         $record = $record->transition(recoveryFence: new ExecutionRecoveryFence('stale'));
         $action = (new RecoveryClassifier(new BoundedRedeliveryQuery($record), new BoundedRedeliveryObserver(new ProcessLookupResult(ProcessLookupResult::NO_MATCH)), new BoundedRedeliveryAdmission(true)))->classify('source', 2_000_000, 1)[0];
         self::assertSame(RecoveryAction::BLOCKED, $action->kind);
+    }
+
+    private function ledger(): SQLiteExecutionLedger
+    {
+        return new SQLiteExecutionLedger(new Connection(new Driver('sqlite:' . $this->directory . '/ledger.sqlite')));
     }
 
     private function record(bool $terminal = false, string $mode = 'async', string $state = ExecutionLedgerState::RUNNING, bool $started = false): ExecutionLedgerRecord

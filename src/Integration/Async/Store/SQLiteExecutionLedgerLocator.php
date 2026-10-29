@@ -14,7 +14,7 @@ final class SQLiteExecutionLedgerLocator implements ExecutionLedgerLocatorInterf
     private readonly SQLiteExecutionLedger $ledger;
     private readonly string $locator;
 
-    public function __construct(ConnectionInterface $connection, string $locator = 'default', ?FileExecutionLedgerCodec $codec = null)
+    public function __construct(ConnectionInterface $connection, string $locator = 'default', ?ExecutionLedgerPayloadCodec $codec = null)
     {
         if ($locator === '') {
             throw new InvalidArgumentException('SQLite ledger locator must not be empty.');

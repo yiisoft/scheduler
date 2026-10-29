@@ -30,13 +30,13 @@ use const JSON_UNESCAPED_SLASHES;
 final class SQLiteExecutionLedger implements ExecutionLedgerCommandInterface, ExecutionLedgerQueryInterface, ExecutionLaunchDescriptorLedgerInterface, ExecutionAggregateRedeliveryInterface
 {
     private const SCHEMA = 'dev';
-    private readonly FileExecutionLedgerCodec $codec;
+    private readonly ExecutionLedgerPayloadCodec $codec;
     private ConnectionInterface $connection;
 
-    public function __construct(ConnectionInterface $connection, ?FileExecutionLedgerCodec $codec = null)
+    public function __construct(ConnectionInterface $connection, ?ExecutionLedgerPayloadCodec $codec = null)
     {
         $this->connection = $connection;
-        $this->codec = $codec ?? new FileExecutionLedgerCodec();
+        $this->codec = $codec ?? new ExecutionLedgerPayloadCodec();
         $this->connection->transaction(function (): void {
             $tables = $this->connection->createCommand(
                 "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('execution_ledger_schema', 'execution_ledger', 'execution_ledger_lock') ORDER BY name",

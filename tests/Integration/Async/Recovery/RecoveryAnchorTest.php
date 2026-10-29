@@ -4,11 +4,12 @@ declare(strict_types=1);
 
 namespace Yiisoft\Scheduler\Tests\Integration\Async\Recovery;
 
+use Yiisoft\Scheduler\Integration\Async\Store\ExecutionLedgerPayloadCodec;
+use Yiisoft\Scheduler\Tests\Support\SQLiteLedgerFixture;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 use Yiisoft\Scheduler\Integration\Async\{ExecutionDispatchReservation, ExecutionFence, ExecutionIdentity, ExecutionLaunchObservation, ExecutionLedgerRecord, ExecutionLedgerState, ExecutionOccurrenceKey, ExecutionProcessClosure, ExecutionRecoveryFence, ExecutionProcessIdentity, ExecutionStartObservation};
 use Yiisoft\Scheduler\Integration\Async\Recovery\RecoveryDeadline;
-use Yiisoft\Scheduler\Integration\Async\Store\{FileExecutionLedger, FileExecutionLedgerCodec};
 use RuntimeException;
 
 use function getmypid;
@@ -51,7 +52,7 @@ final class RecoveryAnchorTest extends TestCase
     public function testNoRecoveryAnchorExistsBeforeCompleteStart(): void
     {
         $record = $this->record();
-        $codec = new FileExecutionLedgerCodec();
+        $codec = new ExecutionLedgerPayloadCodec();
 
         self::assertNull(RecoveryDeadline::forRecord($record));
         self::assertNull(RecoveryDeadline::forRecord($codec->decode($codec->encode($record))));
@@ -83,7 +84,7 @@ final class RecoveryAnchorTest extends TestCase
     public function testAllocationAndCodecPreserveOriginalAnchorAndDeadline(): void
     {
         $record = $this->record(new ExecutionStartObservation(1700000000000000, 1000000000));
-        $ledger = new FileExecutionLedger($this->directory);
+        $ledger = SQLiteLedgerFixture::ledger($this->directory);
         $ledger->admit($record);
         $recoveryFence = new ExecutionRecoveryFence('recovery', 1);
         $reservation = new ExecutionDispatchReservation('dispatcher', 10, 20);
@@ -116,7 +117,7 @@ final class RecoveryAnchorTest extends TestCase
         self::assertSame(1700000002000000, $next->recoveryDeadline);
         self::assertSame($record->recoveryDeadline, $next->recoveryDeadline);
         self::assertSame($record->recoveryAge, $next->recoveryAge);
-        $reopened = new FileExecutionLedger($this->directory);
+        $reopened = SQLiteLedgerFixture::ledger($this->directory);
         self::assertEquals($next->startAnchorIdentity, $reopened->observe($record->occurrence)?->startAnchorIdentity);
         self::assertSame($next->recoveryDeadline, $reopened->observe($record->occurrence)?->recoveryDeadline);
     }

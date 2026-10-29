@@ -4,8 +4,9 @@ declare(strict_types=1);
 
 namespace Yiisoft\Scheduler\Tests\Integration\Async\Store;
 
+use Yiisoft\Scheduler\Tests\Support\SQLiteLedgerFixture;
+use Yiisoft\Scheduler\Integration\Async\Store\SQLiteExecutionLedger;
 use PHPUnit\Framework\TestCase;
-use Yiisoft\Scheduler\Integration\Async\Store\FileExecutionLedger;
 use Yiisoft\Scheduler\Integration\Async\{
     ExecutionDispatchReservation, ExecutionDispatchResult, ExecutionFence, ExecutionIdentity,
     ExecutionLaunchDescriptor, ExecutionLaunchObservation, ExecutionLedgerRecord, ExecutionLedgerState,
@@ -230,9 +231,9 @@ final class LaunchPermissionRaceTest extends TestCase
         return [$ledger, $record, $reservation, $descriptor];
     }
 
-    private function ledger(): FileExecutionLedger
+    private function ledger(): SQLiteExecutionLedger
     {
-        return new FileExecutionLedger($this->directory);
+        return SQLiteLedgerFixture::ledger($this->directory);
     }
 
     private function recovery(): ExecutionRecoveryFence

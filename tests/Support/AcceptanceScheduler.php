@@ -16,7 +16,7 @@ use Yiisoft\Scheduler\Config\{PhpConfigurationSource, PreparedConfiguration};
 use Yiisoft\Scheduler\Executor\{CommandExecutorMap, CommandExecutorRuntime, CommandExecutorRuntimeFactory};
 use Yiisoft\Scheduler\Callable\ContainerProvider;
 use Yiisoft\Scheduler\Executor\ExecutionContext;
-use Yiisoft\Scheduler\Integration\Async\Store\{FileExecutionLedgerCodec, SQLiteExecutionLedger};
+use Yiisoft\Scheduler\Integration\Async\Store\{ExecutionLedgerPayloadCodec, SQLiteExecutionLedger};
 use LogicException;
 
 use function array_replace;
@@ -411,7 +411,7 @@ final class AcceptanceScheduler
             ['source' => self::sourceIdentity($source)],
         )->queryAll();
         /** @var list<array<string, mixed>> $rows */
-        $codec = new FileExecutionLedgerCodec();
+        $codec = new ExecutionLedgerPayloadCodec();
         $records = [];
         foreach ($rows as $row) {
             if (is_string($row['payload'] ?? null)) {
@@ -471,13 +471,13 @@ final class AcceptanceScheduler
     /** @return array<string, mixed> */
     private static function encodeLedgerRecord(ExecutionLedgerRecord $record): array
     {
-        $encoded = json_decode((new FileExecutionLedgerCodec())->encode($record), true, 64, JSON_THROW_ON_ERROR);
+        $encoded = json_decode((new ExecutionLedgerPayloadCodec())->encode($record), true, 64, JSON_THROW_ON_ERROR);
         Assert::assertIsArray($encoded);
         return $encoded;
     }
 
     /** @return array<string, mixed> */
-    private static function decodeLedgerRecord(FileExecutionLedgerCodec $codec, string $payload): array
+    private static function decodeLedgerRecord(ExecutionLedgerPayloadCodec $codec, string $payload): array
     {
         $encoded = json_decode($codec->encode($codec->decode($payload)), true, 64, JSON_THROW_ON_ERROR);
         Assert::assertIsArray($encoded);

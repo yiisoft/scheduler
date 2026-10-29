@@ -12,8 +12,8 @@ use Symfony\Component\Process\Process;
 use Throwable;
 use Yiisoft\Scheduler\Integration\Async\{ExecutionDispatchReservation,ExecutionFence,ExecutionIntegrationCoordinator,ExecutionLaunchObservation,ExecutionLedgerCommandInterface,ExecutionLedgerState,ExecutionOccurrenceKey,ExecutionWorkerCapability,ExecutionWorkerLaunchRequest};
 use Yiisoft\Scheduler\Integration\Async\Process\{ProcessResult,SymfonyExecutionWorkerLauncher};
-use Yiisoft\Scheduler\Integration\Async\Store\FileExecutionLedger;
 use Yiisoft\Scheduler\Tests\Support\{BlackBoxApplication,BlackBoxApplicationLauncher,BlackBoxApplicationSource,BlackBoxCommandBuilder,BlackBoxObserver};
+use Yiisoft\Scheduler\Tests\Support\SQLiteLedgerFixture;
 
 use function file_get_contents;
 use function is_dir;
@@ -130,7 +130,7 @@ final class BlackBoxProcessTest extends TestCase
     {
         $ledgerPath = $this->directory . '/ledger';
         mkdir($ledgerPath, 0700);
-        $ledger = new FileExecutionLedger($ledgerPath);
+        $ledger = SQLiteLedgerFixture::ledger($ledgerPath);
         $occurrence = new ExecutionOccurrenceKey('fixture-task', 'occurrence-' . bin2hex(random_bytes(4)));
         $capability = BlackBoxApplication::capability($occurrence);
         self::assertTrue($ledger->admit(BlackBoxApplication::record($capability))->newlyAdmitted);

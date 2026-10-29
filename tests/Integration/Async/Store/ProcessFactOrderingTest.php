@@ -4,10 +4,11 @@ declare(strict_types=1);
 
 namespace Yiisoft\Scheduler\Tests\Integration\Async\Store;
 
+use Yiisoft\Scheduler\Tests\Support\SQLiteLedgerFixture;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 use Yiisoft\Scheduler\Integration\Async\{ExecutionDispatchReservation, ExecutionDispatchResult, ExecutionFence, ExecutionIdentity, ExecutionLaunchDescriptor, ExecutionLaunchObservation, ExecutionLedgerRecord, ExecutionLedgerState, ExecutionOccurrenceKey, ExecutionOutcome, ExecutionProcessClosure, ExecutionProcessIdentity, ExecutionRecoveryFence, ExecutionStartObservation, ExecutionTerminalResult};
-use Yiisoft\Scheduler\Integration\Async\Store\FileExecutionLedger;
+use Yiisoft\Scheduler\Integration\Async\Store\SQLiteExecutionLedger;
 
 use function getmypid;
 use function is_dir;
@@ -43,7 +44,7 @@ final class ProcessFactOrderingTest extends TestCase
         $observation = $this->observation(21, ExecutionProcessClosure::confirmed(0, 'closed'));
 
         self::assertSame(ExecutionDispatchResult::ACCEPTED, $ledger->observeLaunch($record->occurrence, $record->fence, $this->recovery(), $observation, 'source')->status);
-        $stored = (new FileExecutionLedger($this->directory))->observe($record->occurrence);
+        $stored = (SQLiteLedgerFixture::ledger($this->directory))->observe($record->occurrence);
         self::assertEquals($observation->processIdentity, $stored?->processIdentity);
         self::assertEquals($observation->startObservation, $stored?->attemptStartObservation);
         self::assertNull($stored?->startAnchorIdentity);
@@ -70,7 +71,7 @@ final class ProcessFactOrderingTest extends TestCase
         $observation = new ExecutionLaunchObservation(123, null, 'identified', 12, ExecutionProcessClosure::unknown('running'), processIdentity: $identity);
 
         self::assertSame(ExecutionDispatchResult::ACCEPTED, $ledger->observeLaunch($record->occurrence, $record->fence, $this->recovery(), $observation, 'source')->status);
-        $stored = (new FileExecutionLedger($this->directory))->observe($record->occurrence);
+        $stored = (SQLiteLedgerFixture::ledger($this->directory))->observe($record->occurrence);
         self::assertEquals($identity, $stored?->processIdentity);
         self::assertNull($stored?->startObservation);
         self::assertEquals($identity, $stored?->launchObservation?->processIdentity);
@@ -116,13 +117,13 @@ final class ProcessFactOrderingTest extends TestCase
         self::assertSame(ExecutionDispatchResult::REJECTED, $ledger->observeLaunch($record->occurrence, $record->fence, $this->recovery(), $conflict, 'source')->status);
     }
 
-    /** @return array{0: FileExecutionLedger, 1: ExecutionLedgerRecord} */
+    /** @return array{0: SQLiteExecutionLedger, 1: ExecutionLedgerRecord} */
     private function claimed(string $id, bool $started = false, bool $claim = true, string $mode = 'sync'): array
     {
         $occurrence = new ExecutionOccurrenceKey('task', $id);
         $startAnchorIdentity = null;
         $record = new ExecutionLedgerRecord($occurrence, new ExecutionIdentity('task', $id, 'attempt', 'run', 'execution'), 1, new ExecutionFence(1, 'fence'), ExecutionLedgerState::LAUNCH_REQUIRED, 'manifest', ['schema' => 'dev', 'source' => ['source', 'revision'], 'task' => ['id' => 'task', 'mode' => $mode, 'timeout' => $mode === 'async' ? [1.0, 2.0] : null, 'recoveryMaxAge' => $mode === 'async' ? 180.0 : null, 'metadata' => [], 'trigger' => ['periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => null, 'until' => null]], 'overlap' => 'allow', 'missed' => ['skip', null]]], recoveryFence: $this->recovery(), recoveryAge: null, sourceIdentity: 'source', sourceRevision: 'revision', processIdentity: null, startAnchorIdentity: $startAnchorIdentity, startObservation: null, recoveryDeadline: null);
-        $ledger = new FileExecutionLedger($this->directory);
+        $ledger = SQLiteLedgerFixture::ledger($this->directory);
         $ledger->admit($record);
         if ($mode === 'async') {
             $ledger->reserveDispatch($occurrence, $record->fence, new ExecutionDispatchReservation('dispatcher', 10, 30));

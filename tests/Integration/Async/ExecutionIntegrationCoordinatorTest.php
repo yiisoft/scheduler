@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Yiisoft\Scheduler\Tests\Integration\Async;
 
+use Yiisoft\Scheduler\Tests\Support\SQLiteLedgerFixture;
 use Yiisoft\Scheduler\Integration\Async\ExecutionLaunchDescriptor;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
@@ -18,7 +19,6 @@ use Yiisoft\Scheduler\Integration\Async\{
     ExecutionRecoveryFence, ExecutionRecoveryResult, ExecutionRevocationResult, ExecutionTerminalResult, ExecutionLedgerState,
     ExecutionWorkerCapability, ExecutionWorkerLaunchHandle, ExecutionWorkerLaunchReceipt, ExecutionWorkerLaunchRequest, ExecutionWorkerLauncherInterface, WorkerLifecyclePolicy,
 };
-use Yiisoft\Scheduler\Integration\Async\Store\FileExecutionLedger;
 use Yiisoft\Scheduler\Integration\Async\Process\{ProcessHandleInterface, ProcessLaunchResult, ProcessIdentity, ProcessResult, ProcessScopeProof};
 use PHPUnit\Framework\Attributes\DataProvider;
 
@@ -177,7 +177,7 @@ final class ExecutionIntegrationCoordinatorTest extends TestCase
             $record = $this->record();
             $source = new CoordinatorTestSource($this->candidate());
             $launcher = new CoordinatorTestLauncher();
-            $ledger = new CoordinatorFaultLedger(new FileExecutionLedger($directory));
+            $ledger = new CoordinatorFaultLedger(SQLiteLedgerFixture::ledger($directory));
 
             try {
                 $this->coordinator($ledger, $source, $launcher)->dispatchNext($record, $this->capability(), $this->reservation());
@@ -188,9 +188,9 @@ final class ExecutionIntegrationCoordinatorTest extends TestCase
 
             self::assertSame(1, $source->acknowledgements);
             self::assertFalse($launcher->called);
-            self::assertSame(ExecutionLedgerState::LAUNCH_REQUIRED, (new FileExecutionLedger($directory))->observe($record->occurrence)?->state);
+            self::assertSame(ExecutionLedgerState::LAUNCH_REQUIRED, (SQLiteLedgerFixture::ledger($directory))->observe($record->occurrence)?->state);
 
-            $reopened = new FileExecutionLedger($directory);
+            $reopened = SQLiteLedgerFixture::ledger($directory);
             $recovery = $reopened->recover($record->occurrence, new ExecutionRecoveryFence('recovery', 1), 10_000_000, $record->fence, 'source');
             self::assertSame(ExecutionRecoveryResult::SAME_GENERATION_UNCLAIMED, $recovery->status);
             self::assertNotNull($recovery->record);
@@ -210,8 +210,8 @@ final class ExecutionIntegrationCoordinatorTest extends TestCase
             self::assertEquals($record->recoveryFence, $restart->dispatch?->record?->recoveryFence);
             // Redispatch publishes the complete launch receipt while holding the
             // occurrence lock, rather than leaving an unpublished launch request.
-            self::assertSame(ExecutionLedgerState::NEEDS_RESOLUTION, (new FileExecutionLedger($directory))->observe($record->occurrence)?->state);
-            self::assertSame('restart', (new FileExecutionLedger($directory))->observe($record->occurrence)?->dispatchReservation?->dispatcherId);
+            self::assertSame(ExecutionLedgerState::NEEDS_RESOLUTION, (SQLiteLedgerFixture::ledger($directory))->observe($record->occurrence)?->state);
+            self::assertSame('restart', (SQLiteLedgerFixture::ledger($directory))->observe($record->occurrence)?->dispatchReservation?->dispatcherId);
         } finally {
             foreach (glob($directory . '/*') ?: [] as $file) {
                 unlink($file);

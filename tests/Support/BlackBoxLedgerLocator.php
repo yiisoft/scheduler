@@ -7,10 +7,8 @@ namespace Yiisoft\Scheduler\Tests\Support;
 use RuntimeException;
 use Yiisoft\Scheduler\Integration\Async\ExecutionLedgerCommandInterface;
 use Yiisoft\Scheduler\Integration\Async\ExecutionLedgerLocatorInterface;
-use Yiisoft\Scheduler\Integration\Async\Store\FileExecutionLedger;
 
 use function getenv;
-use function is_dir;
 use function is_string;
 
 final class BlackBoxLedgerLocator implements ExecutionLedgerLocatorInterface
@@ -21,9 +19,9 @@ final class BlackBoxLedgerLocator implements ExecutionLedgerLocatorInterface
             throw new RuntimeException('unlisted fixture locator');
         }
         $path = getenv('BLACKBOX_LEDGER_PATH');
-        if (!is_string($path) || !is_dir($path)) {
+        if (!is_string($path) || $path === '') {
             throw new RuntimeException('fixture ledger path unavailable');
         }
-        return new FileExecutionLedger($path);
+        return SQLiteLedgerFixture::ledger($path);
     }
 }

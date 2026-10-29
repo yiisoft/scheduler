@@ -11,8 +11,8 @@ use Symfony\Component\Process\Process;
 use Yiisoft\Scheduler\Executor\ShellCommandExecutor;
 use Yiisoft\Scheduler\Integration\Async\{ExecutionOccurrenceKey,ExecutionWorkerCapability,ExecutionWorkerLaunchRequest,UsleepPollWaiter};
 use Yiisoft\Scheduler\Integration\Async\Process\{ProcessLaunchRequest,ProcessResult,SymfonyExecutionWorkerLauncher,SymfonyProcessLauncher};
-use Yiisoft\Scheduler\Integration\Async\Store\FileExecutionLedger;
 use Yiisoft\Scheduler\Tests\Support\{BlackBoxApplication,BlackBoxObserver,BlackBoxShellCommandBuilder};
+use Yiisoft\Scheduler\Tests\Support\SQLiteLedgerFixture;
 
 use function file_get_contents;
 use function file_put_contents;
@@ -227,7 +227,7 @@ final class BlackBoxShellProcessTest extends TestCase
     {
         $occurrence = new ExecutionOccurrenceKey('fixture-task', 'shell-' . bin2hex(random_bytes(4)));
         $capability = BlackBoxApplication::capability($occurrence);
-        $ledger = new FileExecutionLedger($this->directory . '/ledger');
+        $ledger = SQLiteLedgerFixture::ledger($this->directory . '/ledger');
         $ledger->admit(BlackBoxApplication::record($capability));
         $marker = $this->directory . '/marker';
         $effect = $this->directory . '/effect';

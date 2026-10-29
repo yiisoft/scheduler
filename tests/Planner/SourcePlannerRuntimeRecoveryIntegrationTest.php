@@ -14,7 +14,8 @@ use Yiisoft\Scheduler\ExecutionMode;
 use Yiisoft\Scheduler\Executor\ShellCommand;
 use Yiisoft\Scheduler\Integration\Async\{ExecutionDispatchReservation, ExecutionDispatchResult, ExecutionFence, ExecutionIdentity, ExecutionLedgerCommandInterface, ExecutionLedgerQueryInterface, ExecutionLedgerRecord, ExecutionLedgerRecoveryPage, ExecutionLedgerState, ExecutionLaunchDescriptor, ExecutionLaunchObservation, ExecutionOccurrenceCheckpointInterface, ExecutionOccurrenceKey, ExecutionOutcome, ExecutionProcessClosure, ExecutionProcessIdentity, ExecutionRecoveryFence, ExecutionStartObservation, ExecutionWorkerCapability, ExecutionWorkerLaunchHandle, ExecutionWorkerLaunchReceipt, ExecutionWorkerLaunchRequest, ExecutionWorkerLauncherInterface, ExecutionWorkerRuntimeComposer, ExecutionWorkerRuntimeFactoryInterface, ExecutionWorkerRuntimeInterface, MonotonicClockInterface, PollWaiterInterface};
 use Yiisoft\Scheduler\Integration\Async\Process\{AttachedProcessHandle, ProcessHandleInterface, ProcessIdentity, ProcessLaunchResult, ProcessLookupResult, ProcessResult, ProcessScopeProof};
-use Yiisoft\Scheduler\Integration\Async\Store\FileExecutionLedger;
+use Yiisoft\Db\Sqlite\{Connection, Driver};
+use Yiisoft\Scheduler\Integration\Async\Store\SQLiteExecutionLedger;
 use Yiisoft\Scheduler\Task\TaskId;
 use Yiisoft\Scheduler\Integration\Async\Recovery\RecoveryProcessObserverInterface;
 use Yiisoft\Scheduler\Planner\{ParentLifecycleSupervisor, PlannerOwnerInterface, SourcePlannerRuntime};
@@ -73,7 +74,7 @@ final class SourcePlannerRuntimeRecoveryIntegrationTest extends TestCase
 
     public function testIncompleteLiveObservationPreservesUnclaimedProvenanceForClosedPreStartRepair(): void
     {
-        $ledger = new FileExecutionLedger($this->directory);
+        $ledger = $this->ledger();
         $task = new TaskDefinition(new TaskId('task'), new ShellCommand('/bin/true'), ExecutionMode::ASYNC, recoveryMaxAge: 10.0, trigger: new TriggerDefinition('periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => '2020-01-01T00:00:00Z', 'until' => '2021-01-01T00:00:00Z']));
         $configuration = new PreparedConfiguration([$task], sourceId: 'source', sourceRevision: 'revision');
         $record = $this->record('task', preStart: true, taskSnapshot: $configuration->taskPolicyProjection($task), configurationFingerprint: $configuration->fingerprint());
@@ -142,7 +143,7 @@ final class SourcePlannerRuntimeRecoveryIntegrationTest extends TestCase
         $task = new TaskDefinition(new TaskId('task'), new ShellCommand('/bin/true'), ExecutionMode::ASYNC, recoveryMaxAge: 10.0, trigger: new TriggerDefinition('periodic', ['type' => 'periodic', 'seconds' => 60, 'from' => '2020-01-01T00:00:00Z', 'until' => '2021-01-01T00:00:00Z']));
         $configuration = new PreparedConfiguration([$task], sourceId: 'source', sourceRevision: 'revision');
         $record = $this->record('task', preStart: true, taskSnapshot: $configuration->taskPolicyProjection($task), configurationFingerprint: $configuration->fingerprint());
-        $ledger = new FileExecutionLedger($this->directory);
+        $ledger = $this->ledger();
         $ledger->admit($record);
         $old = new ExecutionDispatchReservation('dispatcher', 1_699_999_900, 1_699_999_999, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
         self::assertSame(ExecutionDispatchResult::ACCEPTED, $ledger->reserveDispatch($record->occurrence, $record->fence, $old)->status);
@@ -177,10 +178,15 @@ final class SourcePlannerRuntimeRecoveryIntegrationTest extends TestCase
             }
         };
         (new ExecutionWorkerRuntimeComposer($ledger, $factory))->compose($captured[0]->capability, 1_700_000_000, 1_700_000_010, $captured[0]->descriptor, $captured[0]->capability->permissionId);
-        $persisted = (new FileExecutionLedger($this->directory))->observe($record->occurrence);
+        $persisted = ($this->ledger())->observe($record->occurrence);
         self::assertNotSame($old->permissionId, $captured[0]->capability->permissionId);
         self::assertSame($persisted?->dispatchReservation?->permissionId, $captured[0]->capability->permissionId);
         self::assertSame(1, $factory->calls);
+    }
+
+    private function ledger(): SQLiteExecutionLedger
+    {
+        return new SQLiteExecutionLedger(new Connection(new Driver('sqlite:' . $this->directory . '/ledger.sqlite')));
     }
 
     private function planner(object $ledger, string $sourceRevision, ?RecoveryProcessObserverInterface $observer = null, bool $changeRevision = false, ?PreparedConfiguration $configuration = null, ?ExecutionWorkerLauncherInterface $launcherOverride = null, string $checkpointCursor = 't1700000000'): SourcePlannerRuntime

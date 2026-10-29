@@ -7,17 +7,17 @@ namespace Yiisoft\Scheduler\Tests\Integration\Async\Store;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 use Yiisoft\Scheduler\Integration\Async\{ExecutionDispatchReservation, ExecutionFence, ExecutionIdentity, ExecutionLaunchDescriptor, ExecutionLaunchObservation, ExecutionLedgerRecord, ExecutionLedgerState, ExecutionOccurrenceKey, ExecutionOutcome, ExecutionProcessClosure, ExecutionProcessIdentity, ExecutionRecoveryFence};
-use Yiisoft\Scheduler\Integration\Async\Store\FileExecutionLedgerCodec;
+use Yiisoft\Scheduler\Integration\Async\Store\ExecutionLedgerPayloadCodec;
 use PHPUnit\Framework\Attributes\DataProvider;
 
 use const JSON_PRESERVE_ZERO_FRACTION;
 use const JSON_THROW_ON_ERROR;
 
-final class FileExecutionLedgerCodecTest extends TestCase
+final class ExecutionLedgerPayloadCodecTest extends TestCase
 {
     public function testEncodeWritesCurrentLedgerSchema(): void
     {
-        $value = json_decode((new FileExecutionLedgerCodec())->encode(self::record()), true, 64, JSON_THROW_ON_ERROR);
+        $value = json_decode((new ExecutionLedgerPayloadCodec())->encode(self::record()), true, 64, JSON_THROW_ON_ERROR);
 
         self::assertSame('dev', $value['schema']);
     }
@@ -50,11 +50,11 @@ final class FileExecutionLedgerCodecTest extends TestCase
     #[DataProvider('invalidFreshSourceFactsProvider')]
     public function testCurrentSchemaRequiresCanonicalSourceFacts(string $field, mixed $value): void
     {
-        $snapshot = json_decode((new FileExecutionLedgerCodec())->encode(self::record()), true, 64, JSON_THROW_ON_ERROR);
+        $snapshot = json_decode((new ExecutionLedgerPayloadCodec())->encode(self::record()), true, 64, JSON_THROW_ON_ERROR);
         $snapshot[$field] = $value;
 
         $this->expectException(InvalidArgumentException::class);
-        (new FileExecutionLedgerCodec())->decode(json_encode($snapshot, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION));
+        (new ExecutionLedgerPayloadCodec())->decode(json_encode($snapshot, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION));
     }
 
     public static function invalidFreshSourceFactsProvider(): array
@@ -71,11 +71,11 @@ final class FileExecutionLedgerCodecTest extends TestCase
 
     public function testCurrentSchemaRejectsMalformedPolicySourceBeforePersistence(): void
     {
-        $value = json_decode((new FileExecutionLedgerCodec())->encode(self::record()), true, 64, JSON_THROW_ON_ERROR);
+        $value = json_decode((new ExecutionLedgerPayloadCodec())->encode(self::record()), true, 64, JSON_THROW_ON_ERROR);
         $value['taskSnapshot']['source'] = ['source-1'];
 
         $this->expectException(InvalidArgumentException::class);
-        (new FileExecutionLedgerCodec())->decode(json_encode($value, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION));
+        (new ExecutionLedgerPayloadCodec())->decode(json_encode($value, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION));
     }
 
     public function testIdentityWithoutTimingRoundTripsInObservationAndLedger(): void
@@ -90,7 +90,7 @@ final class FileExecutionLedgerCodecTest extends TestCase
             processIdentity: $identity,
         );
 
-        $decoded = (new FileExecutionLedgerCodec())->decode((new FileExecutionLedgerCodec())->encode($record));
+        $decoded = (new ExecutionLedgerPayloadCodec())->decode((new ExecutionLedgerPayloadCodec())->encode($record));
         self::assertEquals($identity, $decoded->processIdentity);
         self::assertNull($decoded->startObservation);
         self::assertEquals($identity, $decoded->launchObservation?->processIdentity);
@@ -100,10 +100,10 @@ final class FileExecutionLedgerCodecTest extends TestCase
     public function testCompleteRecordRoundTripPreservesEveryNestedFieldAndFloats(): void
     {
         $record = self::record();
-        $json = (new FileExecutionLedgerCodec())->encode($record);
+        $json = (new ExecutionLedgerPayloadCodec())->encode($record);
 
         self::assertStringContainsString('1.0', $json);
-        $decoded = (new FileExecutionLedgerCodec())->decode($json);
+        $decoded = (new ExecutionLedgerPayloadCodec())->decode($json);
         self::assertEquals($record, $decoded);
         self::assertSame(1.0, $decoded->metadata['ratio']);
         self::assertSame(1.0, $decoded->taskSnapshot['task']['metadata']['ratio']);
@@ -136,7 +136,7 @@ final class FileExecutionLedgerCodecTest extends TestCase
             sourceRevision: 'revision-1',
         );
 
-        $decoded = (new FileExecutionLedgerCodec())->decode((new FileExecutionLedgerCodec())->encode($record));
+        $decoded = (new ExecutionLedgerPayloadCodec())->decode((new ExecutionLedgerPayloadCodec())->encode($record));
         self::assertEquals($record, $decoded);
     }
 
@@ -144,7 +144,7 @@ final class FileExecutionLedgerCodecTest extends TestCase
     public function testUnknownOrMissingTopLevelAndNestedObjectKeysAreRejected(string $json): void
     {
         $this->expectException(InvalidArgumentException::class);
-        (new FileExecutionLedgerCodec())->decode($json);
+        (new ExecutionLedgerPayloadCodec())->decode($json);
     }
 
     public static function invalidObjectShapeProvider(): array
@@ -166,7 +166,7 @@ final class FileExecutionLedgerCodecTest extends TestCase
     public function testNumericKeyArraysMasqueradingAsObjectsAreRejected(string $json): void
     {
         $this->expectException(InvalidArgumentException::class);
-        (new FileExecutionLedgerCodec())->decode($json);
+        (new ExecutionLedgerPayloadCodec())->decode($json);
     }
 
     public static function numericObjectShapeProvider(): array
@@ -184,7 +184,7 @@ final class FileExecutionLedgerCodecTest extends TestCase
     public function testWrongIdentityStateOutcomeAndBoundedScalarsAreRejected(string $json): void
     {
         $this->expectException(InvalidArgumentException::class);
-        (new FileExecutionLedgerCodec())->decode($json);
+        (new ExecutionLedgerPayloadCodec())->decode($json);
     }
 
     public static function invalidFactsProvider(): array
@@ -209,12 +209,12 @@ final class FileExecutionLedgerCodecTest extends TestCase
     public function testIncompatibleSchemasAreRejected(string $json): void
     {
         $this->expectException(InvalidArgumentException::class);
-        (new FileExecutionLedgerCodec())->decode($json);
+        (new ExecutionLedgerPayloadCodec())->decode($json);
     }
 
     public static function incompatibleSchemaProvider(): array
     {
-        $current = json_decode((new FileExecutionLedgerCodec())->encode(self::record()), true, 64, JSON_THROW_ON_ERROR);
+        $current = json_decode((new ExecutionLedgerPayloadCodec())->encode(self::record()), true, 64, JSON_THROW_ON_ERROR);
         return array_map(
             static fn(mixed $schema): array => [json_encode([...$current, 'schema' => $schema], JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION)],
             [6, 'legacy', 'dev-old'],
@@ -223,23 +223,23 @@ final class FileExecutionLedgerCodecTest extends TestCase
 
     public function testOldManifestKeyIsRejected(): void
     {
-        $value = json_decode((new FileExecutionLedgerCodec())->encode(self::record()), true, 64, JSON_THROW_ON_ERROR);
+        $value = json_decode((new ExecutionLedgerPayloadCodec())->encode(self::record()), true, 64, JSON_THROW_ON_ERROR);
         $value['manifest'] = $value['configurationFingerprint'];
         unset($value['configurationFingerprint']);
         $this->expectException(InvalidArgumentException::class);
-        (new FileExecutionLedgerCodec())->decode(json_encode($value, JSON_THROW_ON_ERROR));
+        (new ExecutionLedgerPayloadCodec())->decode(json_encode($value, JSON_THROW_ON_ERROR));
     }
 
     #[DataProvider('malformedPolicyProvider')]
     public function testMalformedPoliciesAreRejectedBeforeDecode(string $json): void
     {
         $this->expectException(InvalidArgumentException::class);
-        (new FileExecutionLedgerCodec())->decode($json);
+        (new ExecutionLedgerPayloadCodec())->decode($json);
     }
 
     public static function malformedPolicyProvider(): array
     {
-        $codec = new FileExecutionLedgerCodec();
+        $codec = new ExecutionLedgerPayloadCodec();
         $base = json_decode($codec->encode(self::record()), true, 64, JSON_THROW_ON_ERROR);
 
         $objectId = $base;
@@ -259,32 +259,32 @@ final class FileExecutionLedgerCodecTest extends TestCase
 
     public function testDecodeRejectsMalformedPolicyUsingSharedContract(): void
     {
-        $value = json_decode((new FileExecutionLedgerCodec())->encode(self::record()), true, 64, JSON_THROW_ON_ERROR);
+        $value = json_decode((new ExecutionLedgerPayloadCodec())->encode(self::record()), true, 64, JSON_THROW_ON_ERROR);
         $value['taskSnapshot']['task']['id'] = ['task'];
 
         $this->expectException(InvalidArgumentException::class);
-        (new FileExecutionLedgerCodec())->decode(json_encode($value, JSON_THROW_ON_ERROR));
+        (new ExecutionLedgerPayloadCodec())->decode(json_encode($value, JSON_THROW_ON_ERROR));
     }
 
     public function testDuplicateNestedObjectMemberIsRejected(): void
     {
-        $json = (new FileExecutionLedgerCodec())->encode(self::record());
+        $json = (new ExecutionLedgerPayloadCodec())->encode(self::record());
         $json = str_replace('"taskKey":"task"', '"taskKey":"task","taskKey":"other"', $json);
 
         $this->expectException(InvalidArgumentException::class);
-        (new FileExecutionLedgerCodec())->decode($json);
+        (new ExecutionLedgerPayloadCodec())->decode($json);
     }
 
     public function testMalformedJsonIsRejected(): void
     {
         $this->expectException(InvalidArgumentException::class);
-        (new FileExecutionLedgerCodec())->decode('{not-json');
+        (new ExecutionLedgerPayloadCodec())->decode('{not-json');
     }
 
     public function testOversizedSnapshotIsRejected(): void
     {
         $this->expectException(InvalidArgumentException::class);
-        (new FileExecutionLedgerCodec())->decode(str_repeat('x', FileExecutionLedgerCodec::MAX_BYTES + 1));
+        (new ExecutionLedgerPayloadCodec())->decode(str_repeat('x', ExecutionLedgerPayloadCodec::MAX_BYTES + 1));
     }
 
     private static function deepTree(int $depth): array
@@ -298,7 +298,7 @@ final class FileExecutionLedgerCodecTest extends TestCase
 
     private static function json(array $top = [], array $missing = [], mixed $replacement = null, ?string $field = null, array $nestedMissing = []): string
     {
-        $value = json_decode((new FileExecutionLedgerCodec())->encode(self::record()), true, 32, JSON_THROW_ON_ERROR);
+        $value = json_decode((new ExecutionLedgerPayloadCodec())->encode(self::record()), true, 32, JSON_THROW_ON_ERROR);
         foreach ($missing as $key) {
             unset($value[$key]);
         }

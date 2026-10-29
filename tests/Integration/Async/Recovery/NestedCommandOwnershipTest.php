@@ -4,13 +4,14 @@ declare(strict_types=1);
 
 namespace Yiisoft\Scheduler\Tests\Integration\Async\Recovery;
 
+use Yiisoft\Scheduler\Tests\Support\SQLiteLedgerFixture;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 use Yiisoft\Scheduler\Integration\Async\{ExecutionDispatchReservation, ExecutionFence, ExecutionIdentity, ExecutionLaunchDescriptor, ExecutionLaunchObservation, ExecutionLedgerRecord, ExecutionLedgerState, ExecutionOccurrenceKey, ExecutionOutcome, ExecutionProcessClosure, ExecutionProcessIdentity, ExecutionRecoveryFence, ExecutionStartObservation, ExecutionWorkerCapability, ExecutionWorkerLaunchRequest, MonotonicClockInterface, PollWaiterInterface, WorkerLifecyclePolicy};
+use Yiisoft\Scheduler\Integration\Async\Store\SQLiteExecutionLedger;
 use Yiisoft\Scheduler\Integration\Async\Process\{ProcessHandleInterface, ProcessIdentity, ProcessLaunchResult, ProcessLookupResult, ProcessResult, ProcessScopeProof};
 use Yiisoft\Scheduler\Integration\Async\Recovery\RecoveryProcessObserverInterface;
 use Yiisoft\Scheduler\Planner\{LedgerCommandScopeProcessResolver, ParentLifecycleSupervisor};
-use Yiisoft\Scheduler\Integration\Async\Store\FileExecutionLedger;
 
 use function getmypid;
 use function is_dir;
@@ -191,7 +192,7 @@ final class NestedCommandOwnershipTest extends TestCase
 
     private function claimed(): array
     {
-        $ledger = new FileExecutionLedger($this->directory);
+        $ledger = SQLiteLedgerFixture::ledger($this->directory);
         $occurrence = new ExecutionOccurrenceKey('task', 'occurrence');
         $fence = new ExecutionFence(1, 'fence-1');
         $recovery = new ExecutionRecoveryFence('recovery-1', 1);
@@ -213,7 +214,7 @@ final class NestedCommandOwnershipTest extends TestCase
         return new ExecutionLaunchDescriptor('execution-1', 1, 'command', rootDescriptor: $root, occurrence: $record->occurrence, role: ExecutionLaunchDescriptor::ROLE_COMMAND);
     }
 
-    private function launchCommand(FileExecutionLedger $ledger, ExecutionLedgerRecord $record, ExecutionLaunchDescriptor $root, ExecutionRecoveryFence $recovery): ExecutionLaunchDescriptor
+    private function launchCommand(SQLiteExecutionLedger $ledger, ExecutionLedgerRecord $record, ExecutionLaunchDescriptor $root, ExecutionRecoveryFence $recovery): ExecutionLaunchDescriptor
     {
         $descriptor = $this->command($record, $root);
         $prepared = $ledger->prepareCommandUnderLock($record->occurrence, $record->fence, $recovery, 'source', $root, $descriptor, 12, 12_000_000);

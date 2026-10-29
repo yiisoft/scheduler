@@ -32,7 +32,7 @@ use const JSON_UNESCAPED_SLASHES;
 use const JSON_UNESCAPED_UNICODE;
 
 /** Strict, scalar JSON representation of an admitted ledger snapshot. */
-final class FileExecutionLedgerCodec
+final class ExecutionLedgerPayloadCodec
 {
     public const MAX_BYTES = 16 * 1024 * 1024;
 

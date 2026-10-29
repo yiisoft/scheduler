@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace Yiisoft\Scheduler\Tests\Integration\Async\Recovery;
 
+use Yiisoft\Scheduler\Tests\Support\SQLiteLedgerFixture;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 use Yiisoft\Scheduler\Config\PreparedConfiguration;
+use Yiisoft\Scheduler\Integration\Async\Store\SQLiteExecutionLedger;
 use Yiisoft\Scheduler\Integration\Async\{
     ExecutionDispatchReservation, ExecutionFence, ExecutionIdentity,
     ExecutionLaunchDescriptor, ExecutionLaunchObservation, ExecutionLedgerRecord, ExecutionLedgerState,
@@ -14,7 +16,6 @@ use Yiisoft\Scheduler\Integration\Async\{
     ExecutionStartObservation, ExecutionWorkerCapability, ExecutionWorkerClaimRejectedException,
     ExecutionWorkerRuntimeComposer, ExecutionWorkerRuntimeFactoryInterface, ExecutionWorkerRuntimeInterface,
 };
-use Yiisoft\Scheduler\Integration\Async\Store\FileExecutionLedger;
 use Yiisoft\Scheduler\Integration\Async\ExecutionLedgerCommandInterface;
 
 use function hash;
@@ -129,10 +130,10 @@ final class CrashWindowRecoveryTest extends TestCase
         self::assertFalse($ledger->claim($record->occurrence, $record->fence, 1700000000000011, 20, $descriptor, $reservation->permissionId)->accepted);
     }
 
-    /** @return array{FileExecutionLedger, ExecutionLedgerRecord, ExecutionDispatchReservation, ExecutionLaunchDescriptor} */
+    /** @return array{SQLiteExecutionLedger, ExecutionLedgerRecord, ExecutionDispatchReservation, ExecutionLaunchDescriptor} */
     private function prepared(?ExecutionProcessIdentity $anchor = null, ?ExecutionStartObservation $start = null, ?int $deadline = null): array
     {
-        $ledger = new FileExecutionLedger($this->directory);
+        $ledger = SQLiteLedgerFixture::ledger($this->directory);
         $record = $this->record($anchor, $start, $deadline);
         $reservation = new ExecutionDispatchReservation('dispatcher', 10, 20);
         $descriptor = new ExecutionLaunchDescriptor('execution-1', 1, 'nonce-1', occurrence: $record->occurrence);
@@ -165,7 +166,7 @@ final class CrashWindowRecoveryTest extends TestCase
         return $record->recoveryFence;
     }
 
-    private function assertRejectedWithoutBootstrap(FileExecutionLedger $ledger, CrashWindowFactory $factory, ExecutionWorkerCapability $capability, ExecutionLaunchDescriptor $descriptor, string $permission): void
+    private function assertRejectedWithoutBootstrap(SQLiteExecutionLedger $ledger, CrashWindowFactory $factory, ExecutionWorkerCapability $capability, ExecutionLaunchDescriptor $descriptor, string $permission): void
     {
         try {
             (new ExecutionWorkerRuntimeComposer($ledger, $factory))->compose($capability, 12, 20, $descriptor, $permission);
