@@ -2,6 +2,7 @@
 
 ## 1.0.0 under development
 
+- Enh #17: Keep a checkpoint record per task instead of one record holding every run emitted at a due time, so that a stored value stays the same size however many tasks share that time and a run costs a single write rather than a write of everything emitted before it (@KalimeroMK)
 - Enh #16: Generate a task identifier with a 64-bit hash instead of a 32-bit one, so that a task added to a schedule cannot be taken for one the checkpoint holds under the same identifier (@KalimeroMK)
 - Bug #16: Fix a run being skipped, or one already made being repeated, when a task is added to or removed from the schedule while the checkpoint holds the runs of a shared due time; the checkpoint now records which tasks already ran by their identifier instead of by their place in the schedule (@KalimeroMK)
 - New #14: Add `CronBuilder` and the `RecurringTask` named constructors opening it, so that a cron expression can be built a field at a time — `RecurringTask::daily()->at('05:00')->run('report:daily')` — instead of being written as five positional fields (@KalimeroMK)
