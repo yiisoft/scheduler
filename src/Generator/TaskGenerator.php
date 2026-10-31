@@ -89,7 +89,11 @@ final class TaskGenerator
 
                 // Taken rather than due for anyone reading the schedule while this run is in
                 // flight. resolve() says what became of it, release() gives it back.
-                $this->checkpoint->write($task->getId(), $time, TaskStatus::Claimed, at: $now);
+                //
+                // Stamped as the claim is made, not as the tick began: the runs of one tick are
+                // handed out one after another, and the ones behind a slow task would otherwise
+                // start out with their reclaim window already part spent.
+                $this->checkpoint->write($task->getId(), $time, TaskStatus::Claimed, at: $this->clock->now());
 
                 yield $context => $task;
             }
@@ -128,6 +132,15 @@ final class TaskGenerator
     public function resolve(TaskContext $context, TaskStatus $status): void
     {
         $this->checkpoint->resolve($context->taskId, $context->triggeredAt, $status);
+    }
+
+    /**
+     * Restarts the reclaim window of a claimed run at the moment the run actually begins, for a
+     * consumer that starts a run later than it took it.
+     */
+    public function markStarted(TaskContext $context): void
+    {
+        $this->checkpoint->markStarted($context->taskId, $context->triggeredAt, $this->clock->now());
     }
 
     /**

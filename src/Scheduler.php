@@ -212,6 +212,10 @@ final class Scheduler
                     break;
                 }
 
+                // The claim was made as the generator was drained; the wait above must not
+                // count against the window that decides when another process may take the run.
+                $this->markStarted($context);
+
                 $this->forkTask($task, $context);
             } catch (Throwable $error) {
                 $failure = $this->firstFailure($failure, $error);
@@ -478,6 +482,11 @@ final class Scheduler
     private function release(TaskContext $context): void
     {
         $this->generators[$context->scheduleName]->release($context);
+    }
+
+    private function markStarted(TaskContext $context): void
+    {
+        $this->generators[$context->scheduleName]->markStarted($context);
     }
 
     /**

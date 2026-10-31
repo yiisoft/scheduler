@@ -98,9 +98,9 @@ final class Schedule
      * Sets how long a claimed run is left to its process before the schedule takes it back. A
      * gone process of this host is noticed at once with ext-posix; this covers the rest.
      *
-     * It has to outlast the whole of a run, from being claimed to being over — which includes
-     * the wait for a free slot under `--max-processes`, not only the work itself. Taking a run
-     * back while its process still means to make it runs the task twice.
+     * It has to outlast the work itself. The window starts when the run starts rather than when
+     * it was claimed, so the wait for a free slot under `--max-processes` is not charged against
+     * it. Taking a run back while its process still means to make it runs the task twice.
      *
      * @param DateInterval|int $after The window, as a date interval or a number of seconds.
      */

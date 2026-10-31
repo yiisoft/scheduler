@@ -503,6 +503,115 @@ final class TaskGeneratorTest extends TestCase
         $this->tick($cache, new TestClock(), [$task]);
     }
 
+    public function testWaitingForAProcessSlotIsNotChargedAgainstTheReclaimWindow(): void
+    {
+        $log = new ArrayObject();
+        $task = static function () use ($log): void {
+            $log[] = 'task';
+        };
+
+        $cache = new InMemoryCache();
+        $clock = new TestClock();
+        $schedule = $this->schedule($cache, [$task], 10);
+
+        (new Scheduler([$schedule], new CallableTaskHandler(), $clock))->tick();
+        $clock->advance('+1 minute');
+
+        $generator = new TaskGenerator($schedule, $clock);
+        $claimed = null;
+
+        foreach ($generator->getTasks() as $context => $_) {
+            $claimed = $context;
+        }
+
+        $this->assertNotNull($claimed);
+
+        // Longer than the whole window goes by before a process slot frees up.
+        $clock->advance('+20 seconds');
+        $generator->markStarted($claimed);
+
+        // Five seconds into the run itself, which is well inside the window counted from here.
+        $clock->advance('+5 seconds');
+        $log->exchangeArray([]);
+        $this->tick($cache, $clock, [$task], 10);
+
+        $this->assertSame([], $log->getArrayCopy());
+    }
+
+    public function testARunHandedOutBehindASlowOneKeepsItsWholeReclaimWindow(): void
+    {
+        $log = new ArrayObject();
+        $first = static function () use ($log): void {
+            $log[] = 'first';
+        };
+        $second = static function () use ($log): void {
+            $log[] = 'second';
+        };
+
+        $cache = new InMemoryCache();
+        $clock = new TestClock();
+        $schedule = $this->schedule($cache, [$first, $second], 10);
+
+        (new Scheduler([$schedule], new CallableTaskHandler(), $clock))->tick();
+        $clock->advance('+1 minute');
+
+        // Both runs are due at the same minute and are handed out one after the other, with the
+        // first taking longer than the window to run.
+        $generator = new TaskGenerator($schedule, $clock);
+
+        $slow = true;
+
+        foreach ($generator->getTasks() as $_) {
+            if ($slow) {
+                $clock->advance('+20 seconds');
+                $slow = false;
+            }
+        }
+
+        unset($generator);
+
+        // Neither run was resolved, so the first one is out of window and taken back. The second
+        // was claimed twenty seconds later and still has time left on it.
+        $clock->advance('+5 seconds');
+        $log->exchangeArray([]);
+        $this->tick($cache, $clock, [$first, $second], 10);
+
+        $this->assertSame(['first'], $log->getArrayCopy());
+    }
+
+    public function testMarkingAResolvedRunAsStartedLeavesItsRecordAlone(): void
+    {
+        $log = new ArrayObject();
+        $task = static function () use ($log): void {
+            $log[] = 'task';
+        };
+
+        $cache = new InMemoryCache();
+        $clock = new TestClock();
+        $schedule = $this->schedule($cache, [$task], 10);
+
+        (new Scheduler([$schedule], new CallableTaskHandler(), $clock))->tick();
+        $clock->advance('+1 minute');
+
+        $generator = new TaskGenerator($schedule, $clock);
+        $claimed = null;
+
+        foreach ($generator->getTasks() as $context => $_) {
+            $claimed = $context;
+        }
+
+        $this->assertNotNull($claimed);
+        $generator->resolve($claimed, TaskStatus::Done);
+
+        // A late start of a run that is already over must not put the claim back.
+        $generator->markStarted($claimed);
+
+        $record = $cache->get($this->taskKey($task));
+
+        $this->assertIsArray($record);
+        $this->assertSame('done', $record['status']);
+    }
+
     /**
      * Claims the three runs a task missed while the schedule was down, without resolving any.
      *

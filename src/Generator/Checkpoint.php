@@ -69,8 +69,7 @@ final class Checkpoint
     /**
      * Acquires the schedule mutex, if any. Returns false when another process holds it. The state
      * is re-read each time: another process may have advanced it while this one stood by.
-     */
-    /**
+     *
      * @param list<string> $taskIds Ids of the tasks of the schedule as it stands now, so a task
      *                              added after the scheduler was built has its record read back.
      */
@@ -163,6 +162,33 @@ final class Checkpoint
                 $this->scheduleName,
             ));
         }
+    }
+
+    /**
+     * Restarts the reclaim window of a claimed run at the moment the run actually begins.
+     *
+     * A run claimed as it is handed out may then wait for a free process slot. Charging that wait
+     * against the window would hand the run out a second time while the process holding it is
+     * still about to start it, so the window counts from here instead of from the claim.
+     *
+     * Anything but this process's own claim of this very run is left alone: the record has moved
+     * on, and whoever moved it is the one that owns it now.
+     */
+    public function markStarted(string $taskId, DateTimeImmutable $time, DateTimeImmutable $at): void
+    {
+        $record = $this->records[$taskId] ?? null;
+
+        if (null === $record) {
+            return;
+        }
+
+        [$recordedTime, $status, $owner] = $record;
+
+        if (TaskStatus::Claimed !== $status || $time != $recordedTime || self::owner() !== $owner) {
+            return;
+        }
+
+        $this->write($taskId, $time, TaskStatus::Claimed, $owner, $at);
     }
 
     /**

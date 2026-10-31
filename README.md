@@ -223,10 +223,9 @@ taken back after a window, set with `reclaimAfter()` and a day by default:
 $schedule->reclaimAfter(900); // or a DateInterval
 ```
 
-The window has to outlast the whole of a run, counted from the moment it is claimed rather than
-from the moment it starts: under `--max-processes` a due run waits for a free slot, and that
-wait is inside the window too. Taking a run back while its process still means to make it runs
-the task a second time.
+The window has to outlast a run, counted from the moment it starts. Under `--max-processes` a
+due run waits for a free slot first, and that wait is not charged against the window. Taking a
+run back while its process still means to make it runs the task a second time.
 
 The window only applies where the process cannot be asked about. A claim of this host is taken
 back as soon as its process is gone, whatever the window says.
