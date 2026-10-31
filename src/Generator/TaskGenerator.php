@@ -11,14 +11,14 @@ use Yiisoft\Scheduler\RecurringTask;
 use Yiisoft\Scheduler\Schedule;
 use Yiisoft\Scheduler\TaskContext;
 
+use function array_map;
 use function count;
 
 /**
  * Computes which tasks of a schedule are due, in run order.
  *
- * The generator keeps a min-heap of pending runs seeded from the schedule checkpoint, so a
- * process that was down re-discovers every missed run, while runs already emitted before a
- * crash are skipped through the checkpoint.
+ * A min-heap of pending runs, each task seeded from the record of its own last emitted run, so
+ * a process that was down re-discovers the runs it missed and leaves the ones already emitted.
  *
  * @internal
  */
@@ -34,7 +34,12 @@ final class TaskGenerator
         private readonly Schedule $schedule,
         private readonly ClockInterface $clock,
     ) {
-        $this->checkpoint = new Checkpoint($schedule->getName(), $schedule->getState(), $schedule->getMutex());
+        $this->checkpoint = new Checkpoint(
+            $schedule->getName(),
+            array_map(static fn(RecurringTask $task): string => $task->getId(), $schedule->tasks()),
+            $schedule->getState(),
+            $schedule->getMutex(),
+        );
     }
 
     public function getSchedule(): Schedule
@@ -55,8 +60,6 @@ final class TaskGenerator
             return;
         }
 
-        $emitted = false;
-
         try {
             $heap = $this->heap();
 
@@ -66,14 +69,6 @@ final class TaskGenerator
                 [$time, $index, $task] = $entry;
 
                 $yield = true;
-
-                // Skip the runs already emitted before an interruption.
-                if (null !== ($lastTime = $this->checkpoint->time())) {
-                    if ($time < $lastTime || ($time == $lastTime && $this->checkpoint->wasEmitted($task->getId()))) {
-                        $yield = false;
-                    }
-                }
-
                 $nextTime = $task->getTrigger()->getNextRunDate($time);
 
                 if (null !== $nextTime) {
@@ -90,25 +85,23 @@ final class TaskGenerator
                 }
 
                 if (!$yield) {
-                    $this->checkpoint->save($time, $task->getId());
+                    $this->checkpoint->save($task->getId(), $time);
                     continue;
                 }
 
                 $context = new TaskContext($this->schedule->getName(), $task->getId(), $task->getTrigger(), $time, $nextTime);
-
-                $emitted = true;
 
                 yield $context => $task;
 
                 // Reached whether the task succeeded or failed: the consumer keeps a failure to
                 // itself until the schedule is drained, so a failed run is recorded like any
                 // other instead of being emitted again by the next process.
-                $this->checkpoint->save($time, $task->getId());
+                $this->checkpoint->save($task->getId(), $time);
             }
 
-            if (!$emitted) {
-                $this->checkpoint->markTick($now);
-            }
+            // Reached only by a tick that drained, so a process that died partway leaves the
+            // runs it never started due.
+            $this->checkpoint->markTick($now);
         } finally {
             $this->checkpoint->release();
         }
@@ -146,17 +139,14 @@ final class TaskGenerator
 
         $this->heapRevision = $this->checkpoint->revision();
         $this->heap = new TriggerHeap();
-        $lastTime = $this->checkpoint->time();
-
-        // Probe a microsecond early so runs due exactly at the checkpoint time are re-emitted and
-        // filtered by their task id. An idle-tick marker has no remainder, so it seeds after itself.
-        $seedTime = $lastTime ?? $this->clock->now();
-        if (null !== $lastTime && $this->checkpoint->hasEmitted()) {
-            $seedTime = $lastTime->modify('-1 microsecond');
-        }
+        $position = $this->checkpoint->time();
 
         foreach ($this->schedule->tasks() as $task) {
             $index = $this->indices[$task->getId()] ??= count($this->indices);
+
+            // No record yet — newly added, or left unstarted when a process died — means the
+            // position of the schedule, and now when there is no position either.
+            $seedTime = $this->checkpoint->lastRun($task->getId()) ?? $position ?? $this->clock->now();
 
             if (null !== ($nextTime = $task->getTrigger()->getNextRunDate($seedTime))) {
                 $this->heap->insert([$nextTime, $index, $task]);
