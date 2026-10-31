@@ -12,6 +12,7 @@ use Yiisoft\Scheduler\Exception\RuntimeException;
 
 use function array_keys;
 use function is_array;
+use function is_int;
 use function is_string;
 use function sprintf;
 
@@ -172,26 +173,12 @@ final class Checkpoint
             return;
         }
 
-        if (!is_array($state) || !isset($state['time'], $state['tasks']) || !is_string($state['time'])
-            || !is_array($state['tasks'])) {
-            throw new RuntimeException(
-                sprintf('The checkpoint of schedule "%s" holds an unexpected payload.', $this->scheduleName),
-            );
+        if (!is_array($state) || !isset($state['time']) || !is_string($state['time'])) {
+            throw new RuntimeException($this->unexpectedPayload());
         }
 
         $time = DateTimeImmutable::createFromFormat('U.u', $state['time']) ?: null;
-        $emitted = [];
-
-        /** @var mixed $taskId */
-        foreach ($state['tasks'] as $taskId) {
-            if (!is_string($taskId)) {
-                throw new RuntimeException(
-                    sprintf('The checkpoint of schedule "%s" holds an unexpected payload.', $this->scheduleName),
-                );
-            }
-
-            $emitted[$taskId] = true;
-        }
+        $emitted = self::readEmitted($state, $this->scheduleName);
 
         if ($emitted == $this->emitted && $time == $this->time) {
             return;
@@ -201,6 +188,51 @@ final class Checkpoint
         $this->emitted = $emitted;
 
         ++$this->revision;
+    }
+
+    /**
+     * The tasks a stored payload says were emitted at its time.
+     *
+     * @param array<array-key, mixed> $state
+     *
+     * @return array<string, true>
+     */
+    private static function readEmitted(array $state, string $scheduleName): array
+    {
+        // A checkpoint written before the emitted runs were recorded by task id holds the place
+        // of the last one in the schedule instead. Its time is kept and its runs are all left as
+        // emitted, so an upgrade replays none of them and resumes strictly after it. This can go
+        // once 1.0.0 is out and no such checkpoint can be in a cache any more.
+        if (!isset($state['tasks']) && is_int($state['index'] ?? null)) {
+            return [];
+        }
+
+        if (!isset($state['tasks']) || !is_array($state['tasks'])) {
+            throw new RuntimeException(self::unexpectedPayloadMessage($scheduleName));
+        }
+
+        $emitted = [];
+
+        /** @var mixed $taskId */
+        foreach ($state['tasks'] as $taskId) {
+            if (!is_string($taskId)) {
+                throw new RuntimeException(self::unexpectedPayloadMessage($scheduleName));
+            }
+
+            $emitted[$taskId] = true;
+        }
+
+        return $emitted;
+    }
+
+    private function unexpectedPayload(): string
+    {
+        return self::unexpectedPayloadMessage($this->scheduleName);
+    }
+
+    private static function unexpectedPayloadMessage(string $scheduleName): string
+    {
+        return sprintf('The checkpoint of schedule "%s" holds an unexpected payload.', $scheduleName);
     }
 
     private function persist(): void

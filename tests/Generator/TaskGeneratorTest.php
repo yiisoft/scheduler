@@ -130,6 +130,28 @@ final class TaskGeneratorTest extends TestCase
         $this->assertSame(1, $cache->writes() - $writes);
     }
 
+    public function testCheckpointWrittenBeforeRunsWereRecordedByIdResumesWithoutReplaying(): void
+    {
+        $log = new ArrayObject();
+        $task = static function () use ($log): void {
+            $log[] = 'task';
+        };
+
+        $clock = new TestClock();
+        $cache = new InMemoryCache();
+
+        // The position a checkpoint held before the emitted runs were recorded by task id.
+        $cache->set('yii_schedule_checkpoint_default', ['time' => $clock->now()->format('U.u'), 'index' => 1]);
+
+        $this->tick($cache, $clock, [$task]);
+        $this->assertSame([], $log->getArrayCopy());
+
+        $clock->advance('+1 minute');
+        $this->tick($cache, $clock, [$task]);
+
+        $this->assertSame(['task'], $log->getArrayCopy());
+    }
+
     /**
      * @return iterable<string, array{mixed}>
      */
