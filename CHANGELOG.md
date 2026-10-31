@@ -2,8 +2,9 @@
 
 ## 1.0.0 under development
 
-- New #14: Add `CronBuilder` and the `RecurringTask` named constructors opening it, so that a cron expression can be built a field at a time — `RecurringTask::daily()->at('05:00')->run('report:daily')` — instead of being written as five positional fields (@KalimeroMK)
+- Enh #16: Generate a task identifier with a 64-bit hash instead of a 32-bit one, so that a task added to a schedule cannot be taken for one the checkpoint holds under the same identifier (@KalimeroMK)
 - Bug #16: Fix a run being skipped, or one already made being repeated, when a task is added to or removed from the schedule while the checkpoint holds the runs of a shared due time; the checkpoint now records which tasks already ran by their identifier instead of by their place in the schedule (@KalimeroMK)
+- New #14: Add `CronBuilder` and the `RecurringTask` named constructors opening it, so that a cron expression can be built a field at a time — `RecurringTask::daily()->at('05:00')->run('report:daily')` — instead of being written as five positional fields (@KalimeroMK)
 - New #13: Name the process of a forked task `task <id> of schedule <name>`, so that `ps` and `/proc` tell the task processes of a daemon apart and one left behind by a daemon that died can still be recognized (@KalimeroMK)
 - Bug #3: Fix a cron expression without an explicit timezone being evaluated in UTC once the schedule had a persisted checkpoint; it is now read in the default timezone (@samdark)
 - Bug #4: Fix a failing task being retried by every `schedule:run` invocation and keeping the tasks due after it from running; the remaining due tasks now run and the failure is reported after them (@samdark)

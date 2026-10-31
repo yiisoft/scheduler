@@ -19,12 +19,9 @@ use function sprintf;
 /**
  * The persisted-or-not position of a schedule: which runs were already emitted.
  *
- * The position is a point in time together with the tasks whose run at that very time was
- * emitted; a process resuming from a checkpoint re-discovers every missed run and skips the
- * ones already emitted.
- *
- * The tasks are held by their identifier rather than by their place in the schedule, which a
- * deploy adding or removing a task moves while the recorded runs stay as they were.
+ * A point in time plus the tasks whose run at that time was emitted, held by identifier rather
+ * than by place in the schedule: a deploy adding or removing a task moves the places, not the
+ * runs that were recorded.
  *
  * @internal
  */
@@ -99,28 +96,20 @@ final class Checkpoint
         return $this->time;
     }
 
-    /**
-     * Whether the run of the given task at the checkpoint time was already emitted.
-     */
     public function wasEmitted(string $taskId): bool
     {
         return isset($this->emitted[$taskId]);
     }
 
-    /**
-     * Whether any run was emitted at the checkpoint time, as opposed to the time being that of
-     * an idle tick with nothing due.
-     */
+    /** False when the time is that of an idle tick with nothing due. */
     public function hasEmitted(): bool
     {
         return [] !== $this->emitted;
     }
 
     /**
-     * Marks the run of a task at the given time as emitted.
-     *
-     * The position never moves backwards: runs re-discovered and skipped during a catch-up are
-     * reported here too, and an earlier time would make the runs after it look unemitted.
+     * Marks the run as emitted. Never moves backwards: a catch-up reports the runs it skips here
+     * too, and an earlier time would make the ones after it look unemitted.
      */
     public function save(DateTimeImmutable $time, string $taskId): void
     {
@@ -129,7 +118,7 @@ final class Checkpoint
         }
 
         if (null === $this->time || $time > $this->time) {
-            // Every run of the time before this one is emitted, so the set starts over.
+            // Every run of the time before this one is emitted.
             $this->time = $time;
             $this->emitted = [];
         } elseif (isset($this->emitted[$taskId])) {
@@ -149,7 +138,7 @@ final class Checkpoint
      */
     public function markTick(DateTimeImmutable $now): void
     {
-        // Never move the position backwards: an idle tick after emitted runs must keep them.
+        // An idle tick after emitted runs must keep them.
         if (null !== $this->time && $now <= $this->time) {
             return;
         }
@@ -191,18 +180,14 @@ final class Checkpoint
     }
 
     /**
-     * The tasks a stored payload says were emitted at its time.
-     *
      * @param array<array-key, mixed> $state
      *
      * @return array<string, true>
      */
     private static function readEmitted(array $state, string $scheduleName): array
     {
-        // A checkpoint written before the emitted runs were recorded by task id holds the place
-        // of the last one in the schedule instead. Its time is kept and its runs are all left as
-        // emitted, so an upgrade replays none of them and resumes strictly after it. This can go
-        // once 1.0.0 is out and no such checkpoint can be in a cache any more.
+        // The format before this one held a place, not ids. Its runs read as emitted, so an
+        // upgrade resumes after them. Can go at 1.0.0.
         if (!isset($state['tasks']) && is_int($state['index'] ?? null)) {
             return [];
         }

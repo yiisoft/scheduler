@@ -148,9 +148,8 @@ final class TaskGenerator
         $this->heap = new TriggerHeap();
         $lastTime = $this->checkpoint->time();
 
-        // Probe one microsecond before the checkpoint so runs due exactly at the checkpoint time
-        // are re-emitted and filtered by their task id: only the unprocessed remainder survives.
-        // An idle-tick marker has no such remainder, so it seeds strictly after itself.
+        // Probe a microsecond early so runs due exactly at the checkpoint time are re-emitted and
+        // filtered by their task id. An idle-tick marker has no remainder, so it seeds after itself.
         $seedTime = $lastTime ?? $this->clock->now();
         if (null !== $lastTime && $this->checkpoint->hasEmitted()) {
             $seedTime = $lastTime->modify('-1 microsecond');
