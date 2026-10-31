@@ -56,7 +56,7 @@ final class Schedule
     }
 
     /**
-     * @return RecurringTask[]
+     * @return list<RecurringTask>
      */
     public function tasks(): array
     {
