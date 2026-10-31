@@ -20,6 +20,7 @@ use Yiisoft\Scheduler\Handler\TaskHandlerInterface;
 
 use function array_key_exists;
 use function array_keys;
+use function array_slice;
 use function array_map;
 use function cli_set_process_title;
 use function count;
@@ -148,7 +149,16 @@ final class Scheduler
                         ++$count;
 
                         try {
-                            $this->runTask($task, $context);
+                            $status = $this->runTask($task, $context);
+                        } catch (Throwable $error) {
+                            $status = TaskStatus::Failed;
+                            $failure = $this->firstFailure($failure, $error);
+                        }
+
+                        // Recorded after the run, so a checkpoint that cannot be written is
+                        // reported behind the task's own failure rather than instead of it.
+                        try {
+                            $this->resolve($context, $status);
                         } catch (Throwable $error) {
                             $failure = $this->firstFailure($failure, $error);
                         }
@@ -182,16 +192,22 @@ final class Scheduler
             }
         }
 
-        // Draining the generators above already moved every checkpoint past these runs, so a
-        // task that fails to start must not abort the ones queued behind it: they would never
-        // be emitted again. Collect the first failure and report it once the batch is started.
+        // Draining the generators claimed every one of these runs, so a task that fails to start
+        // must not abort the ones behind it: their claims would be left with nobody to resolve
+        // them. A stop is different — there the runs nobody got to are given back above.
         foreach ($due as $index => [$task, $context]) {
             try {
                 if (!$this->awaitFreeSlot($maxProcesses)) {
+                    $pending = array_slice($due, $index);
+
                     $this->logger->warning(
-                        'Stopping, {count} due task(s) of this tick are not started.',
-                        ['count' => count($due) - $index],
+                        'Stopping, {count} due task(s) of this tick are given back to the schedule.',
+                        ['count' => count($pending)],
                     );
+
+                    foreach ($pending as [, $unstarted]) {
+                        $this->release($unstarted);
+                    }
 
                     break;
                 }
@@ -442,13 +458,26 @@ final class Scheduler
         return $first;
     }
 
-    private function runTask(RecurringTask $task, TaskContext $context): void
+    /** Runs the task and reports what became of it, leaving the caller to record it. */
+    private function runTask(RecurringTask $task, TaskContext $context): TaskStatus
     {
         if (!$this->beforeRun($task, $context)) {
-            return;
+            return TaskStatus::Cancelled;
         }
 
-        $this->executeTask($task, $context);
+        return $this->executeTask($task, $context);
+    }
+
+    /** Records what became of a claimed run with the schedule it belongs to. */
+    private function resolve(TaskContext $context, TaskStatus $status): void
+    {
+        $this->generators[$context->scheduleName]->resolve($context, $status);
+    }
+
+    /** Gives a claimed run that was never started back to the schedule, leaving it due. */
+    private function release(TaskContext $context): void
+    {
+        $this->generators[$context->scheduleName]->release($context);
     }
 
     /**
@@ -477,7 +506,7 @@ final class Scheduler
         return true;
     }
 
-    private function executeTask(RecurringTask $task, TaskContext $context): void
+    private function executeTask(RecurringTask $task, TaskContext $context): TaskStatus
     {
         $schedule = $this->generators[$context->scheduleName]->getSchedule();
 
@@ -499,13 +528,15 @@ final class Scheduler
                 ['id' => $context->taskId, 'schedule' => $context->scheduleName, 'error' => $error->getMessage()],
             );
 
-            return;
+            return TaskStatus::Failed;
         }
 
         $this->dispatcher?->dispatch(new PostRunEvent($context, $task, $result));
         foreach ($schedule->getAfterListeners() as $listener) {
             $listener($context, $task, $result);
         }
+
+        return TaskStatus::Done;
     }
 
     /**
@@ -523,10 +554,14 @@ final class Scheduler
                 ['id' => $context->taskId, 'schedule' => $context->scheduleName],
             );
 
+            $this->resolve($context, TaskStatus::Skipped);
+
             return;
         }
 
         if (!$this->beforeRun($task, $context)) {
+            $this->resolve($context, TaskStatus::Cancelled);
+
             return;
         }
 
@@ -545,7 +580,15 @@ final class Scheduler
             self::unblockChildSignal($blocked);
 
             // Forking is refused (e.g. resource limits): run inline rather than drop the run.
-            $this->executeTask($task, $context);
+            try {
+                $status = $this->executeTask($task, $context);
+            } catch (Throwable $error) {
+                $this->resolve($context, TaskStatus::Failed);
+
+                throw $error;
+            }
+
+            $this->resolve($context, $status);
 
             return;
         }
@@ -687,6 +730,8 @@ final class Scheduler
         $schedule = $this->generators[$context->scheduleName]->getSchedule();
 
         if (pcntl_wifexited($status) && 0 === pcntl_wexitstatus($status)) {
+            $this->resolve($context, TaskStatus::Done);
+
             // The result cannot cross the process boundary, so listeners see null here.
             $this->dispatcher?->dispatch(new PostRunEvent($context, $task, null));
             foreach ($schedule->getAfterListeners() as $listener) {
@@ -695,6 +740,8 @@ final class Scheduler
 
             return;
         }
+
+        $this->resolve($context, TaskStatus::Failed);
 
         $error = new RuntimeException(
             pcntl_wifexited($status)

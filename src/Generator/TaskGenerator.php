@@ -10,6 +10,7 @@ use Yiisoft\Scheduler\Exception\LogicException;
 use Yiisoft\Scheduler\RecurringTask;
 use Yiisoft\Scheduler\Schedule;
 use Yiisoft\Scheduler\TaskContext;
+use Yiisoft\Scheduler\TaskStatus;
 
 use function array_map;
 use function count;
@@ -34,12 +35,7 @@ final class TaskGenerator
         private readonly Schedule $schedule,
         private readonly ClockInterface $clock,
     ) {
-        $this->checkpoint = new Checkpoint(
-            $schedule->getName(),
-            array_map(static fn(RecurringTask $task): string => $task->getId(), $schedule->tasks()),
-            $schedule->getState(),
-            $schedule->getMutex(),
-        );
+        $this->checkpoint = new Checkpoint($schedule->getName(), $schedule->getState(), $schedule->getMutex());
     }
 
     public function getSchedule(): Schedule
@@ -56,7 +52,7 @@ final class TaskGenerator
     {
         $now = $this->clock->now();
 
-        if (!$this->checkpoint->acquire()) {
+        if (!$this->checkpoint->acquire($this->taskIds())) {
             return;
         }
 
@@ -85,18 +81,17 @@ final class TaskGenerator
                 }
 
                 if (!$yield) {
-                    $this->checkpoint->save($task->getId(), $time);
+                    $this->checkpoint->write($task->getId(), $time, TaskStatus::Skipped);
                     continue;
                 }
 
                 $context = new TaskContext($this->schedule->getName(), $task->getId(), $task->getTrigger(), $time, $nextTime);
 
-                yield $context => $task;
+                // Taken rather than due for anyone reading the schedule while this run is in
+                // flight. resolve() says what became of it, release() gives it back.
+                $this->checkpoint->write($task->getId(), $time, TaskStatus::Claimed, at: $now);
 
-                // Reached whether the task succeeded or failed: the consumer keeps a failure to
-                // itself until the schedule is drained, so a failed run is recorded like any
-                // other instead of being emitted again by the next process.
-                $this->checkpoint->save($task->getId(), $time);
+                yield $context => $task;
             }
 
             // Reached only by a tick that drained, so a process that died partway leaves the
@@ -116,7 +111,7 @@ final class TaskGenerator
      */
     public function getNextRunDate(): ?DateTimeImmutable
     {
-        if (!$this->checkpoint->acquire()) {
+        if (!$this->checkpoint->acquire($this->taskIds())) {
             return null;
         }
 
@@ -129,11 +124,41 @@ final class TaskGenerator
         }
     }
 
+    /** Records what became of a claimed run, once the consumer knows. */
+    public function resolve(TaskContext $context, TaskStatus $status): void
+    {
+        $this->checkpoint->resolve($context->taskId, $context->triggeredAt, $status);
+    }
+
+    /**
+     * Gives a claimed run back, leaving it due. For a run known not to have been started at all,
+     * as opposed to one whose outcome is merely unknown.
+     */
+    public function release(TaskContext $context): void
+    {
+        $this->checkpoint->giveBack($context->taskId, $context->triggeredAt);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function taskIds(): array
+    {
+        return array_map(static fn(RecurringTask $task): string => $task->getId(), $this->schedule->tasks());
+    }
+
     private function heap(): TriggerHeap
     {
-        // A position read from the shared state replaces the pending runs: they were computed from
-        // a position this process believed to be current, and another one has moved on since.
-        if (null !== $this->heap && $this->heapRevision === $this->checkpoint->revision()) {
+        $now = $this->clock->now();
+        $reclaimAfter = $this->schedule->getReclaimAfter();
+
+        // State read back replaces the pending runs: another process has moved on since they were
+        // computed. So does a claim there is no longer any point in waiting on, which changes
+        // where its task resumes without changing anything that was stored.
+        if (null !== $this->heap
+            && $this->heapRevision === $this->checkpoint->revision()
+            && !$this->checkpoint->hasReclaimableClaim($now, $reclaimAfter)
+        ) {
             return $this->heap;
         }
 
@@ -144,9 +169,11 @@ final class TaskGenerator
         foreach ($this->schedule->tasks() as $task) {
             $index = $this->indices[$task->getId()] ??= count($this->indices);
 
-            // No record yet — newly added, or left unstarted when a process died — means the
+            // No record yet — newly added, or added while the schedule was down — means the
             // position of the schedule, and now when there is no position either.
-            $seedTime = $this->checkpoint->lastRun($task->getId()) ?? $position ?? $this->clock->now();
+            $seedTime = $this->checkpoint->resumePoint($task->getId(), $now, $reclaimAfter)
+                ?? $position
+                ?? $now;
 
             if (null !== ($nextTime = $task->getTrigger()->getNextRunDate($seedTime))) {
                 $this->heap->insert([$nextTime, $index, $task]);
