@@ -18,7 +18,7 @@ use function count;
  *
  * The generator keeps a min-heap of pending runs seeded from the schedule checkpoint, so a
  * process that was down re-discovers every missed run, while runs already emitted before a
- * crash are skipped through their (time, index) position.
+ * crash are skipped through the checkpoint.
  *
  * @internal
  */
@@ -27,7 +27,7 @@ final class TaskGenerator
     private ?TriggerHeap $heap = null;
     private int $heapRevision = -1;
     private readonly Checkpoint $checkpoint;
-    /** @var array<string, int> Task id to insertion index. */
+    /** @var array<string, int> Task id to insertion index, ordering the runs of a shared due time. */
     private array $indices = [];
 
     public function __construct(
@@ -69,7 +69,7 @@ final class TaskGenerator
 
                 // Skip the runs already emitted before an interruption.
                 if (null !== ($lastTime = $this->checkpoint->time())) {
-                    if ($time < $lastTime || ($time == $lastTime && $index <= $this->checkpoint->index())) {
+                    if ($time < $lastTime || ($time == $lastTime && $this->checkpoint->wasEmitted($task->getId()))) {
                         $yield = false;
                     }
                 }
@@ -90,7 +90,7 @@ final class TaskGenerator
                 }
 
                 if (!$yield) {
-                    $this->checkpoint->save($time, $index);
+                    $this->checkpoint->save($time, $task->getId());
                     continue;
                 }
 
@@ -103,7 +103,7 @@ final class TaskGenerator
                 // Reached whether the task succeeded or failed: the consumer keeps a failure to
                 // itself until the schedule is drained, so a failed run is recorded like any
                 // other instead of being emitted again by the next process.
-                $this->checkpoint->save($time, $index);
+                $this->checkpoint->save($time, $task->getId());
             }
 
             if (!$emitted) {
@@ -149,10 +149,10 @@ final class TaskGenerator
         $lastTime = $this->checkpoint->time();
 
         // Probe one microsecond before the checkpoint so runs due exactly at the checkpoint time
-        // are re-emitted and filtered by their index: only the unprocessed remainder survives.
-        // An idle-tick marker (index -1) has no such remainder, so it seeds strictly after itself.
+        // are re-emitted and filtered by their task id: only the unprocessed remainder survives.
+        // An idle-tick marker has no such remainder, so it seeds strictly after itself.
         $seedTime = $lastTime ?? $this->clock->now();
-        if (null !== $lastTime && $this->checkpoint->index() >= 0) {
+        if (null !== $lastTime && $this->checkpoint->hasEmitted()) {
             $seedTime = $lastTime->modify('-1 microsecond');
         }
 
