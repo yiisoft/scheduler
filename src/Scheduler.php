@@ -21,6 +21,7 @@ use Yiisoft\Scheduler\Handler\TaskHandlerInterface;
 use function array_key_exists;
 use function array_keys;
 use function array_map;
+use function cli_set_process_title;
 use function count;
 use function extension_loaded;
 use function function_exists;
@@ -43,6 +44,7 @@ use const SIG_BLOCK;
 use const SIG_DFL;
 use const SIG_UNBLOCK;
 use const WNOHANG;
+use const PHP_OS_FAMILY;
 
 /**
  * Runs the due tasks of one or more schedules.
@@ -620,6 +622,10 @@ final class Scheduler
             ob_end_clean();
         }
 
+        // Only once the parent's buffers are gone, so that a warning about the renaming
+        // reaches the error log instead of a buffer nothing will flush.
+        self::nameChildProcess($context);
+
         try {
             $this->handler->handle($task->getTask(), $context);
         } catch (Throwable $error) {
@@ -632,6 +638,24 @@ final class Scheduler
         }
 
         self::exitChild(0);
+    }
+
+    /**
+     * Names the process after the task it runs, so that `ps` and `/proc` tell the task
+     * processes apart instead of showing a copy of the daemon's own command line for each
+     * of them, and so that one left behind by a daemon that died can still be recognized.
+     *
+     * Does nothing on macOS, where the call warns instead of renaming anything.
+     */
+    private static function nameChildProcess(TaskContext $context): void
+    {
+        // Registered by the CLI SAPI alone, and a common entry of disable_functions; the
+        // daemon itself runs anywhere pcntl does.
+        if ('Darwin' === PHP_OS_FAMILY || !function_exists('cli_set_process_title')) {
+            return;
+        }
+
+        cli_set_process_title(sprintf('task %s of schedule %s', $context->taskId, $context->scheduleName));
     }
 
     /**

@@ -37,6 +37,7 @@
     },
     "require-dev": {
         "friendsofphp/php-cs-fixer": "^3.92.5",
+        "phpstan/phpstan": "2.3.3",
         "phpunit/phpunit": "^10.5.46",
         "rector/rector": "^2.0.17",
         "roave/infection-static-analysis-plugin": "^1.35",
