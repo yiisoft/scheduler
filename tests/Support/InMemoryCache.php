@@ -14,6 +14,7 @@ final class InMemoryCache implements CacheInterface
 {
     private array $values = [];
     private bool $writesFail = false;
+    private int $writes = 0;
 
     /**
      * Makes every subsequent write report a failure, as a full or unavailable cache would.
@@ -35,8 +36,17 @@ final class InMemoryCache implements CacheInterface
         }
 
         $this->values[$key] = $value;
+        ++$this->writes;
 
         return true;
+    }
+
+    /**
+     * How many values were written, redundant writes of an unchanged value included.
+     */
+    public function writes(): int
+    {
+        return $this->writes;
     }
 
     public function delete(string $key): bool
