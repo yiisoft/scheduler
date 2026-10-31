@@ -594,7 +594,7 @@ final class SchedulerTest extends TestCase
         $this->assertSame(5, $ran);
     }
 
-    public function testTaskFailureIsNotMaskedByACheckpointPersistenceFailure(): void
+    public function testRunIsNotHandedOutWhenItsClaimCannotBePersisted(): void
     {
         $cache = new InMemoryCache();
         $clock = new TestClock();
@@ -613,8 +613,10 @@ final class SchedulerTest extends TestCase
         $clock->advance('+1 minute');
         $cache->failWrites();
 
-        $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('Task failed.');
+        // A run is claimed before it is handed out, so a checkpoint that cannot be written stops
+        // the task from running at all rather than letting it run unrecorded and be repeated.
+        $this->expectException(SchedulerRuntimeException::class);
+        $this->expectExceptionMessage('Unable to persist the checkpoint');
 
         $scheduler->tick();
     }
