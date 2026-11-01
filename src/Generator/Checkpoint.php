@@ -10,15 +10,18 @@ use Throwable;
 use Yiisoft\Mutex\MutexInterface;
 use Yiisoft\Scheduler\Exception\RuntimeException;
 
+use function array_keys;
 use function is_array;
 use function is_int;
+use function is_string;
 use function sprintf;
 
 /**
  * The persisted-or-not position of a schedule: which runs were already emitted.
  *
- * The (time, index) pair identifies the last emitted run; a process resuming from a
- * checkpoint re-discovers every missed run and skips the ones already emitted.
+ * A point in time plus the tasks whose run at that time was emitted, held by identifier rather
+ * than by place in the schedule: a deploy adding or removing a task moves the places, not the
+ * runs that were recorded.
  *
  * @internal
  */
@@ -27,7 +30,8 @@ final class Checkpoint
     private const CACHE_KEY_PREFIX = 'yii_schedule_checkpoint_';
 
     private ?DateTimeImmutable $time = null;
-    private int $index = -1;
+    /** @var array<string, true> Identifiers of the tasks emitted at {@see $time}. */
+    private array $emitted = [];
     private bool $locked = false;
     private int $revision = 0;
 
@@ -92,25 +96,36 @@ final class Checkpoint
         return $this->time;
     }
 
-    public function index(): int
+    public function wasEmitted(string $taskId): bool
     {
-        return $this->index;
+        return isset($this->emitted[$taskId]);
+    }
+
+    /** False when the time is that of an idle tick with nothing due. */
+    public function hasEmitted(): bool
+    {
+        return [] !== $this->emitted;
     }
 
     /**
-     * Marks a run as emitted.
-     *
-     * The position never moves backwards: runs re-discovered and skipped during a catch-up are
-     * reported here too, and lowering the position would make the ones after them look unemitted.
+     * Marks the run as emitted. Never moves backwards: a catch-up reports the runs it skips here
+     * too, and an earlier time would make the ones after it look unemitted.
      */
-    public function save(DateTimeImmutable $time, int $index): void
+    public function save(DateTimeImmutable $time, string $taskId): void
     {
-        if (null !== $this->time && ($time < $this->time || ($time == $this->time && $index <= $this->index))) {
+        if (null !== $this->time && $time < $this->time) {
             return;
         }
 
-        $this->time = $time;
-        $this->index = $index;
+        if (null === $this->time || $time > $this->time) {
+            // Every run of the time before this one is emitted.
+            $this->time = $time;
+            $this->emitted = [];
+        } elseif (isset($this->emitted[$taskId])) {
+            return;
+        }
+
+        $this->emitted[$taskId] = true;
 
         $this->persist();
     }
@@ -123,13 +138,13 @@ final class Checkpoint
      */
     public function markTick(DateTimeImmutable $now): void
     {
-        // Never move the position backwards: an idle tick after emitted runs must keep their index.
+        // An idle tick after emitted runs must keep them.
         if (null !== $this->time && $now <= $this->time) {
             return;
         }
 
         $this->time = $now;
-        $this->index = -1;
+        $this->emitted = [];
 
         $this->persist();
     }
@@ -147,23 +162,62 @@ final class Checkpoint
             return;
         }
 
-        if (!is_array($state) || !isset($state['time'], $state['index']) || !is_int($state['index'])) {
-            throw new RuntimeException(
-                sprintf('The checkpoint of schedule "%s" holds an unexpected payload.', $this->scheduleName),
-            );
+        if (!is_array($state) || !isset($state['time']) || !is_string($state['time'])) {
+            throw new RuntimeException($this->unexpectedPayload());
         }
 
-        $time = DateTimeImmutable::createFromFormat('U.u', (string) $state['time']) ?: null;
-        $index = $state['index'];
+        $time = DateTimeImmutable::createFromFormat('U.u', $state['time']) ?: null;
+        $emitted = self::readEmitted($state, $this->scheduleName);
 
-        if ($index === $this->index && $time == $this->time) {
+        if ($emitted == $this->emitted && $time == $this->time) {
             return;
         }
 
         $this->time = $time;
-        $this->index = $index;
+        $this->emitted = $emitted;
 
         ++$this->revision;
+    }
+
+    /**
+     * @param array<array-key, mixed> $state
+     *
+     * @return array<string, true>
+     */
+    private static function readEmitted(array $state, string $scheduleName): array
+    {
+        // The format before this one held a place, not ids. Its runs read as emitted, so an
+        // upgrade resumes after them. Can go at 1.0.0.
+        if (!isset($state['tasks']) && is_int($state['index'] ?? null)) {
+            return [];
+        }
+
+        if (!isset($state['tasks']) || !is_array($state['tasks'])) {
+            throw new RuntimeException(self::unexpectedPayloadMessage($scheduleName));
+        }
+
+        $emitted = [];
+
+        /** @var mixed $taskId */
+        foreach ($state['tasks'] as $taskId) {
+            if (!is_string($taskId)) {
+                throw new RuntimeException(self::unexpectedPayloadMessage($scheduleName));
+            }
+
+            $emitted[$taskId] = true;
+        }
+
+        return $emitted;
+    }
+
+    private function unexpectedPayload(): string
+    {
+        return self::unexpectedPayloadMessage($this->scheduleName);
+    }
+
+    private static function unexpectedPayloadMessage(string $scheduleName): string
+    {
+        return sprintf('The checkpoint of schedule "%s" holds an unexpected payload.', $scheduleName);
     }
 
     private function persist(): void
@@ -172,7 +226,9 @@ final class Checkpoint
             return;
         }
 
-        if (!$this->cache->set($this->cacheKey(), ['time' => $this->time->format('U.u'), 'index' => $this->index])) {
+        $state = ['time' => $this->time->format('U.u'), 'tasks' => array_keys($this->emitted)];
+
+        if (!$this->cache->set($this->cacheKey(), $state)) {
             throw new RuntimeException(
                 sprintf('Unable to persist the checkpoint of schedule "%s".', $this->scheduleName),
             );

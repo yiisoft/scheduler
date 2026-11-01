@@ -20,6 +20,15 @@ final class RecurringTaskTest extends TestCase
         RecurringTask::every('garbage', 'app:noop');
     }
 
+    public function testGeneratedIdIsWideEnoughToTellTasksApart(): void
+    {
+        // A checkpoint tells the runs it holds from the ones still to come by this identifier,
+        // so the width is what keeps a task added to a schedule from being taken for another.
+        $id = RecurringTask::cron('0 5 * * *', 'report:daily')->getId();
+
+        $this->assertMatchesRegularExpression('/^[0-9a-f]{16}$/', $id);
+    }
+
     public function testIntervalsOfDifferentLengthProduceDifferentIds(): void
     {
         $monthly = RecurringTask::every('1 month', 'app:monthly');

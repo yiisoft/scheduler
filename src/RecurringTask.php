@@ -241,10 +241,15 @@ final class RecurringTask
 
     /**
      * A stable identifier for the task, used as its key in a schedule and in checkpoints.
+     *
+     * A checkpoint tells the runs it already holds from the ones still to come by this
+     * identifier, so two tasks sharing one would make a schedule skip a run that never
+     * happened. Sixty-four bits put that out of reach of any schedule: a thousand tasks
+     * collide with a probability of about one in thirty thousand billion.
      */
     private static function generateId(string $kind, string $triggerDescription, mixed $task): string
     {
-        return hash('crc32c', $kind . ':' . $triggerDescription . ':' . self::describeTask($task));
+        return hash('xxh3', $kind . ':' . $triggerDescription . ':' . self::describeTask($task));
     }
 
     private static function describeTask(mixed $task): string
