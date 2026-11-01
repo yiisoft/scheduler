@@ -141,12 +141,21 @@ final class TaskGenerator
         $this->heap = new TriggerHeap();
         $position = $this->checkpoint->time();
 
+        if (null === $position) {
+            // Nothing stored yet, so the runs about to be computed are the first this schedule
+            // has ever had. Where they are computed from is written down before any of them is
+            // emitted: a tick interrupted before it drains then leaves the runs it never started
+            // behind a position, rather than behind nothing for the next process to seed from.
+            $position = $this->clock->now();
+            $this->checkpoint->markInitialPosition($position);
+        }
+
         foreach ($this->schedule->tasks() as $task) {
             $index = $this->indices[$task->getId()] ??= count($this->indices);
 
             // No record yet — newly added, or left unstarted when a process died — means the
-            // position of the schedule, and now when there is no position either.
-            $seedTime = $this->checkpoint->lastRun($task->getId()) ?? $position ?? $this->clock->now();
+            // position of the schedule.
+            $seedTime = $this->checkpoint->lastRun($task->getId()) ?? $position;
 
             if (null !== ($nextTime = $task->getTrigger()->getNextRunDate($seedTime))) {
                 $this->heap->insert([$nextTime, $index, $task]);

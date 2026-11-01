@@ -147,6 +147,29 @@ final class Checkpoint
             return;
         }
 
+        $this->writePosition($now);
+    }
+
+    /**
+     * Records the point a schedule with no position yet starts from, before any of its runs are
+     * emitted.
+     *
+     * Until a tick drains, the position is the only thing telling a task with no record of its
+     * own where to resume. Without this, a first tick that dies partway would leave the runs it
+     * never started with nothing behind them at all, and the process replacing it would seed
+     * those tasks from its own now and step over them.
+     */
+    public function markInitialPosition(DateTimeImmutable $now): void
+    {
+        if (null !== $this->time) {
+            return;
+        }
+
+        $this->writePosition($now);
+    }
+
+    private function writePosition(DateTimeImmutable $now): void
+    {
         $this->time = $now;
 
         if (null === $this->cache) {

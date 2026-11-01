@@ -201,6 +201,51 @@ final class TaskGeneratorTest extends TestCase
         }
     }
 
+    public function testRunLeftUnstartedByAnInterruptedFirstTickIsStillDue(): void
+    {
+        $log = new ArrayObject();
+        $first = static function () use ($log): void {
+            $log[] = 'first';
+        };
+        $second = static function () use ($log): void {
+            $log[] = 'second';
+        };
+
+        $cache = new InMemoryCache();
+        $clock = new TestClock();
+
+        // A daemon asks when the schedule is next due before anything has ever run, so this is
+        // the first time the pending runs are computed from a state holding nothing at all.
+        $generator = new TaskGenerator($this->schedule($cache, [$first, $second]), $clock);
+        $this->assertNotNull($generator->getNextRunDate());
+
+        // The tick it wakes up for is killed between the two runs, so it never drains and never
+        // records that the schedule was evaluated to the end.
+        $clock->advance('+1 minute');
+        $handler = new CallableTaskHandler();
+        $started = 0;
+
+        foreach ($generator->getTasks() as $context => $task) {
+            if (1 === $started) {
+                break;
+            }
+
+            $handler->handle($task->getTask(), $context);
+            ++$started;
+        }
+
+        unset($generator);
+        $this->assertSame(['first'], $log->getArrayCopy());
+
+        // The process replacing it has never seen a drained tick, so the run left unstarted is
+        // due only if the first process wrote down where the schedule began before emitting
+        // anything. Seeding that task from the now of this process would step over it.
+        $log->exchangeArray([]);
+        $this->tick($cache, $clock, [$first, $second]);
+
+        $this->assertSame(['second'], $log->getArrayCopy());
+    }
+
     /**
      * @return iterable<string, array{mixed}>
      */
