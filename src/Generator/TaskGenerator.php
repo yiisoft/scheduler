@@ -137,10 +137,12 @@ final class TaskGenerator
     /**
      * Restarts the reclaim window of a claimed run at the moment the run actually begins, for a
      * consumer that starts a run later than it took it.
+     *
+     * @return bool Whether the run is still this process's to start.
      */
-    public function markStarted(TaskContext $context): void
+    public function markStarted(TaskContext $context): bool
     {
-        $this->checkpoint->markStarted($context->taskId, $context->triggeredAt, $this->clock->now());
+        return $this->checkpoint->markStarted($context->taskId, $context->triggeredAt, $this->clock->now());
     }
 
     /**

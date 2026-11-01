@@ -215,6 +215,89 @@ final class TaskGeneratorTest extends TestCase
         $this->assertSame(['task', 'task'], $log->getArrayCopy());
     }
 
+    public function testRunTakenOverWhileItWaitedForASlotIsNotStartedHere(): void
+    {
+        $log = new ArrayObject();
+        $task = static function () use ($log): void {
+            $log[] = 'task';
+        };
+
+        $clock = new TestClock();
+        $cache = new InMemoryCache();
+        $generator = new TaskGenerator($this->schedule($cache, [$task], 10), $clock);
+        $this->assertNotNull($generator->getNextRunDate());
+
+        $clock->advance('+1 minute');
+        $claimed = null;
+
+        foreach ($generator->getTasks() as $context => $ignored) {
+            $claimed = $context;
+        }
+
+        $this->assertNotNull($claimed);
+
+        // The run waits for a free process slot for longer than the reclaim window, and another
+        // scheduler takes it over in the meantime.
+        $clock->advance('+20 seconds');
+        $this->leaveClaim($cache, $task, $clock->now(), 'another-host/1');
+
+        // Starting it here as well is the second time it runs, so the claim is checked first.
+        $this->assertFalse($generator->markStarted($claimed));
+
+        // Nor does the process that lost the run get to say what became of it.
+        $generator->resolve($claimed, TaskStatus::Done);
+        $record = $cache->get($this->taskKey($task));
+
+        $this->assertIsArray($record);
+        $this->assertSame('claimed', $record['status']);
+        $this->assertSame('another-host/1', $record['owner']);
+    }
+
+    public function testLateOutcomeDoesNotMoveTheRecordBehindARunAnotherSchedulerFinished(): void
+    {
+        $log = new ArrayObject();
+        $task = static function () use ($log): void {
+            $log[] = 'task';
+        };
+
+        $clock = new TestClock();
+        $cache = new InMemoryCache();
+
+        // One scheduler takes the run due at 00:01 and is still running it.
+        $first = new TaskGenerator($this->schedule($cache, [$task]), $clock);
+        $this->assertNotNull($first->getNextRunDate());
+
+        $clock->advance('+1 minute');
+        $claimedByFirst = null;
+
+        foreach ($first->getTasks() as $context => $ignored) {
+            $claimedByFirst = $context;
+        }
+
+        // Another takes the run due at 00:02 and finishes it while the first is still going.
+        $clock->advance('+1 minute');
+        $second = new TaskGenerator($this->schedule($cache, [$task]), $clock);
+        $claimedBySecond = null;
+
+        foreach ($second->getTasks() as $context => $ignored) {
+            $claimedBySecond = $context;
+        }
+
+        $this->assertNotNull($claimedBySecond);
+        $second->resolve($claimedBySecond, TaskStatus::Done);
+
+        // Only now does the first scheduler reap its child and report the older outcome.
+        $this->assertNotNull($claimedByFirst);
+        $first->resolve($claimedByFirst, TaskStatus::Done);
+
+        // The run of 00:02 is over, so what comes next is 00:03. Reporting an older outcome
+        // against a record this scheduler last read before the other one moved it would put
+        // the finished run back in front of everyone.
+        $third = new TaskGenerator($this->schedule($cache, [$task]), $clock);
+
+        $this->assertEquals($claimedBySecond->triggeredAt->modify('+1 minute'), $third->getNextRunDate());
+    }
+
     public function testClaimExpiringUnderALongLivedSchedulerIsStillHandedOut(): void
     {
         $log = new ArrayObject();

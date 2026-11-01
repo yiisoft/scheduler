@@ -173,22 +173,22 @@ final class Checkpoint
      *
      * Anything but this process's own claim of this very run is left alone: the record has moved
      * on, and whoever moved it is the one that owns it now.
+     *
+     * @return bool Whether the run is still this process's to start. False means the wait for a
+     * free slot outlasted the claim and another process has taken the run over, so starting it
+     * here would run it twice.
      */
-    public function markStarted(string $taskId, DateTimeImmutable $time, DateTimeImmutable $at): void
+    public function markStarted(string $taskId, DateTimeImmutable $time, DateTimeImmutable $at): bool
     {
-        $record = $this->records[$taskId] ?? null;
+        $claim = $this->ourClaim($taskId);
 
-        if (null === $record) {
-            return;
+        if (null === $claim || $time != $claim[0]) {
+            return false;
         }
 
-        [$recordedTime, $status, $owner] = $record;
+        $this->write($taskId, $time, TaskStatus::Claimed, self::owner(), $at);
 
-        if (TaskStatus::Claimed !== $status || $time != $recordedTime || self::owner() !== $owner) {
-            return;
-        }
-
-        $this->write($taskId, $time, TaskStatus::Claimed, $owner, $at);
+        return true;
     }
 
     /**
@@ -261,15 +261,20 @@ final class Checkpoint
     }
 
     /**
-     * Records what became of a claimed run. A resolution of an earlier run than the one on record
-     * is dropped: the runs of a task are claimed in order but resolved as their outcomes arrive,
-     * and moving the record back would hand out the ones in between a second time.
+     * Records what became of a claimed run, if the state still holds this process's claim of it.
+     *
+     * An outcome arrives long after the claim was made, and by then the task may have been taken
+     * over: the claim ran out of window, or the run after it was already handed out and finished
+     * elsewhere. Writing the outcome anyway would move the record behind a run that is over, and
+     * hand that run out again.
      */
     public function resolve(string $taskId, DateTimeImmutable $time, TaskStatus $status): void
     {
-        $record = $this->records[$taskId] ?? null;
+        $claim = $this->ourClaim($taskId);
 
-        if (null !== $record && $time < $record[0]) {
+        // Only the newest run claimed is the one the record stands for; the outcome of an older
+        // one of the same catch-up says nothing about where the task has got to.
+        if (null === $claim || $time != $claim[0]) {
             return;
         }
 
@@ -282,13 +287,63 @@ final class Checkpoint
      */
     public function giveBack(string $taskId, DateTimeImmutable $time): void
     {
-        $record = $this->records[$taskId] ?? null;
+        $claim = $this->ourClaim($taskId);
 
-        if (null !== $record && $time > $record[0]) {
+        if (null === $claim || $time > $claim[0]) {
             return;
         }
 
         $this->write($taskId, $time, TaskStatus::Released);
+    }
+
+    /**
+     * The record of a task if the shared state still holds it as a claim of this process.
+     *
+     * It is read back first: the one in hand was read when the run was claimed, and what has
+     * happened to it since is the whole question. Another process may have taken the task over,
+     * because the claim ran out of window or because the run after it was handed out and
+     * finished. Nothing may then be recorded about it from here.
+     *
+     * The time on the record is the newest run claimed, which is not necessarily the one being
+     * reported on: a catch-up claims every missed run of a task before any of them is started,
+     * and they all share the one record.
+     *
+     * @psalm-return Record|null
+     *
+     * @return array{DateTimeImmutable, TaskStatus, string|null, DateTimeImmutable|null}|null
+     */
+    private function ourClaim(string $taskId): ?array
+    {
+        $this->reread($taskId);
+
+        $record = $this->records[$taskId] ?? null;
+
+        if (null === $record) {
+            return null;
+        }
+
+        [, $status, $owner] = $record;
+
+        return TaskStatus::Claimed === $status && self::owner() === $owner ? $record : null;
+    }
+
+    /** Replaces the record of one task with what the shared state holds for it now. */
+    private function reread(string $taskId): void
+    {
+        if (null === $this->cache) {
+            return;
+        }
+
+        /** @var mixed $stored */
+        $stored = $this->cache->get($this->taskKey($taskId));
+
+        if (null === $stored) {
+            unset($this->records[$taskId]);
+
+            return;
+        }
+
+        $this->records[$taskId] = $this->readRecord($stored, $taskId);
     }
 
     private function writePosition(DateTimeImmutable $now): void

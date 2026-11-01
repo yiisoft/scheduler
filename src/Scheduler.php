@@ -214,7 +214,17 @@ final class Scheduler
 
                 // The claim was made as the generator was drained; the wait above must not
                 // count against the window that decides when another process may take the run.
-                $this->markStarted($context);
+                // A wait that outlasted the claim is also how the run stops being this
+                // process's to start, and starting it then would be the second time it ran.
+                if (!$this->markStarted($context)) {
+                    $this->logger->warning(
+                        'Task {task} of schedule {schedule} was taken over while it waited for a'
+                        . ' process slot, so it is not started here.',
+                        ['task' => $context->taskId, 'schedule' => $context->scheduleName],
+                    );
+
+                    continue;
+                }
 
                 $this->forkTask($task, $context);
             } catch (Throwable $error) {
@@ -484,9 +494,10 @@ final class Scheduler
         $this->generators[$context->scheduleName]->release($context);
     }
 
-    private function markStarted(TaskContext $context): void
+    /** Whether the run is still this process's to start. */
+    private function markStarted(TaskContext $context): bool
     {
-        $this->generators[$context->scheduleName]->markStarted($context);
+        return $this->generators[$context->scheduleName]->markStarted($context);
     }
 
     /**

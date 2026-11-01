@@ -382,6 +382,58 @@ final class SchedulerTest extends TestCase
     }
 
     #[RequiresPhpExtension('pcntl')]
+    public function testRunTakenOverWhileItWaitedForASlotIsNotStartedByThisScheduler(): void
+    {
+        $clock = new TestClock();
+        $cache = new InMemoryCache();
+
+        $first = RecurringTask::cron('* * * * *', static fn() => null)->withId('first');
+        $second = RecurringTask::cron('* * * * *', static fn() => null)->withId('second');
+        $schedule = (new Schedule())->stateful($cache)->task($first, $second);
+
+        $logger = new class extends AbstractLogger {
+            /** @var list<string> */
+            public array $warnings = [];
+
+            public function log($level, string|Stringable $message, array $context = []): void
+            {
+                if (LogLevel::WARNING === $level) {
+                    $this->warnings[] = (string) $message;
+                }
+            }
+        };
+
+        $scheduler = new Scheduler([$schedule], new CallableTaskHandler(), $clock, null, $logger);
+        $scheduler->tick();
+        $clock->advance('+1 minute');
+
+        // Both runs are claimed as the tick is drained, and the second one waits behind the
+        // first. Another scheduler takes it over during that wait.
+        $taken = [
+            'time' => $clock->now()->format('U.u'),
+            'status' => 'claimed',
+            'owner' => 'another-host/1',
+            'at' => $clock->now()->format('U.u'),
+        ];
+        $key = 'yii_schedule_checkpoint_' . hash('xxh3', 'default') . '_' . hash('xxh3', $second->getId());
+        $cache->replaceOnRead($key, $taken);
+
+        $scheduler->tick(true);
+
+        while ($scheduler->hasRunningChildren()) {
+            $scheduler->reapChildren();
+            usleep(10_000);
+        }
+
+        // Starting it here too would be the second time that run happened.
+        $this->assertCount(1, $logger->warnings);
+        $this->assertStringContainsString('taken over', $logger->warnings[0]);
+
+        // And the scheduler that lost it does not get to say anything about it either.
+        $this->assertSame($taken, $cache->get($key));
+    }
+
+    #[RequiresPhpExtension('pcntl')]
     public function testFailingScheduleDoesNotKeepTheOtherSchedulesFromRunningConcurrently(): void
     {
         [$scheduler, $dispatcher] = $this->schedulerWithAnUnreadableFirstSchedule();
