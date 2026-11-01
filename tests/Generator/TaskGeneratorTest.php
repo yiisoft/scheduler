@@ -163,7 +163,7 @@ final class TaskGeneratorTest extends TestCase
         };
 
         $cache = new InMemoryCache();
-        $cache->set('yii_schedule_checkpoint_default_' . hash('xxh3', RecurringTask::cron('* * * * *', $task)->getId()), 'garbage');
+        $cache->set($this->taskKey($task), 'garbage');
 
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('unexpected payload');
@@ -195,9 +195,7 @@ final class TaskGeneratorTest extends TestCase
         $this->assertSame(['time' => $clock->now()->format('U.u')], $cache->get('yii_schedule_checkpoint_default'));
 
         foreach ([$first, $second] as $task) {
-            $key = 'yii_schedule_checkpoint_default_' . hash('xxh3', RecurringTask::cron('* * * * *', $task)->getId());
-
-            $this->assertSame($clock->now()->format('U.u'), $cache->get($key));
+            $this->assertSame($clock->now()->format('U.u'), $cache->get($this->taskKey($task)));
         }
     }
 
@@ -244,6 +242,30 @@ final class TaskGeneratorTest extends TestCase
         $this->tick($cache, $clock, [$first, $second]);
 
         $this->assertSame(['second'], $log->getArrayCopy());
+    }
+
+    public function testRecordsFitACacheLimitedToTheKeyLengthPsr16Guarantees(): void
+    {
+        $log = new ArrayObject();
+        $task = static function () use ($log): void {
+            $log[] = 'task';
+        };
+
+        $cache = new InMemoryCache();
+        $cache->limitKeyLength(64);
+        $clock = new TestClock();
+
+        // A schedule name long enough that spelling it out in a key of its own per task would
+        // pass what PSR-16 guarantees, while the name itself stays one a cache took before.
+        $schedule = (new Schedule('daily_subscription_invoices'))
+            ->stateful($cache)
+            ->task(RecurringTask::cron('* * * * *', $task));
+
+        (new Scheduler([$schedule], new CallableTaskHandler(), $clock))->tick();
+        $clock->advance('+1 minute');
+        (new Scheduler([$schedule], new CallableTaskHandler(), $clock))->tick();
+
+        $this->assertSame(['task'], $log->getArrayCopy());
     }
 
     /**
@@ -308,6 +330,17 @@ final class TaskGeneratorTest extends TestCase
     private function tick(InMemoryCache $cache, TestClock $clock, array $tasks): void
     {
         (new Scheduler([$this->schedule($cache, $tasks)], new CallableTaskHandler(), $clock))->tick();
+    }
+
+    /**
+     * The key the record of one task is kept under, built the way the checkpoint builds it.
+     */
+    private function taskKey(callable $task, string $scheduleName = 'default'): string
+    {
+        return 'yii_schedule_checkpoint_'
+            . hash('xxh3', $scheduleName)
+            . '_'
+            . hash('xxh3', RecurringTask::cron('* * * * *', $task)->getId());
     }
 
     /**

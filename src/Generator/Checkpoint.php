@@ -261,9 +261,14 @@ final class Checkpoint
         return self::CACHE_KEY_PREFIX . $this->scheduleName;
     }
 
-    /** The id is hashed because withId() takes any string, while PSR-16 reserves `{}()/\@:`. */
+    /**
+     * Both halves of the identity are hashed rather than spelled out: withId() takes any string
+     * and a schedule name is as free, while PSR-16 reserves `{}()/\@:` and guarantees keys only
+     * up to 64 characters. Two fixed-width hashes hold a task key at 57 of them however long the
+     * schedule and the task are named, and still leave the tasks of one schedule a shared prefix.
+     */
     private function taskKey(string $taskId): string
     {
-        return self::CACHE_KEY_PREFIX . $this->scheduleName . '_' . hash('xxh3', $taskId);
+        return self::CACHE_KEY_PREFIX . hash('xxh3', $this->scheduleName) . '_' . hash('xxh3', $taskId);
     }
 }
