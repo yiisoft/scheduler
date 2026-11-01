@@ -298,6 +298,37 @@ final class TaskGeneratorTest extends TestCase
         $this->assertEquals($claimedBySecond->triggeredAt->modify('+1 minute'), $third->getNextRunDate());
     }
 
+    public function testRunGivenBackIsStillPendingForTheSchedulerThatGaveItBack(): void
+    {
+        $log = new ArrayObject();
+        $task = static function () use ($log): void {
+            $log[] = 'task';
+        };
+
+        $clock = new TestClock();
+        $cache = new InMemoryCache();
+        $generator = new TaskGenerator($this->schedule($cache, [$task]), $clock);
+
+        // The daemon works out the pending runs when it asks what to wait for, and keeps them.
+        $this->assertNotNull($generator->getNextRunDate());
+
+        $clock->advance('+1 minute');
+        $claimed = null;
+
+        foreach ($generator->getTasks() as $context => $ignored) {
+            $claimed = $context;
+        }
+
+        $this->assertNotNull($claimed);
+
+        // A graceful stop hands back the runs it never got to start.
+        $generator->release($claimed);
+
+        // What was handed back is pending again for this scheduler too, not only for the next
+        // one to read the state: the pending runs it is holding no longer describe the record.
+        $this->assertEquals($claimed->triggeredAt, $generator->getNextRunDate());
+    }
+
     public function testClaimExpiringUnderALongLivedSchedulerIsStillHandedOut(): void
     {
         $log = new ArrayObject();

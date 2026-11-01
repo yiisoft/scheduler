@@ -152,6 +152,12 @@ final class TaskGenerator
     public function release(TaskContext $context): void
     {
         $this->checkpoint->giveBack($context->taskId, $context->triggeredAt);
+
+        // The pending runs held here were worked out when this one had been handed out, and the
+        // run after it is the only one of the task they still carry. Dropping them puts the run
+        // just given back in front of this scheduler too, rather than only in front of the next
+        // process to read the state.
+        $this->heap = null;
     }
 
     /**
