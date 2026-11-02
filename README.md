@@ -208,6 +208,35 @@ $schedule = (new Schedule())
     ->task(...);
 ```
 
+## Asking a trigger for more than the next run
+
+A trigger answers one question: given a run, when is the next one? That is all a schedule needs
+while it keeps up. It is not all it needs after an outage: a task due every minute has some
+forty thousand runs behind it after thirty days, and walking them one at a time is work the
+schedule does before it can run anything else.
+
+`TriggerRangeInterface` adds two questions for that case, and both built-in triggers answer
+them:
+
+```php
+$trigger = new PeriodicTrigger(600, new DateTimeImmutable('2026-01-01 00:00:00'));
+
+// The first run at or after a date, rather than strictly after it.
+$trigger->getNextRunDateAtOrAfter(new DateTimeImmutable('2026-01-01 00:10:00'));
+
+// A hundred runs at most, from the backlog between two dates.
+$batch = $trigger->getRunDates($lastHandled, $now, 100);
+```
+
+Both bounds of a range are exclusive, so a batch continued from its own last date neither skips
+a run nor repeats one, and both questions take a `$phase`: a run already accounted for, never
+answered with again. The dates are the ones the trigger gives one at a time, in the same order —
+a range is a different question about the same sequence, not a different sequence.
+
+A custom trigger implements `TriggerInterface` alone and is asked one date at a time, as before.
+Implement `TriggerRangeInterface` as well when the sequence can be enumerated more cheaply than
+by walking it.
+
 ## Task identifiers
 
 Every task gets an identifier generated from the description of its trigger and from what it

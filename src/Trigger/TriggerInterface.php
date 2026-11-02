@@ -12,6 +12,10 @@ use Stringable;
  *
  * Implementations must be stateless and must return a date strictly after the given one;
  * returning null means the trigger is exhausted and won't be asked again.
+ *
+ * This is the whole contract: a trigger answering only this is asked one date at a time,
+ * however far behind the schedule is. One whose sequence can be enumerated more cheaply than by
+ * walking it answers {@see TriggerRangeInterface} as well, and is asked for a batch at a time.
  */
 interface TriggerInterface extends Stringable
 {
