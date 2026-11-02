@@ -208,6 +208,31 @@ $schedule = (new Schedule())
     ->task(...);
 ```
 
+## What became of a run
+
+A run is claimed in the checkpoint as it is handed out and recorded as `done`, `failed`,
+`skipped` or `cancelled` — the cases of `TaskStatus` — once its outcome is known. A run the
+scheduler never gets to, because it is shutting down, is given back to the schedule and stays
+due rather than passing for a run that happened.
+
+A claim is left behind when the process holding it dies. Every claim is taken back after a
+window, set with `reclaimAfter()` and a day by default:
+
+```php
+$schedule->reclaimAfter(900); // or a DateInterval
+```
+
+The window has to outlast a run, counted from the moment it starts. Under `--max-processes` a
+due run waits for a free slot first, and that wait is not charged against the window. Taking a
+run back while its process still means to make it runs the task a second time.
+
+A claim made by a process of this host is taken back sooner than that, as soon as the process
+is gone, which needs `ext-posix`. Asking about the process only brings the window forward and
+never puts it off, so a claim whose process is still there is taken back once the window runs
+out as well. A process being alive is no promise that the run is: a pid is given to something
+else once the process it belonged to is gone, and a claim waiting on one of those would stand
+forever.
+
 ## Task identifiers
 
 Every task gets an identifier generated from the cron expression or the interval of its

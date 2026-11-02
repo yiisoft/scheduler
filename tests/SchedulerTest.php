@@ -382,6 +382,98 @@ final class SchedulerTest extends TestCase
     }
 
     #[RequiresPhpExtension('pcntl')]
+    public function testEveryMissedRunOfACatchUpIsStartedWhileTheyQueueForOneSlot(): void
+    {
+        // Concurrent generation claims all three missed runs before starting any of them, and
+        // they share the one record. Mistaking the earlier two for runs some other scheduler
+        // took over loses the whole backlog but its last run, while the tick still reports
+        // three.
+        $clock = new TestClock();
+        $cache = new InMemoryCache();
+
+        $schedule = (new Schedule())->stateful($cache)->task(
+            RecurringTask::every(60, static fn() => null)->withId('minute'),
+        );
+
+        $logger = new class extends AbstractLogger {
+            /** @var list<string> */
+            public array $warnings = [];
+
+            public function log($level, string|Stringable $message, array $context = []): void
+            {
+                if (LogLevel::WARNING === $level) {
+                    $this->warnings[] = (string) $message;
+                }
+            }
+        };
+
+        $scheduler = new Scheduler([$schedule], new CallableTaskHandler(), $clock, null, $logger);
+        $scheduler->tick();
+        $clock->advance('+3 minutes');
+
+        $this->assertSame(3, $scheduler->tick(true, 1));
+
+        while ($scheduler->hasRunningChildren()) {
+            $scheduler->reapChildren();
+            usleep(10_000);
+        }
+
+        $this->assertSame([], $logger->warnings);
+    }
+
+    #[RequiresPhpExtension('pcntl')]
+    public function testRunTakenOverWhileItWaitedForASlotIsNotStartedByThisScheduler(): void
+    {
+        $clock = new TestClock();
+        $cache = new InMemoryCache();
+
+        $first = RecurringTask::cron('* * * * *', static fn() => null)->withId('first');
+        $second = RecurringTask::cron('* * * * *', static fn() => null)->withId('second');
+        $schedule = (new Schedule())->stateful($cache)->task($first, $second);
+
+        $logger = new class extends AbstractLogger {
+            /** @var list<string> */
+            public array $warnings = [];
+
+            public function log($level, string|Stringable $message, array $context = []): void
+            {
+                if (LogLevel::WARNING === $level) {
+                    $this->warnings[] = (string) $message;
+                }
+            }
+        };
+
+        $scheduler = new Scheduler([$schedule], new CallableTaskHandler(), $clock, null, $logger);
+        $scheduler->tick();
+        $clock->advance('+1 minute');
+
+        // Both runs are claimed as the tick is drained, and the second one waits behind the
+        // first. Another scheduler takes it over during that wait.
+        $taken = [
+            'time' => $clock->now()->format('U.u'),
+            'status' => 'claimed',
+            'owner' => 'another-host/1',
+            'at' => $clock->now()->format('U.u'),
+        ];
+        $key = 'yii_schedule_checkpoint_' . hash('xxh3', 'default') . '_' . hash('xxh3', $second->getId());
+        $cache->replaceOnRead($key, $taken);
+
+        $scheduler->tick(true);
+
+        while ($scheduler->hasRunningChildren()) {
+            $scheduler->reapChildren();
+            usleep(10_000);
+        }
+
+        // Starting it here too would be the second time that run happened.
+        $this->assertCount(1, $logger->warnings);
+        $this->assertStringContainsString('taken over', $logger->warnings[0]);
+
+        // And the scheduler that lost it does not get to say anything about it either.
+        $this->assertSame($taken, $cache->get($key));
+    }
+
+    #[RequiresPhpExtension('pcntl')]
     public function testFailingScheduleDoesNotKeepTheOtherSchedulesFromRunningConcurrently(): void
     {
         [$scheduler, $dispatcher] = $this->schedulerWithAnUnreadableFirstSchedule();
@@ -594,7 +686,7 @@ final class SchedulerTest extends TestCase
         $this->assertSame(5, $ran);
     }
 
-    public function testTaskFailureIsNotMaskedByACheckpointPersistenceFailure(): void
+    public function testRunIsNotHandedOutWhenItsClaimCannotBePersisted(): void
     {
         $cache = new InMemoryCache();
         $clock = new TestClock();
@@ -613,8 +705,10 @@ final class SchedulerTest extends TestCase
         $clock->advance('+1 minute');
         $cache->failWrites();
 
-        $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('Task failed.');
+        // A run is claimed before it is handed out, so a checkpoint that cannot be written stops
+        // the task from running at all rather than letting it run unrecorded and be repeated.
+        $this->expectException(SchedulerRuntimeException::class);
+        $this->expectExceptionMessage('Unable to persist the checkpoint');
 
         $scheduler->tick();
     }
