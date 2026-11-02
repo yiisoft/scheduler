@@ -9,6 +9,7 @@ use DateTimeImmutable;
 use Yiisoft\Scheduler\Exception\LogicException;
 
 use function abs;
+use function count;
 use function intdiv;
 use function is_int;
 use function round;
@@ -30,7 +31,7 @@ use const PHP_INT_MAX;
  * the clock neither skips nor repeats its runs. One with days, months or years in it follows
  * the calendar of the anchor's timezone instead, so "every day" stays at the same local time.
  */
-final class PeriodicTrigger implements TriggerInterface
+final class PeriodicTrigger implements TriggerRangeInterface
 {
     private const NON_ADVANCING_MESSAGE
         = 'The interval does not advance the date; use a cron expression for calendar-based schedules.';
@@ -168,6 +169,87 @@ final class PeriodicTrigger implements TriggerInterface
         return $next;
     }
 
+    public function getNextRunDateAtOrAfter(DateTimeImmutable $date, ?DateTimeImmutable $phase = null): ?DateTimeImmutable
+    {
+        // getNextRunDate() answers with the first run strictly after the date it is given, and
+        // the run at the date asked about is an answer here, so the question is put a
+        // microsecond earlier. A phase is a run already accounted for: nothing at or before it
+        // is an answer, whatever the date asked about.
+        $after = null !== $phase && $phase >= $date ? $phase : $date->modify('-1 microsecond');
+
+        return $this->getNextRunDate($after);
+    }
+
+    public function getRunDates(
+        DateTimeImmutable $after,
+        DateTimeImmutable $before,
+        int $limit,
+        ?DateTimeImmutable $phase = null,
+    ): array {
+        if ($limit <= 0) {
+            throw new LogicException(sprintf('The limit must be greater than zero, "%d" given.', $limit));
+        }
+
+        $cursor = null !== $phase && $phase > $after ? $phase : $after;
+        $from = $this->from ?? new DateTimeImmutable(self::DEFAULT_FROM);
+
+        // Where in the sequence to start, counted in intervals from the anchor. Found once:
+        // every date after it is the one before it plus an interval, so a batch costs its own
+        // length and one search, not a search per date.
+        $index = $cursor < $from ? 0 : $this->indexAfter($from, $cursor);
+
+        $dates = [];
+
+        while (count($dates) < $limit) {
+            $date = $this->atIndex($from, $index, $cursor);
+
+            if ($date >= $before || (null !== $this->until && $date > $this->until)) {
+                break;
+            }
+
+            $dates[] = $date;
+            ++$index;
+        }
+
+        return $dates;
+    }
+
+    /**
+     * How many intervals past the anchor the first run strictly after the given date is, for an
+     * interval of either kind. Zero is the anchor itself, which is a run date.
+     */
+    private function indexAfter(DateTimeImmutable $from, DateTimeImmutable $after): int
+    {
+        if (null === $this->step) {
+            return $this->firstMultipleIndexAfter($from, $after);
+        }
+
+        $index = intdiv($after->getTimestamp() - $from->getTimestamp(), $this->step);
+
+        // The division is of whole seconds, so the date at that index can still be at or before
+        // the one asked about, by its fraction of a second or by the division rounding towards
+        // zero.
+        while ($this->atIndex($from, $index, $after) <= $after) {
+            ++$index;
+        }
+
+        return $index;
+    }
+
+    /**
+     * The run date that many intervals past the anchor.
+     */
+    private function atIndex(DateTimeImmutable $from, int $index, DateTimeImmutable $in): DateTimeImmutable
+    {
+        if (0 === $index) {
+            return $from->setTimezone($in->getTimezone());
+        }
+
+        return null === $this->step
+            ? $this->multiple($from, $index)
+            : self::atTimestamp($from->getTimestamp() + $index * $this->step, $from, $in);
+    }
+
     /**
      * The date at the given timestamp and at the fraction of a second the anchor is at, in the
      * timezone of the date asked about. Whole seconds apart from the anchor, a run shares its
@@ -194,6 +276,19 @@ final class PeriodicTrigger implements TriggerInterface
      */
     private function firstMultipleAfter(DateTimeImmutable $from, DateTimeImmutable $lastRun): DateTimeImmutable
     {
+        return $this->multiple($from, $this->firstMultipleIndexAfter($from, $lastRun));
+    }
+
+    /**
+     * How many intervals past the anchor the first run strictly after the given date is.
+     *
+     * The multiple is found by an exponential probe followed by a binary search, so the cost is
+     * logarithmic in the distance from the anchor instead of linear in the number of intervals.
+     * A caller walking a range takes the index and counts on from it, rather than searching
+     * again for every date it wants.
+     */
+    private function firstMultipleIndexAfter(DateTimeImmutable $from, DateTimeImmutable $lastRun): int
+    {
         $first = $this->multiple($from, 1);
 
         if ($first <= $from) {
@@ -201,7 +296,7 @@ final class PeriodicTrigger implements TriggerInterface
         }
 
         if ($first > $lastRun) {
-            return $first;
+            return 1;
         }
 
         // Lower bound is known to be at or before $lastRun; find an upper bound past it.
@@ -230,7 +325,7 @@ final class PeriodicTrigger implements TriggerInterface
             }
         }
 
-        return $this->multiple($from, $high);
+        return $high;
     }
 
     /**

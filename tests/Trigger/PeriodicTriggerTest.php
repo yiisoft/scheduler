@@ -12,6 +12,8 @@ use PHPUnit\Framework\TestCase;
 use Yiisoft\Scheduler\Exception\LogicException;
 use Yiisoft\Scheduler\Trigger\PeriodicTrigger;
 
+use function array_slice;
+use function count;
 use function date_default_timezone_get;
 use function date_default_timezone_set;
 
@@ -288,6 +290,245 @@ final class PeriodicTriggerTest extends TestCase
     /**
      * @param callable(): void $test
      */
+    /**
+     * The one property the whole range API rests on: asked for a part of the sequence, a trigger
+     * answers with the dates it would have answered with one at a time.
+     */
+    #[DataProvider('ranges')]
+    public function testARangeHoldsExactlyTheDatesTheTriggerWouldGiveOneAtATime(
+        PeriodicTrigger $trigger,
+        DateTimeImmutable $after,
+        DateTimeImmutable $before,
+    ): void {
+        $oneAtATime = [];
+        $cursor = $after;
+
+        while (true) {
+            $next = $trigger->getNextRunDate($cursor);
+
+            if (null === $next || $next >= $before) {
+                break;
+            }
+
+            $oneAtATime[] = $next;
+            $cursor = $next;
+        }
+
+        $this->assertNotSame([], $oneAtATime);
+        $this->assertEquals($oneAtATime, $trigger->getRunDates($after, $before, 200));
+    }
+
+    /**
+     * @return iterable<string, array{PeriodicTrigger, DateTimeImmutable, DateTimeImmutable}>
+     */
+    public static function ranges(): iterable
+    {
+        $utc = new DateTimeZone('UTC');
+        $skopje = new DateTimeZone('Europe/Skopje');
+
+        yield 'an interval of seconds' => [
+            new PeriodicTrigger(3600),
+            new DateTimeImmutable('2026-03-01 00:00:00', $utc),
+            new DateTimeImmutable('2026-03-01 06:00:00', $utc),
+        ];
+
+        yield 'a day across the spring change' => [
+            new PeriodicTrigger(new DateInterval('P1D'), new DateTimeImmutable('2026-03-25 00:00:00', $skopje)),
+            new DateTimeImmutable('2026-03-26 00:00:00', $skopje),
+            new DateTimeImmutable('2026-04-02 00:00:00', $skopje),
+        ];
+
+        yield 'a month anchored to the end of one' => [
+            new PeriodicTrigger(new DateInterval('P1M'), new DateTimeImmutable('2026-01-31 00:00:00', $utc)),
+            new DateTimeImmutable('2026-01-31 00:00:00', $utc),
+            new DateTimeImmutable('2026-07-01 00:00:00', $utc),
+        ];
+
+        yield 'a year anchored to a leap day' => [
+            new PeriodicTrigger(new DateInterval('P1Y'), new DateTimeImmutable('2024-02-29 00:00:00', $utc)),
+            new DateTimeImmutable('2024-02-29 00:00:00', $utc),
+            new DateTimeImmutable('2029-01-01 00:00:00', $utc),
+        ];
+
+        yield 'an interval shorter than a second' => [
+            new PeriodicTrigger(
+                DateInterval::createFromDateString('500 microseconds'),
+                new DateTimeImmutable('2026-01-01 00:00:00', $utc),
+            ),
+            new DateTimeImmutable('2026-01-01 00:00:00', $utc),
+            new DateTimeImmutable('2026-01-01 00:00:00.003000', $utc),
+        ];
+    }
+
+    public function testABatchContinuedFromItsLastDateCoversTheRangeExactlyOnce(): void
+    {
+        $trigger = new PeriodicTrigger(600);
+        $after = new DateTimeImmutable('2026-01-01 00:00:00+00:00');
+        $before = new DateTimeImmutable('2026-01-01 02:00:00+00:00');
+
+        $batched = [];
+        $cursor = $after;
+
+        while ([] !== $batch = $trigger->getRunDates($cursor, $before, 4)) {
+            $batched = [...$batched, ...$batch];
+            $cursor = $batch[count($batch) - 1];
+        }
+
+        $this->assertEquals($trigger->getRunDates($after, $before, 100), $batched);
+    }
+
+    public function testTheAnchorItselfOpensTheRange(): void
+    {
+        $trigger = new PeriodicTrigger(3600, new DateTimeImmutable('2026-05-01 00:00:00+00:00'));
+
+        $dates = $trigger->getRunDates(
+            new DateTimeImmutable('2026-04-30 00:00:00+00:00'),
+            new DateTimeImmutable('2026-05-01 02:30:00+00:00'),
+            5,
+        );
+
+        $this->assertCount(3, $dates);
+        $this->assertSame('2026-05-01 00:00:00', $dates[0]->format('Y-m-d H:i:s'));
+    }
+
+    public function testARangeStopsAtTheEndDateOfTheTrigger(): void
+    {
+        $trigger = new PeriodicTrigger(3600, null, new DateTimeImmutable('2026-01-01 03:00:00+00:00'));
+
+        $dates = $trigger->getRunDates(
+            new DateTimeImmutable('2026-01-01 00:30:00+00:00'),
+            new DateTimeImmutable('2026-01-02 00:00:00+00:00'),
+            10,
+        );
+
+        $this->assertCount(3, $dates);
+        $this->assertSame('2026-01-01 03:00:00', $dates[2]->format('Y-m-d H:i:s'));
+    }
+
+    public function testBothBoundsAreExclusive(): void
+    {
+        $trigger = new PeriodicTrigger(3600, new DateTimeImmutable('2026-01-01 00:00:00+00:00'));
+
+        $dates = $trigger->getRunDates(
+            new DateTimeImmutable('2026-01-01 01:00:00+00:00'),
+            new DateTimeImmutable('2026-01-01 03:00:00+00:00'),
+            10,
+        );
+
+        $this->assertCount(1, $dates);
+        $this->assertSame('2026-01-01 02:00:00', $dates[0]->format('Y-m-d H:i:s'));
+    }
+
+    public function testARangeThatEndsBeforeItStartsIsEmpty(): void
+    {
+        $trigger = new PeriodicTrigger(3600);
+
+        $this->assertSame([], $trigger->getRunDates(
+            new DateTimeImmutable('2026-01-02 00:00:00+00:00'),
+            new DateTimeImmutable('2026-01-01 00:00:00+00:00'),
+            5,
+        ));
+    }
+
+    public function testAnExhaustedTriggerHasNoRange(): void
+    {
+        $trigger = new PeriodicTrigger(3600, null, new DateTimeImmutable('2026-01-01 00:00:00+00:00'));
+
+        $this->assertSame([], $trigger->getRunDates(
+            new DateTimeImmutable('2026-06-01 00:00:00+00:00'),
+            new DateTimeImmutable('2026-06-02 00:00:00+00:00'),
+            5,
+        ));
+    }
+
+    public function testARangeHoldsNoMoreDatesThanAskedFor(): void
+    {
+        $trigger = new PeriodicTrigger(60);
+
+        $dates = $trigger->getRunDates(
+            new DateTimeImmutable('2026-01-01 00:00:00+00:00'),
+            new DateTimeImmutable('2026-01-02 00:00:00+00:00'),
+            3,
+        );
+
+        $this->assertCount(3, $dates);
+        $this->assertSame('2026-01-01 00:01:00', $dates[0]->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-01-01 00:03:00', $dates[2]->format('Y-m-d H:i:s'));
+    }
+
+    public function testALimitOfNoneIsRejected(): void
+    {
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('The limit must be greater than zero, "0" given.');
+
+        (new PeriodicTrigger(3600))->getRunDates(
+            new DateTimeImmutable('2026-01-01 00:00:00+00:00'),
+            new DateTimeImmutable('2026-01-02 00:00:00+00:00'),
+            0,
+        );
+    }
+
+    public function testTheDateAskedAboutIsItselfAnAnswer(): void
+    {
+        $trigger = new PeriodicTrigger(3600);
+        $onTheHour = new DateTimeImmutable('2026-01-01 05:00:00+00:00');
+
+        $this->assertEquals($onTheHour, $trigger->getNextRunDateAtOrAfter($onTheHour));
+        $this->assertSame('2026-01-01 06:00:00', $trigger->getNextRunDate($onTheHour)->format('Y-m-d H:i:s'));
+    }
+
+    public function testARunAlreadyAccountedForIsNotGivenAgain(): void
+    {
+        $trigger = new PeriodicTrigger(3600);
+        $onTheHour = new DateTimeImmutable('2026-01-01 05:00:00+00:00');
+
+        $this->assertSame(
+            '2026-01-01 06:00:00',
+            $trigger->getNextRunDateAtOrAfter($onTheHour, $onTheHour)?->format('Y-m-d H:i:s'),
+        );
+    }
+
+    public function testAPhaseBeforeTheDateAskedAboutChangesNothing(): void
+    {
+        $trigger = new PeriodicTrigger(3600);
+        $date = new DateTimeImmutable('2026-01-01 05:00:00+00:00');
+        $phase = new DateTimeImmutable('2026-01-01 01:00:00+00:00');
+
+        $this->assertEquals(
+            $trigger->getNextRunDateAtOrAfter($date),
+            $trigger->getNextRunDateAtOrAfter($date, $phase),
+        );
+    }
+
+    public function testAPhaseCarriesARangePastTheRunsAlreadyAccountedFor(): void
+    {
+        $trigger = new PeriodicTrigger(3600, new DateTimeImmutable('2026-01-01 00:00:00+00:00'));
+        $window = new DateTimeImmutable('2026-01-01 00:00:00+00:00');
+
+        $dates = $trigger->getRunDates(
+            $window,
+            new DateTimeImmutable('2026-01-01 06:00:00+00:00'),
+            10,
+            new DateTimeImmutable('2026-01-01 03:00:00+00:00'),
+        );
+
+        $this->assertCount(2, $dates);
+        $this->assertSame('2026-01-01 04:00:00', $dates[0]->format('Y-m-d H:i:s'));
+    }
+
+    public function testSeekingDoesNotMoveTheSequence(): void
+    {
+        // The anchor is what the dates are counted from, so asking from anywhere gives the same
+        // dates: a process that restarts mid-backlog resumes the sequence it left.
+        $trigger = new PeriodicTrigger(900, new DateTimeImmutable('2026-01-01 00:00:00+00:00'));
+        $before = new DateTimeImmutable('2026-01-01 02:00:00+00:00');
+
+        $whole = $trigger->getRunDates(new DateTimeImmutable('2026-01-01 00:00:00+00:00'), $before, 100);
+        $tail = $trigger->getRunDates(new DateTimeImmutable('2026-01-01 01:07:00+00:00'), $before, 100);
+
+        $this->assertEquals(array_slice($whole, 4), $tail);
+    }
+
     private function inTimezone(string $timezone, callable $test): void
     {
         $default = date_default_timezone_get();
