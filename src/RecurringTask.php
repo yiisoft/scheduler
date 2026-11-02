@@ -15,10 +15,15 @@ use Yiisoft\Scheduler\Trigger\TriggerInterface;
 
 use function get_debug_type;
 use function hash;
+use function implode;
 use function is_array;
 use function is_object;
 use function is_string;
+use function ksort;
 use function sprintf;
+use function var_export;
+
+use const SORT_STRING;
 
 /**
  * A task paired with the trigger deciding when it runs.
@@ -42,7 +47,12 @@ final class RecurringTask
      */
     public static function cron(string $expression, callable|object|string $task, ?string $timezone = null): self
     {
-        return new self(new CronExpressionTrigger($expression, $timezone), $task, self::generateId('cron', $expression, $task));
+        // From the trigger's own description, as the other two constructors do: the expression
+        // alone leaves out the timezone it is read in, and two tasks differing only in that one
+        // ran under a single identifier.
+        $trigger = new CronExpressionTrigger($expression, $timezone);
+
+        return new self($trigger, $task, self::generateId('cron', (string) $trigger, $task));
     }
 
     /**
@@ -190,11 +200,13 @@ final class RecurringTask
     /**
      * Returns the task under an identifier of your choosing instead of the generated one.
      *
-     * The generated identifier is derived from the trigger and from what the task is: the
-     * command name, the class of an object, the type of a queue message, or the file and line
-     * a closure is declared at. Tasks that are alike in all of that, such as closures created
-     * in a loop or messages differing only in their payload, need identifiers of their own to
-     * be in one schedule.
+     * The generated identifier is derived from the description the trigger gives of itself and
+     * from what the task is: the command name, the class of an object, the type and payload of
+     * a queue message, or the file and line a closure is declared at. Tasks that are alike in
+     * all of that need identifiers of their own to be in one schedule. Such are closures
+     * created in a loop, which are one line of code however many of them there are, and objects
+     * of one class differing in what they were constructed with, which the class name alone
+     * does not tell apart.
      */
     public function withId(string $id): self
     {
@@ -272,10 +284,12 @@ final class RecurringTask
             return sprintf('%s::%s', $target, is_string($method) ? $method : 'unknown');
         }
 
-        // Messages of one class are told apart by their type: GenericMessage is the class of
-        // every message built from a payload.
+        // Messages of one class are told apart by their type and their payload: GenericMessage is
+        // the class of every message built from a payload, and messages of one type differing only
+        // in what they carry are different tasks. The metadata is left out: a message acquires an
+        // id, a delay and failure counts as it is handled, and none of that says which task it is.
         if ($task instanceof MessageInterface) {
-            return sprintf('%s(%s)', $task::class, $task->getType());
+            return sprintf('%s(%s:%s)', $task::class, $task->getType(), self::describePayload($task->getPayload()));
         }
 
         if (is_object($task)) {
@@ -283,5 +297,37 @@ final class RecurringTask
         }
 
         return get_debug_type($task);
+    }
+
+    /**
+     * A message payload as a string that stands for it: one value, however deep, written out in a
+     * fixed order so that the same payload always reads the same way. A payload holds nothing but
+     * scalars, nulls and arrays of them, so there is always such a string.
+     *
+     * @param bool|int|float|string|array|null $payload
+     *
+     * @psalm-param scalar|null|array<array-key, mixed> $payload
+     */
+    private static function describePayload(bool|int|float|string|array|null $payload): string
+    {
+        if (!is_array($payload)) {
+            return var_export($payload, true);
+        }
+
+        // By key, so that two payloads holding the same entries in a different order are one
+        // payload. As strings, because comparing them as PHP does would read "01" and 1 as one
+        // key and leave the two payloads in whatever order they were written in.
+        ksort($payload, SORT_STRING);
+
+        $parts = [];
+
+        foreach ($payload as $key => $value) {
+            /** @psalm-var scalar|null|array<array-key, mixed> $value */
+            // The key is written out the same way a value is, so that one holding an "=" or a
+            // comma cannot read as the end of its own entry and the start of another.
+            $parts[] = var_export($key, true) . '=' . self::describePayload($value);
+        }
+
+        return '[' . implode(',', $parts) . ']';
     }
 }
