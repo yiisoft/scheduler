@@ -23,7 +23,7 @@ catch-up, overlap prevention and failure handling included.
   by hand or built a field at a time (`RecurringTask::daily()->at('05:00')`)
 - Tasks as callables, console commands, or queue messages (via [yiisoft/queue](https://github.com/yiisoft/queue))
 - Catch-up of missed runs and crash-resume through persisted checkpoints (any PSR-16 cache)
-- Overlap prevention across processes through [yiisoft/mutex](https://github.com/yiisoft/mutex)
+- Overlap prevention across processes through any lock, with an adapter for [yiisoft/mutex](https://github.com/yiisoft/mutex)
 - PSR-14 events and per-schedule listeners (before / after / onFailure)
 - `schedule:run` (single tick, for system cron), `schedule:work` (daemon), `schedule:list` commands
 
@@ -34,8 +34,9 @@ catch-up, overlap prevention and failure handling included.
 The core depends on PSR interfaces and a cron expression parser, and nothing else. A console
 command task needs [symfony/console](https://github.com/symfony/console), which also brings the
 three bundled commands; a queue message task needs
-[yiisoft/queue](https://github.com/yiisoft/queue); locking a schedule across processes needs
-[yiisoft/mutex](https://github.com/yiisoft/mutex). Install the ones the schedule uses.
+[yiisoft/queue](https://github.com/yiisoft/queue); locking a schedule across processes needs a lock, for which
+[yiisoft/mutex](https://github.com/yiisoft/mutex) has an adapter. Install the ones the schedule
+uses.
 
 ## Installation
 
@@ -209,17 +210,49 @@ was started, so `every('10 minutes')` runs at :00, :10, :20 and so on, `every('1
 midnight and `every('1 week')` on Mondays. To count from another moment, pass a
 `PeriodicTrigger` with its own `from` date to `RecurringTask::trigger()`.
 
-When building a schedule by hand, persist its checkpoint, and add a mutex to prevent
+When building a schedule by hand, persist its checkpoint, and add a lock to prevent
 overlapping runs across processes:
 
 ```php
+use Yiisoft\Scheduler\Lock\MutexLock;
 use Yiisoft\Scheduler\Schedule;
 
 $schedule = (new Schedule())
     ->stateful($cache) // any PSR-16 implementation
-    ->lock($mutex)     // any yiisoft/mutex implementation
+    ->lock(new MutexLock($mutex)) // or any LockInterface of your own
     ->task(...);
 ```
+
+## Without a framework
+
+The core is a few objects with explicit dependencies, so an application that has no container,
+no console and no framework builds them itself:
+
+```php
+use Yiisoft\Scheduler\Clock\SystemClock;
+use Yiisoft\Scheduler\Handler\CallableTaskHandler;
+use Yiisoft\Scheduler\RecurringTask;
+use Yiisoft\Scheduler\Schedule;
+use Yiisoft\Scheduler\Scheduler;
+
+$schedule = (new Schedule())
+    ->stateful($cache) // any PSR-16 implementation
+    ->task(
+        RecurringTask::everyFiveMinutes()->run(static fn() => $reports->collect())->withId('metrics'),
+        RecurringTask::daily()->at('05:00')->run(static fn() => $reports->daily())->withId('daily-report'),
+    );
+
+$scheduler = new Scheduler([$schedule], new CallableTaskHandler(), new SystemClock());
+
+// One tick per cron entry, or $scheduler->run() to stay up and tick until stopped.
+$scheduler->tick();
+```
+
+That needs `psr/clock`, `psr/simple-cache` and a cron expression parser, and nothing else. Add
+`symfony/console` and a `ConsoleTaskHandler` to run tasks named as commands, `yiisoft/queue` and
+a `QueueTaskHandler` to push them, a `LockInterface` to keep two processes off one schedule, and
+a PSR-14 dispatcher or the `before`, `after` and `onFailure` listeners of the schedule to watch
+what happens.
 
 ## Task identifiers
 
@@ -245,7 +278,7 @@ The same setup scales horizontally without a single point of failure: put the `s
 cron entry (or the `schedule:work` daemon) on every application server. Two things then need
 to be shared between the servers:
 
-- the mutex needs a shared driver — [yiisoft/mutex-redis](https://github.com/yiisoft/mutex-redis),
+- the lock needs a shared driver — [yiisoft/mutex-redis](https://github.com/yiisoft/mutex-redis),
   [yiisoft/mutex-pdo-mysql](https://github.com/yiisoft/mutex-pdo-mysql) or
   [yiisoft/mutex-pdo-pgsql](https://github.com/yiisoft/mutex-pdo-pgsql) — so that the first
   server acquiring it runs the due tasks while the others skip the tick silently;
@@ -255,7 +288,7 @@ to be shared between the servers:
   nobody covered instead of re-running them.
 
 The bundled configuration wires the checkpoint cache automatically as soon as the application
-has a PSR-16 cache; the mutex is opt-in — add `->lock($mutex)` as shown above. With both in
+has a PSR-16 cache; the lock is opt-in — add `->lock(new MutexLock($mutex))` as shown above. With both in
 place, a task is still executed exactly once no matter how many servers the schedule runs on,
 and no single server going down stops the schedule.
 

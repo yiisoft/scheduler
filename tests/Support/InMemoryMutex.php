@@ -5,11 +5,14 @@ declare(strict_types=1);
 namespace Yiisoft\Scheduler\Tests\Support;
 
 use Yiisoft\Mutex\MutexInterface;
+use Yiisoft\Scheduler\Lock\LockInterface;
 
 /**
- * A manually controlled mutex for tests.
+ * A manually controlled mutex for tests. A yiisoft/mutex implementation rather than a
+ * {@see LockInterface}, so that what the tests lock a schedule with is
+ * the adapter an application would use.
  */
-final class InMemoryMutex implements MutexInterface
+class InMemoryMutex implements MutexInterface
 {
     private bool $locked = false;
 

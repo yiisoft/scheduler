@@ -5,6 +5,11 @@ application when you upgrade the package from one version to another.
 
 ## 1.0.0
 
+- `Schedule::lock()` takes a `Yiisoft\Scheduler\Lock\LockInterface` rather than a
+  `Yiisoft\Mutex\MutexInterface`, so a schedule can be locked without installing yiisoft/mutex.
+  Wrap an existing mutex: `->lock(new MutexLock($mutex))`. `Schedule::getMutex()` is renamed to
+  `getLock()`; it is internal and read by the checkpoint.
+
 - `symfony/console` is no longer a dependency of this package. A schedule that runs tasks named
   as console commands, or that uses the bundled `schedule:run`, `schedule:work` and
   `schedule:list` commands, now requires it in the application: `composer require

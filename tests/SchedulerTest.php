@@ -23,6 +23,7 @@ use Psr\Log\LogLevel;
 use Stringable;
 use Yiisoft\Scheduler\Exception\LogicException;
 use Yiisoft\Scheduler\Exception\RuntimeException as SchedulerRuntimeException;
+use Yiisoft\Scheduler\Lock\MutexLock;
 use Yiisoft\Scheduler\Tests\Support\InMemoryMutex;
 use RuntimeException;
 
@@ -472,7 +473,7 @@ final class SchedulerTest extends TestCase
         $ran = 0;
 
         $schedule = (new Schedule())
-            ->lock($mutex)
+            ->lock(new MutexLock($mutex))
             ->task(
                 RecurringTask::cron('* * * * *', static function () use (&$ran): void {
                     ++$ran;
@@ -563,7 +564,7 @@ final class SchedulerTest extends TestCase
         $buildScheduler = static function () use ($cache, $mutex, $clock, &$ran): Scheduler {
             $schedule = (new Schedule())
                 ->stateful($cache)
-                ->lock($mutex)
+                ->lock(new MutexLock($mutex))
                 ->task(
                     RecurringTask::cron('* * * * *', static function () use (&$ran): void {
                         ++$ran;
@@ -626,7 +627,7 @@ final class SchedulerTest extends TestCase
 
         $schedule = (new Schedule())
             ->stateful($cache)
-            ->lock($mutex)
+            ->lock(new MutexLock($mutex))
             ->task(RecurringTask::cron('* * * * *', static fn() => null));
 
         $scheduler = new Scheduler([$schedule], new CallableTaskHandler(), new TestClock());

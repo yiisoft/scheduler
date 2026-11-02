@@ -54,12 +54,13 @@ final class OptionalDependenciesTest extends TestCase
         );
     }
 
-    public function testOnlyTheScheduleAndItsCheckpointNameTheMutex(): void
+    public function testOnlyTheAdapterNamesTheMutex(): void
     {
         $this->assertSame(
             [
-                'Generator/Checkpoint.php',
-                'Schedule.php',
+                // Named in a docblock, to say which interface the adapter adapts.
+                'Lock/LockInterface.php',
+                'Lock/MutexLock.php',
             ],
             self::filesNaming('Yiisoft\\Mutex'),
         );
