@@ -175,7 +175,7 @@ final class PeriodicTrigger implements TriggerRangeInterface
         // the run at the date asked about is an answer here, so the question is put a
         // microsecond earlier. A phase is a run already accounted for: nothing at or before it
         // is an answer, whatever the date asked about.
-        $after = null !== $phase && $phase >= $date ? $phase : $date->modify('-1 microsecond');
+        $after = null !== $phase && $phase >= $date ? $phase : self::microsecondBefore($date);
 
         return $this->getNextRunDate($after);
     }
@@ -192,6 +192,13 @@ final class PeriodicTrigger implements TriggerRangeInterface
 
         $cursor = null !== $phase && $phase > $after ? $phase : $after;
         $from = $this->from ?? new DateTimeImmutable(self::DEFAULT_FROM);
+
+        // Before the search rather than inside it: an interval that does not advance would
+        // otherwise be caught only once the range starts past the anchor, and answered before
+        // that with the anchor over and over, or with dates walking backwards.
+        if (null === $this->step) {
+            $this->assertAdvancing($from);
+        }
 
         // Where in the sequence to start, counted in intervals from the anchor. Found once:
         // every date after it is the one before it plus an interval, so a batch costs its own
@@ -212,6 +219,53 @@ final class PeriodicTrigger implements TriggerRangeInterface
         }
 
         return $dates;
+    }
+
+    /**
+     * The first multiple of the interval, having checked that it is past the anchor at all.
+     *
+     * @return DateTimeImmutable The first run after the anchor.
+     */
+    private function assertAdvancing(DateTimeImmutable $from): DateTimeImmutable
+    {
+        $first = $this->multiple($from, 1);
+
+        if ($first <= $from) {
+            throw new LogicException(self::NON_ADVANCING_MESSAGE);
+        }
+
+        return $first;
+    }
+
+    /**
+     * The moment one microsecond before the given one.
+     *
+     * Counted on the timestamp rather than on the wall clock, because the two part company at
+     * every change of the clock: a microsecond before the first instant after a spring change
+     * is written as an hour that does not exist, and asking a date for it lands an hour ahead
+     * instead of a microsecond behind.
+     */
+    private static function microsecondBefore(DateTimeImmutable $date): DateTimeImmutable
+    {
+        $microseconds = (int) $date->format('u');
+        $timestamp = $date->getTimestamp();
+
+        if (0 === $microseconds) {
+            --$timestamp;
+            $microseconds = 999_999;
+        } else {
+            --$microseconds;
+        }
+
+        $earlier = DateTimeImmutable::createFromFormat('U.u', sprintf('%d.%06d', $timestamp, $microseconds));
+
+        // The spec is built here from two integers, so this only guards against an impossible
+        // state.
+        if (false === $earlier) {
+            throw new LogicException(sprintf('The moment before %s could not be created.', $date->format('c')));
+        }
+
+        return $earlier->setTimezone($date->getTimezone());
     }
 
     /**
@@ -238,11 +292,16 @@ final class PeriodicTrigger implements TriggerRangeInterface
 
     /**
      * The run date that many intervals past the anchor.
+     *
+     * In the timezone {@see getNextRunDate()} would have answered in, so that a range and the
+     * same dates asked for one at a time are the same dates written the same way: the anchor
+     * itself as it was given, a multiple in the timezone of the anchor it was counted from, and
+     * a date counted on the timestamp in the timezone of the date asked about.
      */
     private function atIndex(DateTimeImmutable $from, int $index, DateTimeImmutable $in): DateTimeImmutable
     {
         if (0 === $index) {
-            return $from->setTimezone($in->getTimezone());
+            return $from;
         }
 
         return null === $this->step
@@ -289,11 +348,7 @@ final class PeriodicTrigger implements TriggerRangeInterface
      */
     private function firstMultipleIndexAfter(DateTimeImmutable $from, DateTimeImmutable $lastRun): int
     {
-        $first = $this->multiple($from, 1);
-
-        if ($first <= $from) {
-            throw new LogicException(self::NON_ADVANCING_MESSAGE);
-        }
+        $first = $this->assertAdvancing($from);
 
         if ($first > $lastRun) {
             return 1;
