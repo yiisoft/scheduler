@@ -31,6 +31,12 @@ catch-up, overlap prevention and failure handling included.
 
 - PHP 8.1 - 8.5.
 
+The core depends on PSR interfaces and a cron expression parser, and nothing else. A console
+command task needs [symfony/console](https://github.com/symfony/console), which also brings the
+three bundled commands; a queue message task needs
+[yiisoft/queue](https://github.com/yiisoft/queue); locking a schedule across processes needs
+[yiisoft/mutex](https://github.com/yiisoft/mutex). Install the ones the schedule uses.
+
 ## Installation
 
 ```shell
@@ -67,6 +73,13 @@ A task is one of:
   is better off as a console command;
 - a queue message, pushed to the queue when the container has a
   [yiisoft/queue](https://github.com/yiisoft/queue) producer (`QueueProducerInterface`).
+
+Each kind is handled by a handler of its own, and each passes on what it does not recognise:
+`CallableTaskHandler` runs a callable and depends on nothing outside this package,
+`ConsoleTaskHandler` runs a command name and needs
+[symfony/console](https://github.com/symfony/console), `QueueTaskHandler` pushes a message and
+needs yiisoft/queue. The bundled configuration builds the chain from whatever is installed and
+registered, so a schedule of callables runs with neither package present.
 
 ## Building the expression
 

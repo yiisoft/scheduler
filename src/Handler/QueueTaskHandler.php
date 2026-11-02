@@ -15,8 +15,8 @@ use function is_string;
 use function sprintf;
 
 /**
- * A task handler pushing message tasks to a queue via yiisoft/queue,
- * while callables and console command names still run in place.
+ * A task handler pushing message tasks to a queue via yiisoft/queue, while everything else goes
+ * on to the handler behind it.
  *
  * Requires yiisoft/queue to be installed.
  */
@@ -24,17 +24,17 @@ final class QueueTaskHandler implements TaskHandlerInterface
 {
     public function __construct(
         private readonly QueueProducerInterface $producer,
-        private readonly CallableTaskHandler $fallback = new CallableTaskHandler(),
+        private readonly TaskHandlerInterface $fallback = new CallableTaskHandler(),
     ) {}
 
     public function handle(mixed $task, TaskContext $context): mixed
     {
-        if (is_string($task) || is_callable($task)) {
-            return $this->fallback->handle($task, $context);
-        }
-
         if ($task instanceof MessageInterface) {
             return $this->producer->push($task);
+        }
+
+        if (is_string($task) || is_callable($task)) {
+            return $this->fallback->handle($task, $context);
         }
 
         throw new LogicException(

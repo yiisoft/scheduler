@@ -4,32 +4,35 @@ declare(strict_types=1);
 
 namespace Yiisoft\Scheduler\Handler;
 
-use Symfony\Component\Console\Application;
-use Symfony\Component\Console\Input\StringInput;
-use Symfony\Component\Console\Output\NullOutput;
 use Yiisoft\Scheduler\Exception\LogicException;
-use Yiisoft\Scheduler\Exception\RuntimeException;
 use Yiisoft\Scheduler\TaskContext;
 
+use function get_debug_type;
 use function is_callable;
 use function is_string;
 use function sprintf;
 
 /**
- * The default task handler: invokes callables and, when the console application is
- * available, runs tasks named as console commands. A command exiting with a non-zero code is
- * a failed task.
+ * The default task handler: invokes a callable task, and refuses anything else.
+ *
+ * It is the end of the chain and depends on nothing outside this package. A task named as a
+ * console command is run by {@see ConsoleTaskHandler} in front of it, a message task is pushed
+ * by {@see QueueTaskHandler}, and each of those passes on what it does not recognise.
  */
 final class CallableTaskHandler implements TaskHandlerInterface
 {
-    public function __construct(
-        private readonly ?Application $application = null,
-    ) {}
-
     public function handle(mixed $task, TaskContext $context): mixed
     {
+        // Before the callable check, as it was before this handler was split: a string naming a
+        // function is callable, and a string task has always meant the name of a command.
         if (is_string($task)) {
-            return $this->runCommand($task);
+            throw new LogicException(
+                sprintf(
+                    'Unable to run the "%s" task: a string task is the name of a console command, which needs "%s" in front of this handler.',
+                    $task,
+                    ConsoleTaskHandler::class,
+                ),
+            );
         }
 
         if (is_callable($task)) {
@@ -42,30 +45,5 @@ final class CallableTaskHandler implements TaskHandlerInterface
                 get_debug_type($task),
             ),
         );
-    }
-
-    private function runCommand(string $command): int
-    {
-        if (null === $this->application) {
-            throw new LogicException(
-                sprintf('Unable to run the "%s" console command: the task handler has no console application.', $command),
-            );
-        }
-
-        $input = new StringInput($command);
-        $input->setInteractive(false);
-
-        $exitCode = $this->application->doRun($input, new NullOutput());
-
-        // A command reports a failure through its exit code rather than by throwing, and the
-        // code alone would pass for the result of a successful run. Only the name goes into
-        // the message: it ends up in logs, where the arguments and options may not belong.
-        if (0 !== $exitCode) {
-            throw new RuntimeException(
-                sprintf('The "%s" console command exited with code %d.', $input->getFirstArgument() ?? $command, $exitCode),
-            );
-        }
-
-        return $exitCode;
     }
 }
