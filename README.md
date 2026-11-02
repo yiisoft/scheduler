@@ -215,9 +215,8 @@ A run is claimed in the checkpoint as it is handed out and recorded as `done`, `
 scheduler never gets to, because it is shutting down, is given back to the schedule and stays
 due rather than passing for a run that happened.
 
-A claim is left behind when the process holding it dies. One made by a process of this host is
-noticed as soon as that process is gone, which needs `ext-posix`; one made anywhere else is
-taken back after a window, set with `reclaimAfter()` and a day by default:
+A claim is left behind when the process holding it dies. Every claim is taken back after a
+window, set with `reclaimAfter()` and a day by default:
 
 ```php
 $schedule->reclaimAfter(900); // or a DateInterval
@@ -227,8 +226,12 @@ The window has to outlast a run, counted from the moment it starts. Under `--max
 due run waits for a free slot first, and that wait is not charged against the window. Taking a
 run back while its process still means to make it runs the task a second time.
 
-The window only applies where the process cannot be asked about. A claim of this host is taken
-back as soon as its process is gone, whatever the window says.
+A claim made by a process of this host is taken back sooner than that, as soon as the process
+is gone, which needs `ext-posix`. Asking about the process only brings the window forward and
+never puts it off, so a claim whose process is still there is taken back once the window runs
+out as well. A process being alive is no promise that the run is: a pid is given to something
+else once the process it belonged to is gone, and a claim waiting on one of those would stand
+forever.
 
 ## Task identifiers
 

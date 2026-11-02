@@ -95,8 +95,9 @@ final class Schedule
     }
 
     /**
-     * Sets how long a claimed run is left to its process before the schedule takes it back. A
-     * gone process of this host is noticed at once with ext-posix; this covers the rest.
+     * Sets how long a claimed run is left to its process before the schedule takes it back.
+     * Every claim is taken back once the window runs out, including one whose process is still
+     * there; a gone process of this host is noticed before that with ext-posix.
      *
      * It has to outlast the work itself. The window starts when the run starts rather than when
      * it was claimed, so the wait for a free slot under `--max-processes` is not charged against

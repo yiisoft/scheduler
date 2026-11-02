@@ -457,6 +457,38 @@ final class TaskGeneratorTest extends TestCase
         $this->assertSame([], $log->getArrayCopy());
     }
 
+    #[RequiresPhpExtension('posix')]
+    public function testClaimOfAProcessThatIsStillThereIsTakenBackOnceTheWindowRunsOut(): void
+    {
+        $log = new ArrayObject();
+        $task = static function () use ($log): void {
+            $log[] = 'task';
+        };
+
+        $cache = new InMemoryCache();
+        $clock = new TestClock();
+        $schedule = $this->schedule($cache, [$task], 10);
+
+        (new Scheduler([$schedule], new CallableTaskHandler(), $clock))->tick();
+        $clock->advance('+1 minute');
+
+        $generator = new TaskGenerator($schedule, $clock);
+
+        foreach ($generator->getTasks() as $context => $_) {
+            // Handed out and still in flight: the claim is neither resolved nor given back.
+            break;
+        }
+
+        // The process that holds the claim is this one, and it is alive. Asking about it only
+        // ever brings the window forward, so the run is handed out again once the window runs
+        // out: a pid is given to something else once its process is gone, and a claim left
+        // waiting on one of those would stand forever.
+        $clock->advance('+20 seconds');
+        $this->tick($cache, $clock, [$task], 10);
+
+        $this->assertSame(['task'], $log->getArrayCopy());
+    }
+
     public function testRunsAlreadyRecordedAreNotWrittenToTheCheckpointAgain(): void
     {
         $log = new ArrayObject();

@@ -35,10 +35,11 @@ use function sprintf;
  * A run is claimed as it is handed out and resolved once its outcome is known, so another process
  * reads a run in flight as taken and one that was never started can be given back.
  *
- * A claim carries the process that made it. One whose process is gone is handed out again; a
- * process of another host, or of a host without ext-posix, cannot be asked about, so there the
- * claim stands until the reclaim window runs out — handing out a run that is still going would
- * run the task twice over.
+ * A claim carries the process that made it, and the run is handed out again once that process
+ * is gone or the reclaim window runs out, whichever comes first. A process of another host, or
+ * of a host without ext-posix, cannot be asked about, and a live one is no promise that the run
+ * is still going either, since its pid may since have been given to something else. The window
+ * is what bounds both, and asking about the process only brings it forward.
  *
  * @internal
  *
@@ -224,7 +225,8 @@ final class Checkpoint
 
     /**
      * Where the task resumes: after its recorded run, or just before it when that run is to be
-     * handed out again — given back unstarted, or claimed by a process nobody is left to hear from.
+     * handed out again: given back unstarted, or claimed by a process that is gone or has been
+     * holding it longer than the schedule waits.
      */
     public function resumePoint(string $taskId, DateTimeImmutable $now, DateInterval $reclaimAfter): ?DateTimeImmutable
     {
@@ -466,7 +468,8 @@ final class Checkpoint
 
     /**
      * Only a process of this host can be asked about, and only with ext-posix. Anything else
-     * reads as still there: a run handed out twice is worse than one picked up late.
+     * reads as still there, and is left to the reclaim window: a run handed out twice before
+     * the window is out is worse than one picked up late.
      */
     private static function host(): string
     {
