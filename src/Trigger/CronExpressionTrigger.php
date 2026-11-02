@@ -16,7 +16,7 @@ use function sprintf;
 /**
  * A trigger backed by a cron expression, evaluated by dragonmantank/cron-expression.
  */
-final class CronExpressionTrigger implements TriggerInterface
+final class CronExpressionTrigger implements TriggerRangeInterface
 {
     private readonly CronExpression $cron;
     private readonly ?DateTimeZone $timezone;
@@ -48,13 +48,9 @@ final class CronExpressionTrigger implements TriggerInterface
 
     public function getNextRunDate(DateTimeImmutable $lastRun): ?DateTimeImmutable
     {
-        // Not the timezone of the given date: one restored from a checkpoint is in UTC whatever
-        // timezone it was saved in, and the expression would silently change its meaning with it.
-        $timezone = $this->timezone?->getName() ?? date_default_timezone_get();
-
-        $next = $this->cron->getNextRunDate($lastRun, 0, false, $timezone);
-
-        $next = DateTimeImmutable::createFromInterface($next);
+        $next = DateTimeImmutable::createFromInterface(
+            $this->cron->getNextRunDate($lastRun, 0, false, $this->timezone()),
+        );
 
         if ($next <= $lastRun) {
             throw new LogicException(
@@ -63,5 +59,64 @@ final class CronExpressionTrigger implements TriggerInterface
         }
 
         return $next;
+    }
+
+    public function getNextRunDateAtOrAfter(DateTimeImmutable $date, ?DateTimeImmutable $phase = null): ?DateTimeImmutable
+    {
+        if (null !== $phase && $phase >= $date) {
+            return $this->getNextRunDate($phase);
+        }
+
+        $next = DateTimeImmutable::createFromInterface(
+            $this->cron->getNextRunDate($date, 0, true, $this->timezone()),
+        );
+
+        // An expression names a minute, so a date past the start of one is answered with that
+        // minute, which is behind the date asked about. The run at that minute has been and
+        // gone; the answer is the one after the date itself.
+        if ($next < $date) {
+            return $this->getNextRunDate($date);
+        }
+
+        return $next;
+    }
+
+    public function getRunDates(
+        DateTimeImmutable $after,
+        DateTimeImmutable $before,
+        int $limit,
+        ?DateTimeImmutable $phase = null,
+    ): array {
+        if ($limit <= 0) {
+            throw new LogicException(sprintf('The limit must be greater than zero, "%d" given.', $limit));
+        }
+
+        $cursor = null !== $phase && $phase > $after ? $phase : $after;
+
+        $dates = [];
+
+        // The library walks the expression itself, so the cost is the batch and not the span it
+        // is taken from: a backlog of a month is as cheap to open as a backlog of an hour.
+        foreach ($this->cron->getMultipleRunDates($limit, $cursor, false, false, $this->timezone()) as $date) {
+            $date = DateTimeImmutable::createFromInterface($date);
+
+            if ($date >= $before) {
+                break;
+            }
+
+            $dates[] = $date;
+        }
+
+        return $dates;
+    }
+
+    /**
+     * The timezone the expression is read in. Not the timezone of the date asked about: one
+     * restored from a checkpoint is in UTC whatever timezone it was saved in, and the expression
+     * would silently change its meaning with it.
+     */
+    private function timezone(): string
+    {
+        return $this->timezone?->getName() ?? date_default_timezone_get();
     }
 }
