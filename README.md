@@ -210,21 +210,28 @@ $schedule = (new Schedule())
 
 ## Task identifiers
 
-Every task gets an identifier generated from the cron expression or the interval of its
-trigger and from what it runs: the command name, the class of an object, the type of a queue
-message, or the file and line a closure is declared at. Two tasks alike in all of that cannot
-share a schedule until they are given identifiers of their own. Such are closures created in a
-loop, queue messages differing only in their payload, and tasks whose triggers differ only in
-their timezone or the date they count from:
+Every task gets an identifier generated from the description of its trigger and from what it
+runs. The trigger contributes everything that decides when the task is due: the cron expression
+and the timezone it is read in, or the interval together with the date it is counted from and
+the date it stops at. What the task runs contributes the command name, the class of an object,
+the type and payload of a queue message, or the file and line a closure is declared at.
+
+Two tasks alike in all of that cannot share a schedule until they are given identifiers of
+their own. In practice that is closures, which carry no description beyond where they are
+written: two created in a loop are one task as far as the identifier is concerned, and moving
+one to another line makes it a task the checkpoint has never seen.
 
 ```php
 $tasks = [];
 
 foreach (['eu', 'us'] as $region) {
-    $tasks[] = RecurringTask::cron('*/5 * * * *', GenericMessage::fromPayload('metrics.collect', ['region' => $region]))
+    $tasks[] = RecurringTask::every('5 minutes', static fn() => collectMetrics($region))
         ->withId('metrics-' . $region);
 }
 ```
+
+An identifier is also what a checkpoint records a run under, so a task that is given one keeps
+its place in the schedule through any later change to its trigger or its target.
 
 ## Running on multiple servers
 

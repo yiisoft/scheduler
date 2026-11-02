@@ -2,6 +2,7 @@
 
 ## 1.0.0 under development
 
+- Bug #30: Fix two tasks differing only in the timezone their cron expression is read in, in the date their interval is counted from or stops at, or in the payload of the queue message they push, sharing one generated identifier, so that a schedule rejected the second as a duplicate and a checkpoint held the runs of both under one record; a trigger now describes itself with its timezone and its bounds, a message task is told apart by its payload as well as its type, and a cron task takes its identifier from that description rather than from the expression alone (@KalimeroMK)
 - Enh #16: Generate a task identifier with a 64-bit hash instead of a 32-bit one, so that a task added to a schedule cannot be taken for one the checkpoint holds under the same identifier (@KalimeroMK)
 - Bug #16: Fix a run being skipped, or one already made being repeated, when a task is added to or removed from the schedule while the checkpoint holds the runs of a shared due time; the checkpoint now records which tasks already ran by their identifier instead of by their place in the schedule (@KalimeroMK)
 - New #14: Add `CronBuilder` and the `RecurringTask` named constructors opening it, so that a cron expression can be built a field at a time — `RecurringTask::daily()->at('05:00')->run('report:daily')` — instead of being written as five positional fields (@KalimeroMK)

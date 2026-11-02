@@ -33,9 +33,17 @@ final class CronExpressionTrigger implements TriggerInterface
         $this->timezone = is_string($timezone) ? ('' === $timezone ? null : new DateTimeZone($timezone)) : $timezone;
     }
 
+    /**
+     * The timezone is part of the description, and so of the identifier a task derives from it:
+     * one expression read in two timezones names two different sets of run times, and a schedule
+     * holding both has to tell them apart. An expression left to the default timezone keeps the
+     * description it has always had.
+     */
     public function __toString(): string
     {
-        return sprintf('cron(%s)', $this->expression);
+        return null === $this->timezone
+            ? sprintf('cron(%s)', $this->expression)
+            : sprintf('cron(%s, %s)', $this->expression, $this->timezone->getName());
     }
 
     public function getNextRunDate(DateTimeImmutable $lastRun): ?DateTimeImmutable
