@@ -51,6 +51,13 @@ final class Checkpoint
     /** The errno of kill(2) for a process that exists but is not ours to signal. */
     private const EPERM = 1;
 
+    /**
+     * How long to wait for the schedule lock before giving up on recording what became of a run.
+     * Long enough to outlast another process's read and write, short enough that a scheduler is
+     * not held forever by a lock whose holder is gone.
+     */
+    private const WRITE_LOCK_TIMEOUT_SECONDS = 10;
+
     private ?DateTimeImmutable $time = null;
     /** @var array<string, Record> Run, outcome, and the owner and moment of a claim. */
     private array $records = [];
@@ -180,15 +187,9 @@ final class Checkpoint
      */
     public function markStarted(string $taskId, DateTimeImmutable $time, DateTimeImmutable $at): bool
     {
-        $claim = $this->ourClaim($taskId);
-
-        if (null === $claim || $time != $claim[0]) {
-            return false;
-        }
-
-        $this->write($taskId, $time, TaskStatus::Claimed, self::owner(), $at);
-
-        return true;
+        return $this->exclusively(function () use ($taskId, $time, $at): bool {
+            return $this->startUnderLock($taskId, $time, $at);
+        });
     }
 
     /**
@@ -270,6 +271,93 @@ final class Checkpoint
      */
     public function resolve(string $taskId, DateTimeImmutable $time, TaskStatus $status): void
     {
+        $this->exclusively(function () use ($taskId, $time, $status): void {
+            $this->resolveUnderLock($taskId, $time, $status);
+        });
+    }
+
+    /**
+     * Hands a claimed run back, leaving it due. A later run than the one on record is dropped the
+     * same way, so giving back several leaves the task resuming before the earliest of them.
+     */
+    public function giveBack(string $taskId, DateTimeImmutable $time): void
+    {
+        $this->exclusively(function () use ($taskId, $time): void {
+            $this->giveBackUnderLock($taskId, $time);
+        });
+    }
+
+    /**
+     * Carries out a read, a decision made on what it says, and the write that follows from it,
+     * with nobody else writing the state in between.
+     *
+     * Reading the record back is not enough on its own: between that read and the write, another
+     * scheduler can finish a later run of the same task, and the write then puts the record back
+     * where that run started. The claim is made under the schedule lock, and so is what is
+     * recorded about it afterwards.
+     *
+     * A tick holds the lock from the moment it starts generating, and a sequential run is
+     * resolved inside that, so the lock is taken here only when this process is not already
+     * holding it: a mutex is not reentrant and taking it twice would wait on this process.
+     *
+     * @template T
+     *
+     * @param callable(): T $operation
+     *
+     * @return T
+     */
+    private function exclusively(callable $operation): mixed
+    {
+        if ($this->locked || null === $this->mutex) {
+            return $operation();
+        }
+
+        // Waiting, unlike the tick, which moves on to let another process run the schedule: what
+        // became of a run that already happened has to be recorded, and whoever holds the lock
+        // holds it for a read and a write.
+        if (!$this->mutex->acquire(self::WRITE_LOCK_TIMEOUT_SECONDS)) {
+            throw new RuntimeException(sprintf(
+                'Unable to record the outcome of a run of schedule "%s": the schedule lock was held'
+                . ' for longer than %d seconds.',
+                $this->scheduleName,
+                self::WRITE_LOCK_TIMEOUT_SECONDS,
+            ));
+        }
+
+        $this->locked = true;
+
+        try {
+            return $operation();
+        } finally {
+            $this->locked = false;
+            $this->mutex->release();
+        }
+    }
+
+    private function startUnderLock(string $taskId, DateTimeImmutable $time, DateTimeImmutable $at): bool
+    {
+        $claim = $this->ourClaim($taskId);
+
+        // At or before the record, not exactly on it: one tick of catch-up claims every missed
+        // run of a task before it starts any of them, and they share the one record, which
+        // stands for the newest. A run at or before it is one this process claimed itself; a
+        // later one is a run it never claimed.
+        if (null === $claim || $time > $claim[0]) {
+            return false;
+        }
+
+        // Only the newest claim carries the window. An earlier run of the same catch-up starts
+        // under the record as it is rather than moving it back to its own time, which is what
+        // would hand the runs between the two out again.
+        if ($time == $claim[0]) {
+            $this->write($taskId, $time, TaskStatus::Claimed, self::owner(), $at);
+        }
+
+        return true;
+    }
+
+    private function resolveUnderLock(string $taskId, DateTimeImmutable $time, TaskStatus $status): void
+    {
         $claim = $this->ourClaim($taskId);
 
         // Only the newest run claimed is the one the record stands for; the outcome of an older
@@ -281,11 +369,7 @@ final class Checkpoint
         $this->write($taskId, $time, $status);
     }
 
-    /**
-     * Hands a claimed run back, leaving it due. A later run than the one on record is dropped the
-     * same way, so giving back several leaves the task resuming before the earliest of them.
-     */
-    public function giveBack(string $taskId, DateTimeImmutable $time): void
+    private function giveBackUnderLock(string $taskId, DateTimeImmutable $time): void
     {
         $claim = $this->ourClaim($taskId);
 

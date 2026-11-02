@@ -9,6 +9,7 @@ use DateTimeImmutable;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\RequiresPhpExtension;
 use PHPUnit\Framework\TestCase;
+use Yiisoft\Mutex\MutexInterface;
 use Yiisoft\Scheduler\Exception\RuntimeException;
 use Yiisoft\Scheduler\Generator\TaskGenerator;
 use Yiisoft\Scheduler\Handler\CallableTaskHandler;
@@ -16,6 +17,7 @@ use Yiisoft\Scheduler\RecurringTask;
 use Yiisoft\Scheduler\Schedule;
 use Yiisoft\Scheduler\Scheduler;
 use Yiisoft\Scheduler\Tests\Support\InMemoryCache;
+use Yiisoft\Scheduler\Tests\Support\InMemoryMutex;
 use Yiisoft\Scheduler\TaskContext;
 use Yiisoft\Scheduler\TaskStatus;
 use Yiisoft\Scheduler\Tests\Support\TestClock;
@@ -24,7 +26,6 @@ use function gethostname;
 use function hash;
 use function pcntl_fork;
 use function pcntl_waitpid;
-
 /**
  * The checkpoint records which runs of a shared due time were already emitted, so that a process
  * resuming after a crash replays the rest and only the rest.
@@ -33,6 +34,8 @@ use function pcntl_waitpid;
  * moves the position of every task after it, while the runs recorded before the crash stay as
  * they were.
  */
+use function sprintf;
+
 final class TaskGeneratorTest extends TestCase
 {
     public function testRunsEmittedBeforeACrashAreNotRepeated(): void
@@ -213,6 +216,40 @@ final class TaskGeneratorTest extends TestCase
 
         // The two given back are due again; the one that ran is not.
         $this->assertSame(['task', 'task'], $log->getArrayCopy());
+    }
+
+    public function testEveryRunOfOneCatchUpMayBeStartedHere(): void
+    {
+        // A tick of catch-up claims every missed run of a task before it starts any of them,
+        // and they share the one record, which stands for the newest. The earlier ones are this
+        // process's own: refusing them loses the whole backlog but its last run.
+        $task = static fn() => null;
+        $claimed = $this->claimThreeMissedRuns($cache, $clock, $task, $generator);
+
+        foreach ($claimed as $context) {
+            $this->assertTrue(
+                $generator->markStarted($context),
+                sprintf('the run of %s is this scheduler\'s own', $context->triggeredAt->format('H:i:s')),
+            );
+        }
+    }
+
+    public function testARunThisSchedulerNeverClaimedIsNotStartedHere(): void
+    {
+        // The other side of the same guard: at or before the record is ours, past it is not.
+        $task = static fn() => null;
+        $claimed = $this->claimThreeMissedRuns($cache, $clock, $task, $generator);
+        $newest = $claimed[2];
+
+        $later = new TaskContext(
+            $newest->scheduleName,
+            $newest->taskId,
+            $newest->trigger,
+            $newest->triggeredAt->modify('+1 minute'),
+            null,
+        );
+
+        $this->assertFalse($generator->markStarted($later));
     }
 
     public function testRunTakenOverWhileItWaitedForASlotIsNotStartedHere(): void
@@ -727,6 +764,94 @@ final class TaskGeneratorTest extends TestCase
     }
 
     /**
+     * @param list<callable> $tasks
+     */
+    public function testWhatBecameOfARunIsRecordedUnderTheScheduleLock(): void
+    {
+        // Rereading the record is not enough on its own: between that read and the write,
+        // another scheduler can finish a later run of the same task, and the write would then
+        // put the record back where that run started.
+        $mutex = new class implements MutexInterface {
+            public int $acquired = 0;
+            public int $released = 0;
+            private bool $held = false;
+
+            public function acquire(int $timeout = 0): bool
+            {
+                if ($this->held) {
+                    return false;
+                }
+
+                ++$this->acquired;
+
+                return $this->held = true;
+            }
+
+            public function release(): void
+            {
+                ++$this->released;
+                $this->held = false;
+            }
+        };
+
+        $cache = new InMemoryCache();
+        $clock = new TestClock();
+        $task = static fn() => null;
+        $schedule = $this->schedule($cache, [$task])->lock($mutex);
+
+        $generator = new TaskGenerator($schedule, $clock);
+        $this->assertNotNull($generator->getNextRunDate());
+
+        $clock->advance('+1 minute');
+        $claimed = null;
+
+        foreach ($generator->getTasks() as $context => $ignored) {
+            $claimed = $context;
+        }
+
+        $this->assertNotNull($claimed);
+
+        // The tick took the lock and gave it back; each of these takes it again on its own.
+        $taken = $mutex->acquired;
+
+        $generator->markStarted($claimed);
+        $this->assertSame($taken + 1, $mutex->acquired);
+
+        $generator->resolve($claimed, TaskStatus::Done);
+        $this->assertSame($taken + 2, $mutex->acquired);
+        $this->assertSame($mutex->acquired, $mutex->released, 'the lock is given back every time');
+    }
+
+    public function testAnOutcomeIsNotRecordedWhileAnotherProcessHoldsTheLock(): void
+    {
+        $mutex = new InMemoryMutex();
+        $cache = new InMemoryCache();
+        $clock = new TestClock();
+        $task = static fn() => null;
+        $schedule = $this->schedule($cache, [$task])->lock($mutex);
+
+        $generator = new TaskGenerator($schedule, $clock);
+        $this->assertNotNull($generator->getNextRunDate());
+
+        $clock->advance('+1 minute');
+        $claimed = null;
+
+        foreach ($generator->getTasks() as $context => $ignored) {
+            $claimed = $context;
+        }
+
+        $this->assertNotNull($claimed);
+
+        // Another process takes the schedule lock and keeps it.
+        $mutex->forceLock();
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('the schedule lock was held');
+
+        $generator->resolve($claimed, TaskStatus::Done);
+    }
+
+    /**
      * Claims the three runs a task missed while the schedule was down, without resolving any.
      *
      * @return list<TaskContext>
@@ -826,9 +951,6 @@ final class TaskGeneratorTest extends TestCase
             . hash('xxh3', RecurringTask::cron('* * * * *', $task)->getId());
     }
 
-    /**
-     * @param list<callable> $tasks
-     */
     private function schedule(InMemoryCache $cache, array $tasks, int $reclaimAfter = 1): Schedule
     {
         $schedule = (new Schedule())->stateful($cache)->reclaimAfter($reclaimAfter);

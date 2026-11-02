@@ -382,6 +382,46 @@ final class SchedulerTest extends TestCase
     }
 
     #[RequiresPhpExtension('pcntl')]
+    public function testEveryMissedRunOfACatchUpIsStartedWhileTheyQueueForOneSlot(): void
+    {
+        // Concurrent generation claims all three missed runs before starting any of them, and
+        // they share the one record. Mistaking the earlier two for runs some other scheduler
+        // took over loses the whole backlog but its last run, while the tick still reports
+        // three.
+        $clock = new TestClock();
+        $cache = new InMemoryCache();
+
+        $schedule = (new Schedule())->stateful($cache)->task(
+            RecurringTask::every(60, static fn() => null)->withId('minute'),
+        );
+
+        $logger = new class extends AbstractLogger {
+            /** @var list<string> */
+            public array $warnings = [];
+
+            public function log($level, string|Stringable $message, array $context = []): void
+            {
+                if (LogLevel::WARNING === $level) {
+                    $this->warnings[] = (string) $message;
+                }
+            }
+        };
+
+        $scheduler = new Scheduler([$schedule], new CallableTaskHandler(), $clock, null, $logger);
+        $scheduler->tick();
+        $clock->advance('+3 minutes');
+
+        $this->assertSame(3, $scheduler->tick(true, 1));
+
+        while ($scheduler->hasRunningChildren()) {
+            $scheduler->reapChildren();
+            usleep(10_000);
+        }
+
+        $this->assertSame([], $logger->warnings);
+    }
+
+    #[RequiresPhpExtension('pcntl')]
     public function testRunTakenOverWhileItWaitedForASlotIsNotStartedByThisScheduler(): void
     {
         $clock = new TestClock();
