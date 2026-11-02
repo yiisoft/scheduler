@@ -198,11 +198,13 @@ final class RecurringTask
     /**
      * Returns the task under an identifier of your choosing instead of the generated one.
      *
-     * The generated identifier is derived from the trigger and from what the task is: the
-     * command name, the class of an object, the type of a queue message, or the file and line
-     * a closure is declared at. Tasks that are alike in all of that, such as closures created
-     * in a loop or messages differing only in their payload, need identifiers of their own to
-     * be in one schedule.
+     * The generated identifier is derived from the description the trigger gives of itself and
+     * from what the task is: the command name, the class of an object, the type and payload of
+     * a queue message, or the file and line a closure is declared at. Tasks that are alike in
+     * all of that need identifiers of their own to be in one schedule. Such are closures
+     * created in a loop, which are one line of code however many of them there are, and objects
+     * of one class differing in what they were constructed with, which the class name alone
+     * does not tell apart.
      */
     public function withId(string $id): self
     {
@@ -311,14 +313,17 @@ final class RecurringTask
         }
 
         // By key, so that two payloads holding the same entries in a different order are one
-        // payload. A list keeps its order: its keys are already its positions.
-        ksort($payload);
+        // payload. As strings, because comparing them as PHP does would read "01" and 1 as one
+        // key and leave the two payloads in whatever order they were written in.
+        ksort($payload, SORT_STRING);
 
         $parts = [];
 
         foreach ($payload as $key => $value) {
             /** @psalm-var scalar|null|array<array-key, mixed> $value */
-            $parts[] = $key . '=' . self::describePayload($value);
+            // The key is written out the same way a value is, so that one holding an "=" or a
+            // comma cannot read as the end of its own entry and the start of another.
+            $parts[] = var_export($key, true) . '=' . self::describePayload($value);
         }
 
         return '[' . implode(',', $parts) . ']';

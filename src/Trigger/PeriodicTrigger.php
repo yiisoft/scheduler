@@ -57,10 +57,13 @@ final class PeriodicTrigger implements TriggerInterface
     private const DEFAULT_FROM = '2001-01-01 00:00:00';
 
     /**
-     * How an anchor or an end date is written in the description: to the microsecond and with the
-     * offset, so that two dates the trigger tells apart are told apart here too.
+     * How an anchor or an end date is written in the description: to the microsecond, with the
+     * offset and with the timezone it is in, so that two dates the trigger tells apart are told
+     * apart here too. The timezone is there because a calendar interval follows the calendar of
+     * its anchor: the same instant written in Europe/Skopje and in +01:00 parts company at the
+     * first daylight saving change after it.
      */
-    private const BOUND_FORMAT = 'Y-m-d\TH:i:s.uP';
+    private const BOUND_FORMAT = 'Y-m-d\TH:i:s.uP e';
 
     /**
      * Dates an interval is tried on to tell whether it is a plain amount of time: the middle

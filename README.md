@@ -217,9 +217,11 @@ the date it stops at. What the task runs contributes the command name, the class
 the type and payload of a queue message, or the file and line a closure is declared at.
 
 Two tasks alike in all of that cannot share a schedule until they are given identifiers of
-their own. In practice that is closures, which carry no description beyond where they are
-written: two created in a loop are one task as far as the identifier is concerned, and moving
-one to another line makes it a task the checkpoint has never seen.
+their own. Two of them are easy to write by accident. A closure carries no description beyond
+where it is written, so two created in a loop are one task as far as the identifier is
+concerned, and moving one to another line makes it a task the checkpoint has never seen. An
+object is described by its class and not by what it was constructed with, so `new
+SendReport('eu')` and `new SendReport('us')` are one task too.
 
 ```php
 $tasks = [];

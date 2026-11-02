@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Yiisoft\Scheduler\Tests;
 
+use DateInterval;
 use DateTimeImmutable;
+use DateTimeZone;
 use PHPUnit\Framework\TestCase;
 use Yiisoft\Queue\Message\GenericMessage;
 use Yiisoft\Scheduler\Exception\LogicException;
@@ -97,6 +99,55 @@ final class RecurringTaskTest extends TestCase
             RecurringTask::trigger($bounded, 'app:task')->getId(),
             RecurringTask::trigger($endless, 'app:task')->getId(),
         );
+    }
+
+    public function testOneAnchorInTwoTimezonesProducesTwoIds(): void
+    {
+        // The same instant, but a calendar interval follows the calendar of its anchor: after
+        // the March change the two fall due an hour apart.
+        $named = new PeriodicTrigger(new DateInterval('P1D'), new DateTimeImmutable('2026-01-01 00:00:00', new DateTimeZone('Europe/Skopje')));
+        $offset = new PeriodicTrigger(new DateInterval('P1D'), new DateTimeImmutable('2026-01-01 00:00:00', new DateTimeZone('+01:00')));
+
+        $after = new DateTimeImmutable('2026-03-31 12:00:00', new DateTimeZone('UTC'));
+
+        $this->assertNotEquals($named->getNextRunDate($after), $offset->getNextRunDate($after));
+        $this->assertNotSame(
+            RecurringTask::trigger($named, 'app:task')->getId(),
+            RecurringTask::trigger($offset, 'app:task')->getId(),
+        );
+    }
+
+    public function testAnAnchorAndAnEndDateBothReachTheId(): void
+    {
+        $until = new DateTimeImmutable('2026-06-01 00:00:00');
+
+        $both = new PeriodicTrigger(3600, new DateTimeImmutable('2026-01-01 00:00:00'), $until);
+        $endOnly = new PeriodicTrigger(3600, null, $until);
+
+        $this->assertNotSame(
+            RecurringTask::trigger($both, 'app:task')->getId(),
+            RecurringTask::trigger($endOnly, 'app:task')->getId(),
+        );
+    }
+
+    public function testAPayloadKeyCannotReadAsTheEndOfItsOwnEntry(): void
+    {
+        // Were the key not written out the way a value is, "a=1,b" holding 2 would describe
+        // exactly as "a" holding 1 next to "b" holding 2.
+        $two = RecurringTask::cron('* * * * *', GenericMessage::fromPayload('t', ['a' => 1, 'b' => 2]));
+        $one = RecurringTask::cron('* * * * *', GenericMessage::fromPayload('t', ['a=1,b' => 2]));
+
+        $this->assertNotSame($two->getId(), $one->getId());
+    }
+
+    public function testPayloadKeysThatPhpWouldCompareEqualAreStillOrderedTheSameWay(): void
+    {
+        // "01" and 1 compare equal the way PHP sorts by default, which would leave each payload
+        // in the order it happened to be written in.
+        $first = RecurringTask::cron('* * * * *', GenericMessage::fromPayload('t', ['01' => 'x', 1 => 'y']));
+        $second = RecurringTask::cron('* * * * *', GenericMessage::fromPayload('t', [1 => 'y', '01' => 'x']));
+
+        $this->assertSame($first->getId(), $second->getId());
     }
 
     public function testMessagesOfOneTypeCarryingDifferentPayloadsProduceDifferentIds(): void
