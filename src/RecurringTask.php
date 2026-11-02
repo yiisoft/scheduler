@@ -23,6 +23,8 @@ use function ksort;
 use function sprintf;
 use function var_export;
 
+use const SORT_STRING;
+
 /**
  * A task paired with the trigger deciding when it runs.
  *
