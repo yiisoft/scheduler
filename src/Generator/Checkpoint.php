@@ -187,9 +187,7 @@ final class Checkpoint
      */
     public function markStarted(string $taskId, DateTimeImmutable $time, DateTimeImmutable $at): bool
     {
-        return $this->exclusively(function () use ($taskId, $time, $at): bool {
-            return $this->startUnderLock($taskId, $time, $at);
-        });
+        return $this->exclusively(fn(): bool => $this->startUnderLock($taskId, $time, $at));
     }
 
     /**
