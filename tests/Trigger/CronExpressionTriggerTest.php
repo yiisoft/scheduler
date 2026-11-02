@@ -12,6 +12,7 @@ use Yiisoft\Scheduler\Exception\LogicException;
 use Yiisoft\Scheduler\Trigger\CronExpressionTrigger;
 
 use function count;
+use function sprintf;
 use function date_default_timezone_get;
 use function date_default_timezone_set;
 
@@ -163,6 +164,27 @@ final class CronExpressionTriggerTest extends TestCase
                 ->getNextRunDateAtOrAfter(new DateTimeImmutable('2026-01-01 05:00:30+00:00'))
                 ?->format('Y-m-d H:i:s'),
         );
+    }
+
+    public function testARangeNeverAnswersWithADateBeforeTheOneAskedAbout(): void
+    {
+        // Half an hour into a run is past it, and a change of the clock is where that is easiest
+        // to get wrong: these are the days the clock moves in zones that move it by half an hour
+        // and by a whole one.
+        foreach (['Europe/Skopje', 'Australia/Lord_Howe', 'America/St_Johns'] as $zone) {
+            $trigger = new CronExpressionTrigger('*/15 * * * *', $zone);
+            $timezone = new DateTimeZone($zone);
+
+            foreach (['2026-03-29', '2026-04-05', '2026-10-04', '2026-10-25'] as $day) {
+                for ($hour = 0; $hour < 24; ++$hour) {
+                    $date = new DateTimeImmutable(sprintf('%s %02d:30:00', $day, $hour), $timezone);
+                    $next = $trigger->getNextRunDateAtOrAfter($date);
+
+                    $this->assertNotNull($next);
+                    $this->assertGreaterThanOrEqual($date, $next, sprintf('at %s', $date->format('c')));
+                }
+            }
+        }
     }
 
     public function testARunAlreadyAccountedForIsNotGivenAgain(): void
