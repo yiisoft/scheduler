@@ -46,6 +46,12 @@ composer require yiisoft/scheduler
 
 ## General usage
 
+The bundled configuration — `config/params.php` and `config/di.php` of this package — is the
+Yii integration: it reads the tasks from the application parameters, builds the handler chain
+from what the container has, and registers the three commands with yiisoft/yii-console. An
+application on another framework, or on none, builds the same objects itself — see
+[Without a framework](#without-a-framework).
+
 Declare tasks in the configuration:
 
 ```php
@@ -253,6 +259,11 @@ That needs `psr/clock`, `psr/simple-cache` and a cron expression parser, and not
 a `QueueTaskHandler` to push them, a `LockInterface` to keep two processes off one schedule, and
 a PSR-14 dispatcher or the `before`, `after` and `onFailure` listeners of the schedule to watch
 what happens.
+
+That is the core: the schedule, the clock, the checkpoint and the lock. How a task is written
+stays with the package that runs it — a string task is the name of a console command and needs
+symfony/console, a message task needs yiisoft/queue — and declaring tasks in `config/params.php`
+is the Yii integration rather than the only way to fill a schedule.
 
 ## Task identifiers
 
