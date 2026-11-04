@@ -5,100 +5,56 @@ declare(strict_types=1);
 namespace Yiisoft\Scheduler\Tests\Handler;
 
 use PHPUnit\Framework\TestCase;
-use Symfony\Component\Console\Application;
-use Symfony\Component\Console\Command\Command;
-use Symfony\Component\Console\CommandLoader\FactoryCommandLoader;
-use Symfony\Component\Console\Input\InputInterface;
-use Symfony\Component\Console\Output\OutputInterface;
-use Yiisoft\Scheduler\Event\FailureEvent;
-use Yiisoft\Scheduler\Exception\RuntimeException;
+use stdClass;
+use Yiisoft\Scheduler\Exception\LogicException;
 use Yiisoft\Scheduler\Handler\CallableTaskHandler;
-use Yiisoft\Scheduler\RecurringTask;
-use Yiisoft\Scheduler\Schedule;
-use Yiisoft\Scheduler\Scheduler;
+use Yiisoft\Scheduler\Handler\ConsoleTaskHandler;
 use Yiisoft\Scheduler\TaskContext;
 use Yiisoft\Scheduler\Tests\Support\TestClock;
 use Yiisoft\Scheduler\Trigger\CronExpressionTrigger;
-use Psr\EventDispatcher\EventDispatcherInterface;
+
+use function file_get_contents;
 
 final class CallableTaskHandlerTest extends TestCase
 {
-    public function testSuccessfulCommandReturnsItsExitCode(): void
+    public function testACallableIsInvokedWithTheContext(): void
     {
-        $handler = new CallableTaskHandler($this->application(Command::SUCCESS));
+        $context = $this->context();
+        $handler = new CallableTaskHandler();
 
-        $this->assertSame(0, $handler->handle('app:task', $this->context()));
+        $this->assertSame($context, $handler->handle(static fn(TaskContext $given): TaskContext => $given, $context));
     }
 
-    public function testCommandExitingWithANonZeroCodeIsAFailure(): void
+    public function testTheHandlerNamesNothingOutsideThePackage(): void
     {
-        $handler = new CallableTaskHandler($this->application(Command::FAILURE));
+        // The whole point of this handler: a schedule of callables runs with neither a console
+        // application nor a queue producer installed, so neither package may be named here.
+        $source = (string) file_get_contents(__DIR__ . '/../../src/Handler/CallableTaskHandler.php');
 
-        $this->expectException(RuntimeException::class);
-        // The options stay out of the message: it is logged, and they may carry a secret.
-        $this->expectExceptionMessage('The "app:task" console command exited with code 1.');
-
-        $handler->handle('app:task --force', $this->context());
+        $this->assertStringNotContainsString('Symfony', $source);
+        $this->assertStringNotContainsString('Yiisoft\\Queue', $source);
     }
 
-    public function testFailedCommandIsReportedAsATaskFailure(): void
+    public function testAStringTaskPointsAtTheConsoleHandler(): void
     {
-        $clock = new TestClock();
+        // A string task is the name of a console command, and this handler cannot run one. It
+        // is checked before the callable branch: "strlen" is a callable string.
+        $handler = new CallableTaskHandler();
 
-        $dispatcher = new class implements EventDispatcherInterface {
-            /** @var list<string> */
-            public array $events = [];
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage(ConsoleTaskHandler::class);
 
-            public function dispatch(object $event): object
-            {
-                $this->events[] = $event::class;
-
-                if ($event instanceof FailureEvent) {
-                    $event->ignore();
-                }
-
-                return $event;
-            }
-        };
-
-        $scheduler = new Scheduler(
-            [(new Schedule())->task(RecurringTask::cron('* * * * *', 'app:task'))],
-            new CallableTaskHandler($this->application(Command::FAILURE)),
-            $clock,
-            $dispatcher,
-        );
-
-        $scheduler->tick();
-        $clock->advance('+1 minute');
-        $scheduler->tick();
-
-        $this->assertContains(FailureEvent::class, $dispatcher->events);
+        $handler->handle('strlen', $this->context());
     }
 
-    private function application(int $exitCode): Application
+    public function testAnObjectTaskPointsAtAQueueProducer(): void
     {
-        $command = new class ($exitCode) extends Command {
-            public function __construct(private readonly int $exitCode)
-            {
-                parent::__construct('app:task');
-            }
+        $handler = new CallableTaskHandler();
 
-            protected function configure(): void
-            {
-                $this->addOption('force');
-            }
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('Configure a queue producer to push object tasks');
 
-            protected function execute(InputInterface $input, OutputInterface $output): int
-            {
-                return $this->exitCode;
-            }
-        };
-
-        $application = new Application();
-        $application->setAutoExit(false);
-        $application->setCommandLoader(new FactoryCommandLoader(['app:task' => static fn() => $command]));
-
-        return $application;
+        $handler->handle(new stdClass(), $this->context());
     }
 
     private function context(): TaskContext

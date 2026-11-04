@@ -38,7 +38,7 @@ final class TaskGenerator
             $schedule->getName(),
             array_map(static fn(RecurringTask $task): string => $task->getId(), $schedule->tasks()),
             $schedule->getState(),
-            $schedule->getMutex(),
+            $schedule->getLock(),
         );
     }
 

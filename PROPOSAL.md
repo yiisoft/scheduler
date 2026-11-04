@@ -71,7 +71,7 @@ return [
 
 ### Config-first task definition (Yii style)
 
-Tasks can be declared in `config/params.php` under `yiisoft/scheduler` or provided by a `ScheduleProviderInterface` service for dynamic (DB-driven) schedules — both feed the same `Schedule`.
+Tasks can be declared in `config/params.php` under `yiisoft/scheduler`, or built in code and passed to `Scheduler` directly, which is what a dynamic (DB-driven) schedule does — both feed the same `Schedule`.
 
 ## What the MVP includes / excludes
 

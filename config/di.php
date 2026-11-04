@@ -10,6 +10,7 @@ use Psr\SimpleCache\CacheInterface;
 use Symfony\Component\Console\Application;
 use Yiisoft\Scheduler\Clock\SystemClock;
 use Yiisoft\Scheduler\Handler\CallableTaskHandler;
+use Yiisoft\Scheduler\Handler\ConsoleTaskHandler;
 use Yiisoft\Scheduler\Handler\QueueTaskHandler;
 use Yiisoft\Scheduler\Handler\TaskHandlerInterface;
 use Yiisoft\Scheduler\Schedule;
@@ -38,7 +39,14 @@ return [
             }
         }
 
-        $handler = new CallableTaskHandler($application instanceof Application ? $application : null);
+        // Each handler takes what it knows and passes on the rest, so the chain is built from
+        // the back: callables always, console commands when there is an application to run
+        // them, messages when there is a producer to push them to.
+        $handler = new CallableTaskHandler();
+
+        if ($application instanceof Application) {
+            $handler = new ConsoleTaskHandler($application, $handler);
+        }
 
         if (interface_exists(QueueProducerInterface::class) && $container->has(QueueProducerInterface::class)) {
             /** @var QueueProducerInterface $producer */
