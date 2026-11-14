@@ -9,9 +9,12 @@ use DateTimeZone;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Yiisoft\Scheduler\Exception\LogicException;
+use RuntimeException;
 use Yiisoft\Scheduler\Trigger\CronExpressionTrigger;
 
+use function array_map;
 use function count;
+use function memory_get_usage;
 use function sprintf;
 use function date_default_timezone_get;
 use function date_default_timezone_set;
@@ -284,5 +287,78 @@ final class CronExpressionTriggerTest extends TestCase
         // The description a task takes its identifier from, so an expression given no timezone
         // and one given an empty string have to read the same way.
         $this->assertSame('cron(0 5 * * *)', (string) new CronExpressionTrigger('0 5 * * *', ''));
+    }
+
+    public function testALargeLimitOverANarrowWindowCostsTheWindow(): void
+    {
+        // The limit is how many runs a caller will take, not how many the trigger may build
+        // before it looks at the first: a backlog that turns out to be empty must not cost the
+        // memory of the limit it was asked with.
+        $trigger = new CronExpressionTrigger('* * * * *');
+
+        $before = memory_get_usage();
+
+        $dates = $trigger->getRunDates(
+            new DateTimeImmutable('2026-01-01 00:00:00+00:00'),
+            new DateTimeImmutable('2026-01-01 00:01:00+00:00'),
+            5_000_000,
+        );
+
+        $this->assertSame([], $dates);
+        $this->assertLessThan(1_000_000, memory_get_usage() - $before);
+    }
+
+    public function testAnImpossibleExpressionFailsRatherThanReadingAsAnEmptyRange(): void
+    {
+        // An empty range means the sequence held no more runs. An expression that can never
+        // match held none to begin with, and answering with the same emptiness would tell a
+        // caller catching up a backlog that it had caught up.
+        $trigger = new CronExpressionTrigger('0 0 30 2 *');
+
+        $this->expectException(RuntimeException::class);
+
+        $trigger->getRunDates(
+            new DateTimeImmutable('2026-01-01 00:00:00+00:00'),
+            new DateTimeImmutable('2076-01-01 00:00:00+00:00'),
+            10,
+        );
+    }
+
+    public function testADailyRunFallsDueTwiceOnTheDayTheClockGoesBack(): void
+    {
+        // The hour of this run happens twice in Skopje on 25 October 2026, and the expression
+        // names an hour rather than an amount of time that passes, so it falls due in both.
+        // Written down because it is a difference from PeriodicTrigger, where an interval of
+        // whole hours neither skips nor repeats across a clock change.
+        $trigger = new CronExpressionTrigger('0 2 * * *', 'Europe/Skopje');
+
+        $dates = $trigger->getRunDates(
+            new DateTimeImmutable('2026-10-24 12:00:00', new DateTimeZone('Europe/Skopje')),
+            new DateTimeImmutable('2026-10-26 12:00:00', new DateTimeZone('Europe/Skopje')),
+            10,
+        );
+
+        $this->assertSame(
+            ['2026-10-25T02:00:00+02:00', '2026-10-25T02:00:00+01:00', '2026-10-26T02:00:00+01:00'],
+            array_map(static fn(DateTimeImmutable $date): string => $date->format('c'), $dates),
+        );
+    }
+
+    public function testADailyRunAtAnHourTheClockSkipsIsNotDueThatDay(): void
+    {
+        // Lord Howe moves the clock by half an hour on 4 October 2026 and 02:00 does not
+        // happen, so a run named at that hour has no date that day at all.
+        $trigger = new CronExpressionTrigger('0 2 * * *', 'Australia/Lord_Howe');
+
+        $dates = $trigger->getRunDates(
+            new DateTimeImmutable('2026-10-03 12:00:00', new DateTimeZone('Australia/Lord_Howe')),
+            new DateTimeImmutable('2026-10-06 12:00:00', new DateTimeZone('Australia/Lord_Howe')),
+            10,
+        );
+
+        $days = array_map(static fn(DateTimeImmutable $date): string => $date->format('Y-m-d'), $dates);
+
+        $this->assertNotContains('2026-10-04', $days);
+        $this->assertSame(['2026-10-05', '2026-10-06'], $days);
     }
 }

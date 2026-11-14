@@ -9,12 +9,21 @@ use DateTimeImmutable;
 use DateTimeZone;
 use Yiisoft\Scheduler\Exception\LogicException;
 
+use function count;
 use function date_default_timezone_get;
 use function is_string;
 use function sprintf;
 
 /**
  * A trigger backed by a cron expression, evaluated by dragonmantank/cron-expression.
+ *
+ * An expression names a time on the clock rather than an amount of time that passes, so it
+ * follows the clock through a change of it. A daily run at an hour that happens twice falls due
+ * twice that day, and one at an hour the clock skips has no date that day at all: `0 2 * * *`
+ * in Europe/Skopje is due twice on 25 October 2026, and in Australia/Lord_Howe, where the clock
+ * moves by half an hour, it is not due on 4 October 2026. {@see PeriodicTrigger} counts an
+ * interval of whole hours on the timestamp instead, where neither happens. Where that matters,
+ * read the expression in UTC.
  */
 final class CronExpressionTrigger implements TriggerRangeInterface
 {
@@ -61,10 +70,10 @@ final class CronExpressionTrigger implements TriggerRangeInterface
         return $next;
     }
 
-    public function getNextRunDateAtOrAfter(DateTimeImmutable $date, ?DateTimeImmutable $phase = null): ?DateTimeImmutable
+    public function getNextRunDateAtOrAfter(DateTimeImmutable $date, ?DateTimeImmutable $lastRun = null): ?DateTimeImmutable
     {
-        if (null !== $phase && $phase >= $date) {
-            return $this->getNextRunDate($phase);
+        if (null !== $lastRun && $lastRun >= $date) {
+            return $this->getNextRunDate($lastRun);
         }
 
         $next = DateTimeImmutable::createFromInterface(
@@ -85,20 +94,29 @@ final class CronExpressionTrigger implements TriggerRangeInterface
         DateTimeImmutable $after,
         DateTimeImmutable $before,
         int $limit,
-        ?DateTimeImmutable $phase = null,
+        ?DateTimeImmutable $lastRun = null,
     ): array {
         if ($limit <= 0) {
             throw new LogicException(sprintf('The limit must be greater than zero, "%d" given.', $limit));
         }
 
-        $cursor = null !== $phase && $phase > $after ? $phase : $after;
+        $cursor = null !== $lastRun && $lastRun > $after ? $lastRun : $after;
 
         $dates = [];
+        $timezone = $this->timezone();
 
-        // The library walks the expression itself, so the cost is the batch and not the span it
-        // is taken from: a backlog of a month is as cheap to open as a backlog of an hour.
-        foreach ($this->cron->getMultipleRunDates($limit, $cursor, false, false, $this->timezone()) as $date) {
-            $date = DateTimeImmutable::createFromInterface($date);
+        // One run at a time rather than `getMultipleRunDates()`, which builds the whole limit
+        // before anything can look at it: a limit of five million over a window of one minute
+        // exhausted the memory limit on an answer of no dates at all. The library's own loop is
+        // this, and it swallows the exception an impossible expression raises, so asking for
+        // one run at a time is also what lets `0 0 30 2 *` fail here as it fails everywhere
+        // else instead of reading as a sequence that has run out.
+        $date = $cursor;
+
+        while (count($dates) < $limit) {
+            $date = DateTimeImmutable::createFromInterface(
+                $this->cron->getNextRunDate($date, 0, false, $timezone),
+            );
 
             if ($date >= $before) {
                 break;
