@@ -36,6 +36,11 @@ final class ExecutionRecord
          * says nothing about whether it stopped.
          */
         public readonly DateTimeImmutable $recoveryDeadline,
+        /**
+         * What was seen of the process this record last gave up, kept so that a backlog read
+         * afterwards says on what evidence it was released. It is never read as an outcome.
+         */
+        public readonly ?ProcessObservation $processObservation = null,
         public readonly ?DateTimeImmutable $claimedAt = null,
         public readonly ?DateTimeImmutable $resolvedAt = null,
         /**

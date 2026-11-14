@@ -23,6 +23,11 @@ use function usort;
  *
  * It survives nothing. A process that exits takes its records with it, which makes it the wrong
  * choice for the recovery this ledger exists for.
+ *
+ * It also grows without bound, because nothing here removes a record once its work is finished,
+ * and it sorts every matching record on every page rather than reading an ordered index. Both
+ * are what a reference implementation can afford and a long-running planner cannot, which is
+ * what a durable store backed by an indexed table is for.
  */
 final class InMemoryLedger implements LedgerCommandInterface, LedgerQueryInterface
 {
@@ -64,7 +69,10 @@ final class InMemoryLedger implements LedgerCommandInterface, LedgerQueryInterfa
         return $this->transition(
             $identity,
             $authority,
-            false,
+            true,
+            // Claimed once. Both planners that admitted this occurrence hold the authority
+            // admission handed out, so the phase is what tells them apart.
+            static fn(ExecutionRecord $record): bool => ExecutionPhase::Admitted === $record->phase,
             static fn(ExecutionRecord $record): ExecutionRecord => self::with(
                 $record,
                 phase: ExecutionPhase::Claimed,
@@ -91,7 +99,9 @@ final class InMemoryLedger implements LedgerCommandInterface, LedgerQueryInterfa
         return $this->transition(
             $identity,
             $authority,
-            false,
+            true,
+            static fn(ExecutionRecord $record): bool
+                => LaunchFact::None === $record->launch && !$record->holdsProcess(),
             static fn(ExecutionRecord $record): ExecutionRecord => self::with(
                 $record,
                 phase: ExecutionPhase::Launched,
@@ -111,6 +121,7 @@ final class InMemoryLedger implements LedgerCommandInterface, LedgerQueryInterfa
             $identity,
             $authority,
             true,
+            null,
             static fn(ExecutionRecord $record): ExecutionRecord => self::with(
                 $record,
                 phase: ExecutionPhase::Terminal,
@@ -123,6 +134,7 @@ final class InMemoryLedger implements LedgerCommandInterface, LedgerQueryInterfa
     public function releaseProcess(
         ExecutionIdentity $identity,
         ExecutionAuthority $authority,
+        ?ProcessObservation $observation,
         DateTimeImmutable $at,
     ): TransitionResult {
         // Not refused once terminal: giving up a process is how a finished execution stops
@@ -131,7 +143,13 @@ final class InMemoryLedger implements LedgerCommandInterface, LedgerQueryInterfa
             $identity,
             $authority,
             false,
-            static fn(ExecutionRecord $record): ExecutionRecord => self::with($record, process: null, clearProcess: true),
+            null,
+            static fn(ExecutionRecord $record): ExecutionRecord => self::with(
+                $record,
+                process: null,
+                clearProcess: true,
+                processObservation: $observation,
+            ),
         );
     }
 
@@ -141,17 +159,26 @@ final class InMemoryLedger implements LedgerCommandInterface, LedgerQueryInterfa
         ExecutionAuthority $next,
         DateTimeImmutable $at,
     ): TransitionResult {
+        if ($next->equals($expected)) {
+            throw new LogicException(sprintf(
+                'A new attempt needs an authority of its own, and "%s" is the one being replaced.',
+                $next->token,
+            ));
+        }
+
         return $this->transition(
             $identity,
             $expected,
             true,
+            null,
+            // The process is deliberately kept: replacing the authority does not stop the
+            // worker the old one started, and a record that forgot it would leave nothing for
+            // recovery to observe and stop counting against capacity.
             static fn(ExecutionRecord $record): ExecutionRecord => self::with(
                 $record,
                 authority: $next,
                 phase: ExecutionPhase::Admitted,
                 launch: LaunchFact::None,
-                process: null,
-                clearProcess: true,
                 claimedAt: null,
                 clearClaimedAt: true,
                 // A previous attempt that started, or that may have, is the whole reason this
@@ -189,13 +216,16 @@ final class InMemoryLedger implements LedgerCommandInterface, LedgerQueryInterfa
     }
 
     /**
-     * @param callable(ExecutionRecord): ExecutionRecord $change
      * @param bool $refuseTerminal Whether an outcome already recorded forbids the change.
+     * @param callable(ExecutionRecord): bool|null $allows What the record has to be for the
+     * change to be allowed at all, beyond not being finished with.
+     * @param callable(ExecutionRecord): ExecutionRecord $change
      */
     private function transition(
         ExecutionIdentity $identity,
         ExecutionAuthority $authority,
         bool $refuseTerminal,
+        ?callable $allows,
         callable $change,
     ): TransitionResult {
         $record = $this->records[$identity->key()] ?? null;
@@ -212,6 +242,10 @@ final class InMemoryLedger implements LedgerCommandInterface, LedgerQueryInterfa
 
         if ($refuseTerminal && $record->isTerminal()) {
             return TransitionResult::alreadyTerminal($record);
+        }
+
+        if (null !== $allows && !$allows($record)) {
+            return TransitionResult::phaseNotAllowed($record);
         }
 
         return TransitionResult::accepted($this->records[$identity->key()] = $change($record));
@@ -267,6 +301,7 @@ final class InMemoryLedger implements LedgerCommandInterface, LedgerQueryInterfa
         ?LaunchFact $launch = null,
         ?LaunchDescription $process = null,
         bool $clearProcess = false,
+        ?ProcessObservation $processObservation = null,
         ?ExecutionOutcome $outcome = null,
         ?DateTimeImmutable $claimedAt = null,
         bool $clearClaimedAt = false,
@@ -283,6 +318,7 @@ final class InMemoryLedger implements LedgerCommandInterface, LedgerQueryInterfa
             outcome: $outcome ?? $record->outcome,
             admittedAt: $record->admittedAt,
             recoveryDeadline: $record->recoveryDeadline,
+            processObservation: $processObservation ?? $record->processObservation,
             claimedAt: $clearClaimedAt ? null : ($claimedAt ?? $record->claimedAt),
             resolvedAt: $resolvedAt ?? $record->resolvedAt,
             mayHaveRunBefore: $mayHaveRunBefore ?? $record->mayHaveRunBefore,

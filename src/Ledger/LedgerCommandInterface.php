@@ -40,9 +40,13 @@ interface LedgerCommandInterface
     /**
      * Takes the right to launch an admitted execution.
      *
-     * Refused when the record is already claimed under a different authority, which is how two
-     * planners reaching the same occurrence at once resolve: one of them is told so and leaves
-     * it alone.
+     * Accepted once. Two planners that admitted the same occurrence hold the same authority,
+     * because admission hands out one, so the authority alone cannot tell them apart: the
+     * second claim is refused because the record has already been claimed, and that is how
+     * two planners reaching one occurrence resolve. The loser is told so and leaves it alone.
+     *
+     * A later attempt claims again, because {@see reauthorize()} puts the record back where a
+     * claim is allowed from.
      */
     public function claim(
         ExecutionIdentity $identity,
@@ -56,6 +60,11 @@ interface LedgerCommandInterface
      * A description belongs with {@see LaunchFact::Started} and with nothing else: a launch that
      * is proven not to have started has no process to describe, and one whose result is unknown
      * has none that is known to exist.
+     *
+     * Once per attempt, and not while the record still holds a process. A second report would
+     * replace the first, and a launch recorded over an owned process would lose the only
+     * description of something that may still be running. An attempt that finds a process still
+     * owned observes it and releases it before it launches anything of its own.
      */
     public function recordLaunch(
         ExecutionIdentity $identity,
@@ -88,10 +97,16 @@ interface LedgerCommandInterface
      * Separate from the outcome because the two are learned separately and often in the other
      * order. Until this is called the record counts against whatever capacity is reckoned from
      * owned processes, which is the honest answer while a process may still be running.
+     *
+     * The observation is what was seen of the process, and it is kept with the release it
+     * explains. It is evidence that something stopped, never evidence of what it achieved: an
+     * exit status of zero is not an outcome, and a record whose process is released with one
+     * stays without an outcome until the work reports its own.
      */
     public function releaseProcess(
         ExecutionIdentity $identity,
         ExecutionAuthority $authority,
+        ?ProcessObservation $observation,
         DateTimeImmutable $at,
     ): TransitionResult;
 
@@ -104,7 +119,13 @@ interface LedgerCommandInterface
      * launched or may have launched, the record is marked as one that may have run before, and
      * that mark is never taken off.
      *
-     * Refused once an outcome is recorded: there is nothing left to attempt.
+     * A process the record holds is kept too. Replacing the authority does not stop the worker
+     * that was started under the old one, and a record that forgot it would stop counting
+     * against capacity and leave nothing for recovery to observe. The new attempt releases it
+     * once it is known to be closed, and only then may it launch anything itself.
+     *
+     * Refused once an outcome is recorded: there is nothing left to attempt. `$next` must be an
+     * authority this execution is not already under, which is the caller's to arrange.
      */
     public function reauthorize(
         ExecutionIdentity $identity,
