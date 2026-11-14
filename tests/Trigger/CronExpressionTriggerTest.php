@@ -67,4 +67,23 @@ final class CronExpressionTriggerTest extends TestCase
     {
         $this->assertSame('cron(0 5 * * *)', (string) new CronExpressionTrigger('0 5 * * *'));
     }
+
+    public function testToStringCarriesTheTimezoneWhenThereIsOne(): void
+    {
+        $this->assertSame(
+            'cron(0 5 * * *, Europe/Skopje)',
+            (string) new CronExpressionTrigger('0 5 * * *', 'Europe/Skopje'),
+        );
+        $this->assertSame(
+            'cron(0 5 * * *, +02:00)',
+            (string) new CronExpressionTrigger('0 5 * * *', new DateTimeZone('+02:00')),
+        );
+    }
+
+    public function testToStringOfAnExpressionLeftToTheDefaultTimezone(): void
+    {
+        // The description a task takes its identifier from, so an expression given no timezone
+        // and one given an empty string have to read the same way.
+        $this->assertSame('cron(0 5 * * *)', (string) new CronExpressionTrigger('0 5 * * *', ''));
+    }
 }

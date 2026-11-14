@@ -17,10 +17,15 @@ use function get_debug_type;
 use function hash;
 use function implode;
 use function is_array;
+use function is_bool;
+use function is_finite;
+use function is_float;
+use function is_int;
 use function is_object;
 use function is_string;
 use function ksort;
 use function sprintf;
+use function str_contains;
 use function var_export;
 
 use const SORT_STRING;
@@ -47,12 +52,20 @@ final class RecurringTask
      */
     public static function cron(string $expression, callable|object|string $task, ?string $timezone = null): self
     {
-        // From the trigger's own description, as the other two constructors do: the expression
-        // alone leaves out the timezone it is read in, and two tasks differing only in that one
-        // ran under a single identifier.
         $trigger = new CronExpressionTrigger($expression, $timezone);
 
-        return new self($trigger, $task, self::generateId('cron', (string) $trigger, $task));
+        // The expression alone leaves out the timezone it is read in, and two tasks differing
+        // only in that one ran under a single identifier. The timezone comes from the trigger's
+        // own description, which holds it only when there is one: an expression left to the
+        // default timezone is described by the expression itself and keeps the identifier it
+        // had, rather than every cron task in every schedule taking a new one.
+        $description = (string) $trigger;
+
+        if (sprintf('cron(%s)', $expression) === $description) {
+            $description = $expression;
+        }
+
+        return new self($trigger, $task, self::generateId('cron', $description, $task));
     }
 
     /**
@@ -286,8 +299,9 @@ final class RecurringTask
 
         // Messages of one class are told apart by their type and their payload: GenericMessage is
         // the class of every message built from a payload, and messages of one type differing only
-        // in what they carry are different tasks. The metadata is left out: a message acquires an
-        // id, a delay and failure counts as it is handled, and none of that says which task it is.
+        // in what they carry are different tasks. The metadata is left out, whether a message
+        // acquired it as it was handled — an id, a delay, failure counts — or carried it from a
+        // `withMeta()` call before it was scheduled: none of that says which task it is.
         if ($task instanceof MessageInterface) {
             return sprintf('%s(%s:%s)', $task::class, $task->getType(), self::describePayload($task->getPayload()));
         }
@@ -302,18 +316,39 @@ final class RecurringTask
     /**
      * A message payload as a string that stands for it: one value, however deep, written out in a
      * fixed order so that the same payload always reads the same way. A payload holds nothing but
-     * scalars, nulls and arrays of them, so there is always such a string.
+     * scalars, nulls and arrays of them; anything else is rejected rather than described, because
+     * what an object or a resource is cannot be written the same way twice.
      *
-     * @param bool|int|float|string|array|null $payload
-     *
-     * @psalm-param scalar|null|array<array-key, mixed> $payload
+     * @param string $path Where in the payload the value sits, for the message of the exception.
      */
-    private static function describePayload(bool|int|float|string|array|null $payload): string
+    private static function describePayload(mixed $payload, string $path = ''): string
     {
-        if (!is_array($payload)) {
-            return var_export($payload, true);
+        if (is_array($payload)) {
+            return self::describeArrayPayload($payload, $path);
         }
 
+        if (is_float($payload)) {
+            return self::describeFloat($payload);
+        }
+
+        if (null !== $payload && !is_bool($payload) && !is_int($payload) && !is_string($payload)) {
+            throw new Exception\LogicException(
+                sprintf(
+                    'A message payload holds nothing but scalars, nulls and arrays of them, but %s is of type "%s".',
+                    '' === $path ? 'the payload' : sprintf('the value at %s', $path),
+                    get_debug_type($payload),
+                ),
+            );
+        }
+
+        return var_export($payload, true);
+    }
+
+    /**
+     * @param array<array-key, mixed> $payload
+     */
+    private static function describeArrayPayload(array $payload, string $path): string
+    {
         // By key, so that two payloads holding the same entries in a different order are one
         // payload. As strings, because comparing them as PHP does would read "01" and 1 as one
         // key and leave the two payloads in whatever order they were written in.
@@ -322,12 +357,30 @@ final class RecurringTask
         $parts = [];
 
         foreach ($payload as $key => $value) {
-            /** @psalm-var scalar|null|array<array-key, mixed> $value */
             // The key is written out the same way a value is, so that one holding an "=" or a
             // comma cannot read as the end of its own entry and the start of another.
-            $parts[] = var_export($key, true) . '=' . self::describePayload($value);
+            $written = var_export($key, true);
+
+            $parts[] = $written . '=' . self::describePayload($value, $path . '[' . $written . ']');
         }
 
         return '[' . implode(',', $parts) . ']';
+    }
+
+    /**
+     * A float written to seventeen significant digits, which is enough to tell any two apart.
+     * `var_export()` writes one at the precision of the `serialize_precision` setting instead,
+     * so the same payload would read two ways on two hosts, and at a low enough setting 0.3 and
+     * 0.1 + 0.2 would read as one value.
+     */
+    private static function describeFloat(float $value): string
+    {
+        $written = sprintf('%.17G', $value);
+
+        // A trailing ".0" where there is no point and no exponent, so that a float does not read
+        // as the integer of the same value. INF and NAN are written as names and need none.
+        return is_finite($value) && !str_contains($written, '.') && !str_contains($written, 'E')
+            ? $written . '.0'
+            : $written;
     }
 }
