@@ -160,7 +160,6 @@ final class UnwritableLedger implements LedgerCommandInterface
     public function reauthorize(
         ExecutionIdentity $identity,
         ExecutionAuthority $expected,
-        ExecutionAuthority $next,
         DateTimeImmutable $at,
     ): TransitionResult {
         throw new RuntimeException('The ledger could not be written to.');

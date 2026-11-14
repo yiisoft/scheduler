@@ -17,6 +17,8 @@ use Yiisoft\Scheduler\Ledger\LedgerQueryInterface;
 use Yiisoft\Scheduler\Ledger\ProcessObservation;
 use Yiisoft\Scheduler\Ledger\TransitionStatus;
 
+use function count;
+use function sort;
 use function sprintf;
 
 /**
@@ -69,7 +71,7 @@ abstract class LedgerContractTestCase extends TestCase
         $identity = $this->identity();
 
         $record = $ledger->admit($identity, 'rev-1', $this->at(), $this->at('+1 hour'));
-        $ledger->reauthorize($identity, $record->authority, new ExecutionAuthority('second'), $this->at());
+        $ledger->reauthorize($identity, $record->authority, $this->at());
 
         $result = $ledger->recordOutcome($identity, $record->authority, ExecutionOutcome::Done, $this->at());
 
@@ -151,13 +153,13 @@ abstract class LedgerContractTestCase extends TestCase
         $cleanRecord = $ledger->admit($clean, 'rev-1', $this->at(), $this->at('+1 hour'));
         $ledger->claim($clean, $cleanRecord->authority, $this->at());
         $ledger->recordLaunch($clean, $cleanRecord->authority, LaunchFact::ProvenNotStarted, null, $this->at());
-        $ledger->reauthorize($clean, $cleanRecord->authority, new ExecutionAuthority('clean-2'), $this->at());
+        $ledger->reauthorize($clean, $cleanRecord->authority, $this->at());
 
         $risky = $this->identity(taskId: 'risky');
         $riskyRecord = $ledger->admit($risky, 'rev-1', $this->at(), $this->at('+1 hour'));
         $ledger->claim($risky, $riskyRecord->authority, $this->at());
         $ledger->recordLaunch($risky, $riskyRecord->authority, LaunchFact::Unknown, null, $this->at());
-        $ledger->reauthorize($risky, $riskyRecord->authority, new ExecutionAuthority('risky-2'), $this->at());
+        $ledger->reauthorize($risky, $riskyRecord->authority, $this->at());
 
         $this->assertFalse($ledger->find($clean)?->mayHaveRunBefore);
         $this->assertTrue($ledger->find($risky)?->mayHaveRunBefore);
@@ -172,11 +174,13 @@ abstract class LedgerContractTestCase extends TestCase
         $ledger->claim($identity, $record->authority, $this->at());
         $ledger->recordLaunch($identity, $record->authority, LaunchFact::Unknown, null, $this->at());
 
-        $second = new ExecutionAuthority('second');
-        $ledger->reauthorize($identity, $record->authority, $second, $this->at());
+        $second = $ledger->reauthorize($identity, $record->authority, $this->at())->record?->authority;
+
+        $this->assertNotNull($second);
+
         $ledger->claim($identity, $second, $this->at());
         $ledger->recordLaunch($identity, $second, LaunchFact::ProvenNotStarted, null, $this->at());
-        $ledger->reauthorize($identity, $second, new ExecutionAuthority('third'), $this->at());
+        $ledger->reauthorize($identity, $second, $this->at());
 
         $this->assertTrue($ledger->find($identity)?->mayHaveRunBefore);
     }
@@ -190,7 +194,7 @@ abstract class LedgerContractTestCase extends TestCase
         $record = $ledger->admit($identity, 'rev-1', $this->at(), $this->at('+1 hour'));
         $deadline = $record->recoveryDeadline;
 
-        $ledger->reauthorize($identity, $record->authority, new ExecutionAuthority('second'), $this->at('+1 minute'));
+        $ledger->reauthorize($identity, $record->authority, $this->at('+1 minute'));
         $ledger->admit($identity, 'rev-2', $this->at('+2 minutes'), $this->at('+9 hours'));
 
         $after = $ledger->find($identity);
@@ -207,7 +211,7 @@ abstract class LedgerContractTestCase extends TestCase
         $record = $ledger->admit($identity, 'rev-1', $this->at(), $this->at('+1 hour'));
         $ledger->recordOutcome($identity, $record->authority, ExecutionOutcome::Done, $this->at());
 
-        $result = $ledger->reauthorize($identity, $record->authority, new ExecutionAuthority('second'), $this->at());
+        $result = $ledger->reauthorize($identity, $record->authority, $this->at());
 
         $this->assertSame(TransitionStatus::AlreadyTerminal, $result->status);
     }
@@ -328,8 +332,10 @@ abstract class LedgerContractTestCase extends TestCase
         $ledger->claim($identity, $record->authority, $this->at());
         $ledger->recordLaunch($identity, $record->authority, LaunchFact::Started, $this->process(), $this->at());
 
-        $second = new ExecutionAuthority('second');
-        $ledger->reauthorize($identity, $record->authority, $second, $this->at('+1 minute'));
+        $second = $ledger->reauthorize($identity, $record->authority, $this->at('+1 minute'))->record?->authority;
+
+        $this->assertNotNull($second);
+
         $ledger->claim($identity, $second, $this->at('+1 minute'));
 
         $again = $ledger->recordLaunch($identity, $second, LaunchFact::Started, $this->process(5151), $this->at('+2 minutes'));
@@ -347,11 +353,11 @@ abstract class LedgerContractTestCase extends TestCase
         $ledger->claim($identity, $record->authority, $this->at());
         $ledger->recordLaunch($identity, $record->authority, LaunchFact::Started, $this->process(), $this->at());
 
-        $second = new ExecutionAuthority('second');
-        $ledger->reauthorize($identity, $record->authority, $second, $this->at('+1 minute'));
+        $second = $ledger->reauthorize($identity, $record->authority, $this->at('+1 minute'))->record?->authority;
 
         $after = $ledger->find($identity);
 
+        $this->assertNotNull($second);
         $this->assertTrue($after?->holdsProcess(), 'replacing the authority does not stop the worker');
         $this->assertCount(1, $ledger->holdingProcess($identity->source, 10));
 
@@ -404,6 +410,63 @@ abstract class LedgerContractTestCase extends TestCase
 
         $this->assertSame(TransitionStatus::PhaseNotAllowed, $result->status);
         $this->assertNull($ledger->find($identity)?->processObservation);
+    }
+
+    public function testNoTwoAttemptsAtOneExecutionShareAnAuthority(): void
+    {
+        // A caller that chose the token could hand a later attempt one an earlier attempt
+        // already held, and the worker that attempt left behind would pass the check again.
+        $ledger = $this->ledger();
+        $identity = $this->identity();
+
+        $current = $ledger->admit($identity, 'rev-1', $this->at(), $this->at('+1 hour'))->authority;
+        $held = [$current->token];
+
+        for ($attempt = 0; $attempt < 4; ++$attempt) {
+            $next = $ledger->reauthorize($identity, $current, $this->at())->record?->authority;
+
+            $this->assertNotNull($next);
+            $this->assertNotContains($next->token, $held, 'an attempt is never under an authority an earlier one held');
+
+            $held[] = $next->token;
+            $current = $next;
+        }
+    }
+
+    public function testABacklogOfTasksWhoseKeysLookLikeNumbersIsStillWalkedToItsEnd(): void
+    {
+        // A key is a hex digest and about one in seven hundred of them is a numeric string.
+        // PHP compares two of those as numbers and a numeric one against an ordinary one as
+        // bytes, so an order built with `<=>` is not an order: these four task ids, all due at
+        // one instant, make a cycle, and a walk over a cycle loses records and can go round
+        // forever. The ids are chosen for their digests, which is why they look arbitrary.
+        $ledger = $this->ledger();
+        $taskIds = ['t2395', 't3029', 't23', 't4'];
+        $occurrence = $this->at();
+
+        foreach ($taskIds as $taskId) {
+            $ledger->admit(
+                $this->identity(taskId: $taskId, occurrence: $occurrence),
+                'rev-1',
+                $this->at(),
+                $this->at('+1 hour'),
+            );
+        }
+
+        $walked = [];
+        $after = null;
+
+        while ([] !== ($page = $ledger->unresolved('default', 1, $after))) {
+            $walked[] = $page[0]->identity->taskId;
+            $after = $page[0]->identity;
+
+            $this->assertLessThanOrEqual(count($taskIds), count($walked), 'the walk goes round in a circle');
+        }
+
+        sort($walked);
+        sort($taskIds);
+
+        $this->assertSame($taskIds, $walked);
     }
 
     abstract protected function ledger(): LedgerCommandInterface&LedgerQueryInterface;

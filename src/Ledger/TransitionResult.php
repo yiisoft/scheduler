@@ -11,6 +11,11 @@ namespace Yiisoft\Scheduler\Ledger;
  * there first is how a shared ledger is supposed to behave, and the caller needs the record to
  * decide what to do next. An exception is for a ledger that could not be read or written at
  * all, where nothing is known either way.
+ *
+ * A refusal carries the record it refused to change, except when there is none to carry. The
+ * record is not withheld from the actor being fenced out: an authority is a value that a write
+ * either matches or does not, not a secret, and {@see LedgerQueryInterface::find()} hands the
+ * same record to anyone who asks.
  */
 final class TransitionResult
 {
