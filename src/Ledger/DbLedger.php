@@ -12,6 +12,8 @@ use Yiisoft\Db\Schema\Column\ColumnBuilder;
 use Yiisoft\Scheduler\Exception\LogicException;
 use Yiisoft\Scheduler\Exception\RuntimeException;
 
+use function is_callable;
+use function max;
 use function sprintf;
 
 use const DATE_ATOM;
@@ -67,6 +69,7 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
             'occurrence' => ColumnBuilder::string(26)->notNull(),
             'source_revision' => ColumnBuilder::string(255)->notNull(),
             'authority' => ColumnBuilder::string(255)->notNull(),
+            'attempt' => ColumnBuilder::integer()->notNull(),
             'phase' => ColumnBuilder::string(16)->notNull(),
             'launch' => ColumnBuilder::string(20)->notNull(),
             'process_host' => ColumnBuilder::string(255),
@@ -107,7 +110,8 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
                 'task_id' => $identity->taskId,
                 'occurrence' => self::writeDate($identity->occurrence),
                 'source_revision' => $sourceRevision,
-                'authority' => $identity->key() . '/1',
+                'authority' => ExecutionAuthority::forAttempt($identity, 1)->token,
+                'attempt' => 1,
                 'phase' => ExecutionPhase::Admitted->value,
                 'launch' => LaunchFact::None->value,
                 'process_host' => null,
@@ -229,36 +233,38 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
     public function reauthorize(
         ExecutionIdentity $identity,
         ExecutionAuthority $expected,
-        ExecutionAuthority $next,
         DateTimeImmutable $at,
     ): TransitionResult {
-        if ($next->equals($expected)) {
-            throw new LogicException(sprintf(
-                'A new attempt needs an authority of its own, and "%s" is the one being replaced.',
-                $next->token,
-            ));
-        }
-
         // The process columns are deliberately left alone: replacing the authority does not
         // stop the worker the old one started, and a record that forgot it would leave nothing
         // for recovery to observe and stop counting against capacity.
-        return $this->transition($identity, $expected, true, null, [
-            'authority' => $next->token,
-            'phase' => ExecutionPhase::Admitted->value,
-            'launch' => LaunchFact::None->value,
-            'claimed_at' => null,
-            // Read from the row being written rather than from one read a moment earlier, so a
-            // launch recorded in between is still counted. A previous attempt that started, or
-            // that may have, is the whole reason this is worth recording.
-            'may_have_run_before' => new Expression(
-                sprintf(
-                    '%s OR %s IN (:started, :unknown)',
-                    $this->db->getQuoter()->quoteColumnName('may_have_run_before'),
-                    $this->db->getQuoter()->quoteColumnName('launch'),
+        //
+        // The attempt is read in the transaction that writes it, and the `WHERE` still carries
+        // the authority the caller named. An authority is minted from the attempt, so a record
+        // reauthorized in between carries one this caller did not name and the write applies
+        // to nothing.
+        return $this->transition($identity, $expected, true, null, function (array $row) use ($identity): array {
+            $attempt = (int) $row['attempt'] + 1;
+
+            return [
+                'authority' => ExecutionAuthority::forAttempt($identity, $attempt)->token,
+                'attempt' => $attempt,
+                'phase' => ExecutionPhase::Admitted->value,
+                'launch' => LaunchFact::None->value,
+                'claimed_at' => null,
+                // Read from the row being written rather than from one read a moment earlier,
+                // so a launch recorded in between is still counted. A previous attempt that
+                // started, or that may have, is why this is worth recording at all.
+                'may_have_run_before' => new Expression(
+                    sprintf(
+                        '%s OR %s IN (:started, :unknown)',
+                        $this->db->getQuoter()->quoteColumnName('may_have_run_before'),
+                        $this->db->getQuoter()->quoteColumnName('launch'),
+                    ),
+                    [':started' => LaunchFact::Started->value, ':unknown' => LaunchFact::Unknown->value],
                 ),
-                [':started' => LaunchFact::Started->value, ':unknown' => LaunchFact::Unknown->value],
-            ),
-        ]);
+            ];
+        });
     }
 
     public function find(ExecutionIdentity $identity): ?ExecutionRecord
@@ -290,14 +296,16 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
      * @param array<array-key, mixed>|null $allows What the row has to be for the change to be
      * allowed at all, beyond not being finished with. It goes in the same `WHERE`, so the
      * database decides it rather than a read taken a moment earlier.
-     * @param array<string, mixed> $columns
+     * @param array<string, mixed>|callable(array<string, mixed>): array<string, mixed> $columns
+     * What to write, or how to work it out from the row as it stands. A callable is read in the
+     * transaction that writes it, and the `WHERE` below still decides whether the write lands.
      */
     private function transition(
         ExecutionIdentity $identity,
         ExecutionAuthority $authority,
         bool $refuseTerminal,
         ?array $allows,
-        array $columns,
+        array|callable $columns,
     ): TransitionResult {
         $condition = [
             'and',
@@ -314,7 +322,14 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
 
         /** @var TransitionResult */
         return $this->db->transaction(function () use ($identity, $authority, $refuseTerminal, $columns, $condition) {
-            $changed = $this->db->createCommand()->update($this->table, $columns, $condition)->execute();
+            if (is_callable($columns)) {
+                $current = $this->row($identity);
+                $columns = null === $current ? [] : $columns($current);
+            }
+
+            $changed = [] === $columns
+                ? 0
+                : $this->db->createCommand()->update($this->table, $columns, $condition)->execute();
             $row = $this->row($identity);
 
             if ($changed > 0) {
@@ -406,6 +421,7 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
             ),
             sourceRevision: (string) $row['source_revision'],
             authority: new ExecutionAuthority((string) $row['authority']),
+            attempt: max(1, (int) $row['attempt']),
             phase: ExecutionPhase::from((string) $row['phase']),
             launch: LaunchFact::from((string) $row['launch']),
             process: null === $row['process_host'] ? null : new LaunchDescription(

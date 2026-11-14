@@ -7,7 +7,6 @@ namespace Yiisoft\Scheduler\Tests\Ledger;
 use Yiisoft\Db\Sqlite\Connection;
 use Yiisoft\Db\Sqlite\Driver;
 use Yiisoft\Scheduler\Ledger\DbLedger;
-use Yiisoft\Scheduler\Ledger\ExecutionAuthority;
 use Yiisoft\Scheduler\Ledger\LaunchFact;
 use Yiisoft\Scheduler\Ledger\LedgerCommandInterface;
 use Yiisoft\Scheduler\Ledger\LedgerQueryInterface;
@@ -79,12 +78,16 @@ final class DbLedgerTest extends LedgerContractTestCase
         $ledger = $this->ledger();
         $record = $ledger->admit($identity, 'rev-1', $this->at(), $this->at('+1 hour'));
 
-        $mine = $ledger->reauthorize($identity, $record->authority, new ExecutionAuthority('mine'), $this->at());
-        $theirs = $this->open()->reauthorize($identity, $record->authority, new ExecutionAuthority('theirs'), $this->at());
+        $mine = $ledger->reauthorize($identity, $record->authority, $this->at());
+        $theirs = $this->open()->reauthorize($identity, $record->authority, $this->at());
 
         $this->assertTrue($mine->isAccepted());
         $this->assertSame(TransitionStatus::StaleAuthority, $theirs->status);
-        $this->assertSame('mine', $this->open()->find($identity)?->authority->token);
+        $this->assertSame(2, $this->open()->find($identity)?->attempt);
+        $this->assertSame(
+            $mine->record?->authority->token,
+            $this->open()->find($identity)?->authority->token,
+        );
     }
 
     protected function ledger(): LedgerCommandInterface&LedgerQueryInterface
