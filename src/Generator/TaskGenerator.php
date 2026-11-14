@@ -24,6 +24,21 @@ use function count;
  */
 final class TaskGenerator
 {
+    /**
+     * How many occurrences of one task a single tick walks before it leaves the rest for the
+     * next one.
+     *
+     * A trigger that implements `TriggerRangeInterface` can be asked for a bounded part of its
+     * sequence, but one that implements `TriggerInterface` alone can only be walked a date at
+     * a time, and the walk is what a long gap makes expensive: a task due every minute
+     * whose last run was a year ago is a year of `getNextRunDate()` calls before the first one
+     * is emitted. Stopping at a bound makes a tick finish; nothing is lost, because the next
+     * tick seeds from the checkpoint and carries on where this one stopped.
+     *
+     * A week of a minute task fits, so an ordinary outage drains in one tick.
+     */
+    private const MAX_MISSED_RUNS_PER_TICK = 10_000;
+
     private ?TriggerHeap $heap = null;
     private int $heapRevision = -1;
     private readonly Checkpoint $checkpoint;
@@ -62,6 +77,8 @@ final class TaskGenerator
 
         try {
             $heap = $this->heap();
+            /** @var array<string, int> $walked How far this tick has gone into each backlog. */
+            $walked = [];
 
             while (!$heap->isEmpty() && $heap->top()[0] <= $now) {
                 /** @var array{DateTimeImmutable, int, RecurringTask} $entry */
@@ -70,13 +87,16 @@ final class TaskGenerator
 
                 $yield = true;
                 $nextTime = $task->getTrigger()->getNextRunDate($time);
+                $walked[$task->getId()] = ($walked[$task->getId()] ?? 0) + 1;
 
                 if (null !== $nextTime) {
                     if ($nextTime <= $time) {
                         throw new LogicException('A trigger must return a date strictly after the given one.');
                     }
 
-                    $heap->insert([$nextTime, $index, $task]);
+                    if ($walked[$task->getId()] < self::MAX_MISSED_RUNS_PER_TICK) {
+                        $heap->insert([$nextTime, $index, $task]);
+                    }
 
                     if ($nextTime <= $now && $this->schedule->shouldProcessOnlyLastMissedRun()) {
                         // A newer missed run exists; only the latest one fires.
@@ -99,8 +119,10 @@ final class TaskGenerator
                 $this->checkpoint->save($task->getId(), $time);
             }
 
-            // Reached only by a tick that drained, so a process that died partway leaves the
-            // runs it never started due.
+            // Reached only by a tick that drained the heap, so a process that died partway
+            // leaves the runs it never started due. A task left at the bound above drained it
+            // too, in the sense that matters here: it put nothing back, and what it did not
+            // reach is still behind its own checkpoint for the next tick to find.
             $this->checkpoint->markTick($now);
         } finally {
             $this->checkpoint->release();

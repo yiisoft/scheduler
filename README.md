@@ -229,13 +229,19 @@ $batch = $trigger->getRunDates($lastHandled, $now, 100);
 ```
 
 Both bounds of a range are exclusive, so a batch continued from its own last date neither skips
-a run nor repeats one, and both questions take a `$phase`: a run already accounted for, never
+a run nor repeats one, and both questions take a `$lastRun`: a run already accounted for, never
 answered with again. The dates are the ones the trigger gives one at a time, in the same order —
 a range is a different question about the same sequence, not a different sequence.
 
 A custom trigger implements `TriggerInterface` alone and is asked one date at a time, as before.
 Implement `TriggerRangeInterface` as well when the sequence can be enumerated more cheaply than
 by walking it.
+
+Walking is what a long gap makes expensive, whichever interface a trigger implements: a task due
+every minute whose last run was a year ago is a year of dates before the first one is emitted. A
+tick therefore walks at most ten thousand occurrences of any one task — a week of a minute task,
+so an ordinary outage still drains in one — and leaves the rest to the tick after it. Nothing is
+skipped: each tick seeds from the checkpoint and carries on where the one before stopped.
 
 ## Task identifiers
 
