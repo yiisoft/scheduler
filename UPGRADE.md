@@ -16,6 +16,10 @@ application when you upgrade the package from one version to another.
   tasks left to the default timezone and intervals left to the default anchor with no end date
   are unaffected.
 
+  `RecurringTask::cron('0 9 * * *', $task, 'UTC')` and `RecurringTask::cron('0 9 * * *', $task)`
+  are two identifiers even where the default timezone is UTC and the two run at the same times:
+  the first names a timezone and the second takes whichever one the process is set to.
+
 - `Scheduler::run()` now forks a child process per due task by default. Anyone calling it
   directly gets the forked behaviour described in the README: `PostRunEvent` and the `after`
   listeners receive `null` instead of the handler's result, a task failure surfaces as a
