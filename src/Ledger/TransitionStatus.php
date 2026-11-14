@@ -21,6 +21,13 @@ enum TransitionStatus: string
      */
     case AlreadyTerminal = 'already-terminal';
 
+    /**
+     * The record is not in a state this transition is allowed from: an execution already
+     * claimed cannot be claimed again, and one still holding a process cannot launch another.
+     * Nothing was changed.
+     */
+    case PhaseNotAllowed = 'phase-not-allowed';
+
     /** There is no such execution in the ledger. */
     case Missing = 'missing';
 }

@@ -49,12 +49,25 @@ final class LaunchDescription
         }
     }
 
-    /** Whether this describes the same process, as far as the recorded facts can say. */
-    public function describes(self $other): bool
+    /**
+     * Whether what was observed cannot be the process that was recorded.
+     *
+     * The only question these facts answer. Two descriptions agreeing proves nothing: a pid is
+     * handed to something else once its process is gone, and a host and a pid that match with
+     * neither a boot id nor a start time to tell them apart are exactly the case a reused pid
+     * looks like. One recorded fact differing is proof the other way, which is the answer
+     * recovery can act on, and a fact that only one side has is not a difference.
+     */
+    public function contradicts(self $other): bool
     {
-        return $this->host === $other->host
-            && $this->pid === $other->pid
-            && $this->bootId === $other->bootId
-            && $this->startedAt === $other->startedAt;
+        return $this->host !== $other->host
+            || $this->pid !== $other->pid
+            || self::differ($this->bootId, $other->bootId)
+            || self::differ($this->startedAt, $other->startedAt);
+    }
+
+    private static function differ(?string $recorded, ?string $observed): bool
+    {
+        return null !== $recorded && null !== $observed && $recorded !== $observed;
     }
 }

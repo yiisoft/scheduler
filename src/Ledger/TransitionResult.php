@@ -34,6 +34,11 @@ final class TransitionResult
         return new self(TransitionStatus::AlreadyTerminal, $record);
     }
 
+    public static function phaseNotAllowed(ExecutionRecord $record): self
+    {
+        return new self(TransitionStatus::PhaseNotAllowed, $record);
+    }
+
     public static function missing(): self
     {
         return new self(TransitionStatus::Missing, null);

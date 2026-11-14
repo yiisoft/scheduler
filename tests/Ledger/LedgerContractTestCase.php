@@ -14,6 +14,7 @@ use Yiisoft\Scheduler\Ledger\LaunchDescription;
 use Yiisoft\Scheduler\Ledger\LaunchFact;
 use Yiisoft\Scheduler\Ledger\LedgerCommandInterface;
 use Yiisoft\Scheduler\Ledger\LedgerQueryInterface;
+use Yiisoft\Scheduler\Ledger\ProcessObservation;
 use Yiisoft\Scheduler\Ledger\TransitionStatus;
 
 use function sprintf;
@@ -117,7 +118,7 @@ abstract class LedgerContractTestCase extends TestCase
         $ledger->recordLaunch($identity, $record->authority, LaunchFact::Started, $this->process(), $this->at());
         $ledger->recordOutcome($identity, $record->authority, ExecutionOutcome::Done, $this->at());
 
-        $result = $ledger->releaseProcess($identity, $record->authority, $this->at('+1 minute'));
+        $result = $ledger->releaseProcess($identity, $record->authority, new ProcessObservation(0), $this->at('+1 minute'));
 
         $this->assertTrue($result->isAccepted());
         $this->assertSame([], $ledger->holdingProcess($identity->source, 10));
@@ -247,7 +248,7 @@ abstract class LedgerContractTestCase extends TestCase
         $walked = [];
         $after = null;
 
-        while ([] !== $page = $ledger->unresolved('default', 1, $after)) {
+        while ([] !== ($page = $ledger->unresolved('default', 1, $after))) {
             foreach ($page as $record) {
                 $walked[] = $record->identity->occurrence->format('H:i');
                 $after = $record->identity;
@@ -272,6 +273,98 @@ abstract class LedgerContractTestCase extends TestCase
         $this->assertCount(1, $first);
         $this->assertCount(1, $second);
         $this->assertNotSame($first[0]->identity->taskId, $second[0]->identity->taskId);
+    }
+
+    public function testOneOfTwoPlannersClaimsAnAdmittedExecution(): void
+    {
+        // Both admitted it, so both hold the authority admission handed out and the authority
+        // alone cannot tell them apart. The claim is what does.
+        $ledger = $this->ledger();
+        $identity = $this->identity();
+
+        $mine = $ledger->admit($identity, 'rev-1', $this->at(), $this->at('+1 hour'));
+        $theirs = $ledger->admit($identity, 'rev-1', $this->at(), $this->at('+1 hour'));
+
+        $first = $ledger->claim($identity, $mine->authority, $this->at());
+        $second = $ledger->claim($identity, $theirs->authority, $this->at());
+
+        $this->assertTrue($first->isAccepted());
+        $this->assertSame(TransitionStatus::PhaseNotAllowed, $second->status);
+    }
+
+    public function testFinishedWorkCannotBeClaimedOrLaunchedAgain(): void
+    {
+        // Phase is what the terminal guard reads, so a claim accepted after an outcome would
+        // move the record out of terminal and let the work be reauthorized and run again.
+        $ledger = $this->ledger();
+        $identity = $this->identity();
+
+        $record = $ledger->admit($identity, 'rev-1', $this->at(), $this->at('+1 hour'));
+        $ledger->recordOutcome($identity, $record->authority, ExecutionOutcome::Done, $this->at());
+
+        $claim = $ledger->claim($identity, $record->authority, $this->at('+1 minute'));
+        $launch = $ledger->recordLaunch($identity, $record->authority, LaunchFact::Unknown, null, $this->at('+1 minute'));
+
+        $this->assertSame(TransitionStatus::AlreadyTerminal, $claim->status);
+        $this->assertSame(TransitionStatus::AlreadyTerminal, $launch->status);
+        $this->assertTrue($ledger->find($identity)?->isTerminal());
+    }
+
+    public function testAnAttemptDoesNotLaunchOverAProcessTheRecordStillHolds(): void
+    {
+        // The process of the attempt before is the only description of something that may
+        // still be running. Launching over it would lose it.
+        $ledger = $this->ledger();
+        $identity = $this->identity();
+
+        $record = $ledger->admit($identity, 'rev-1', $this->at(), $this->at('+1 hour'));
+        $ledger->recordLaunch($identity, $record->authority, LaunchFact::Started, $this->process(), $this->at());
+
+        $second = new ExecutionAuthority('second');
+        $ledger->reauthorize($identity, $record->authority, $second, $this->at('+1 minute'));
+
+        $again = $ledger->recordLaunch($identity, $second, LaunchFact::Started, $this->process(5151), $this->at('+2 minutes'));
+
+        $this->assertSame(TransitionStatus::PhaseNotAllowed, $again->status);
+        $this->assertSame(4242, $ledger->find($identity)?->process?->pid);
+    }
+
+    public function testAnotherAttemptKeepsTheProcessTheOneBeforeStarted(): void
+    {
+        $ledger = $this->ledger();
+        $identity = $this->identity();
+
+        $record = $ledger->admit($identity, 'rev-1', $this->at(), $this->at('+1 hour'));
+        $ledger->recordLaunch($identity, $record->authority, LaunchFact::Started, $this->process(), $this->at());
+
+        $second = new ExecutionAuthority('second');
+        $ledger->reauthorize($identity, $record->authority, $second, $this->at('+1 minute'));
+
+        $after = $ledger->find($identity);
+
+        $this->assertTrue($after?->holdsProcess(), 'replacing the authority does not stop the worker');
+        $this->assertCount(1, $ledger->holdingProcess($identity->source, 10));
+
+        $released = $ledger->releaseProcess($identity, $second, new ProcessObservation(null, 9), $this->at('+2 minutes'));
+
+        $this->assertTrue($released->isAccepted());
+        $this->assertSame([], $ledger->holdingProcess($identity->source, 10));
+    }
+
+    public function testWhatWasSeenOfAReleasedProcessIsKept(): void
+    {
+        $ledger = $this->ledger();
+        $identity = $this->identity();
+
+        $record = $ledger->admit($identity, 'rev-1', $this->at(), $this->at('+1 hour'));
+        $ledger->recordLaunch($identity, $record->authority, LaunchFact::Started, $this->process(), $this->at());
+        $ledger->releaseProcess($identity, $record->authority, new ProcessObservation(137, 9), $this->at('+1 minute'));
+
+        $after = $ledger->find($identity);
+
+        $this->assertSame(137, $after?->processObservation?->exitCode);
+        $this->assertSame(9, $after?->processObservation?->signal);
+        $this->assertNull($after->outcome, 'an exit status is not what the work achieved');
     }
 
     abstract protected function ledger(): LedgerCommandInterface&LedgerQueryInterface;
