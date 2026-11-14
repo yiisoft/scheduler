@@ -196,6 +196,15 @@ was started, so `every('10 minutes')` runs at :00, :10, :20 and so on, `every('1
 midnight and `every('1 week')` on Mondays. To count from another moment, pass a
 `PeriodicTrigger` with its own `from` date to `RecurringTask::trigger()`.
 
+`every()` takes a number of seconds, a `DateInterval`, or a string `DateInterval` understands —
+`'90 seconds'`, `'10 minutes'`, `'1 day'`, `'2 weeks'`. An interval of hours, minutes and
+seconds alone is an amount of time that passes, so a change of the clock neither skips nor
+repeats its runs; one with days, months or years in it follows the calendar of its anchor's
+timezone instead, so `every('1 day')` stays at the same local time across a change. Two forms
+are refused when the trigger is asked for a date: one that parses but names no fixed amount of
+time, such as `'next tuesday'`, and one that would not move a date forward, such as `'-1 hour'`.
+Neither has a next run to compute; use a cron expression for a schedule of that shape.
+
 When building a schedule by hand, persist its checkpoint, and add a mutex to prevent
 overlapping runs across processes:
 
