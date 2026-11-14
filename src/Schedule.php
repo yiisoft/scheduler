@@ -5,7 +5,8 @@ declare(strict_types=1);
 namespace Yiisoft\Scheduler;
 
 use Psr\SimpleCache\CacheInterface;
-use Yiisoft\Mutex\MutexInterface;
+use Yiisoft\Scheduler\Lock\LockInterface;
+use Yiisoft\Scheduler\Lock\MutexLock;
 use Throwable;
 
 use function array_key_exists;
@@ -19,7 +20,7 @@ final class Schedule
 {
     /** @var array<string, RecurringTask> */
     private array $tasks = [];
-    private ?MutexInterface $mutex = null;
+    private ?LockInterface $lock = null;
     private ?CacheInterface $state = null;
     private bool $onlyLastMissedRun = false;
     /** @var list<callable(TaskContext, RecurringTask): void> */
@@ -70,11 +71,14 @@ final class Schedule
 
     /**
      * Prevents overlapping runs of this schedule across processes; the first process
-     * acquiring the mutex runs the tasks, the others skip the tick silently.
+     * acquiring the lock runs the tasks, the others skip the tick silently.
+     *
+     * {@see MutexLock} wraps a yiisoft/mutex implementation; anything else that can be held by
+     * one process at a time implements {@see LockInterface} itself.
      */
-    public function lock(MutexInterface $mutex): static
+    public function lock(LockInterface $lock): static
     {
-        $this->mutex = $mutex;
+        $this->lock = $lock;
 
         return $this;
     }
@@ -143,9 +147,9 @@ final class Schedule
     /**
      * @internal
      */
-    public function getMutex(): ?MutexInterface
+    public function getLock(): ?LockInterface
     {
-        return $this->mutex;
+        return $this->lock;
     }
 
     /**

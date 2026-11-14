@@ -7,7 +7,7 @@ namespace Yiisoft\Scheduler\Generator;
 use DateTimeImmutable;
 use Psr\SimpleCache\CacheInterface;
 use Throwable;
-use Yiisoft\Mutex\MutexInterface;
+use Yiisoft\Scheduler\Lock\LockInterface;
 use Yiisoft\Scheduler\Exception\RuntimeException;
 
 use function array_keys;
@@ -45,27 +45,27 @@ final class Checkpoint
         private readonly string $scheduleName,
         private readonly array $taskIds = [],
         private readonly ?CacheInterface $cache = null,
-        private readonly ?MutexInterface $mutex = null,
+        private readonly ?LockInterface $lock = null,
     ) {
         $this->load();
     }
 
     /**
-     * Acquires the schedule mutex, if any. Returns false when another process holds it.
+     * Acquires the schedule lock, if any. Returns false when another process holds it.
      *
      * The persisted position is re-read on every acquisition: another process may have advanced
      * it while this one was standing by, and replaying its runs would run them twice.
      */
     public function acquire(): bool
     {
-        if (null !== $this->mutex && !$this->mutex->acquire(0)) {
+        if (null !== $this->lock && !$this->lock->acquire(0)) {
             return false;
         }
 
-        $this->locked = null !== $this->mutex;
+        $this->locked = null !== $this->lock;
 
         // The caller only releases what it was told it acquired, so a position that cannot be
-        // read must not leave the mutex behind: nobody else could run the schedule until this
+        // read must not leave the lock behind: nobody else could run the schedule until this
         // process is gone.
         try {
             $this->load();
@@ -87,11 +87,11 @@ final class Checkpoint
         return $this->revision;
     }
 
-    /** Releases the mutex, if held. The checkpoint itself is persisted as it is recorded. */
+    /** Releases the lock, if held. The checkpoint itself is persisted as it is recorded. */
     public function release(): void
     {
         if ($this->locked) {
-            $this->mutex?->release();
+            $this->lock?->release();
             $this->locked = false;
         }
     }

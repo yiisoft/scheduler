@@ -38,7 +38,7 @@ final class TaskGenerator
             $schedule->getName(),
             array_map(static fn(RecurringTask $task): string => $task->getId(), $schedule->tasks()),
             $schedule->getState(),
-            $schedule->getMutex(),
+            $schedule->getLock(),
         );
     }
 
@@ -111,7 +111,7 @@ final class TaskGenerator
      * The soonest pending run of the schedule, if any.
      *
      * The daemon loop sleeps until this date instead of polling on a fixed interval. When the
-     * schedule mutex is held by another process, null is returned: that process is the one
+     * schedule lock is held by another process, null is returned: that process is the one
      * driving the schedule, so there is nothing here to wake up for.
      */
     public function getNextRunDate(): ?DateTimeImmutable
