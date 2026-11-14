@@ -17,6 +17,8 @@ use function array_map;
 use function count;
 use function hash;
 use function implode;
+use function sprintf;
+use function strlen;
 
 /**
  * Computes which tasks of a schedule are due, in run order.
@@ -42,9 +44,10 @@ final class TaskGenerator
     private int $heapRevision = -1;
     private readonly Checkpoint $checkpoint;
     /**
-     * The revision of the configuration this schedule was built from, which is the set of tasks
-     * it holds. A deploy that adds, removes or redefines one changes it, and an execution
-     * admitted under the old one keeps saying so.
+     * The revision of the configuration this schedule was built from: every task's identifier
+     * and the definition behind it. Adding, removing or reordering a task changes it, and so
+     * does redefining one, as far as a task can say that it was redefined. An execution
+     * admitted under one revision keeps saying so.
      */
     private readonly string $sourceRevision;
     /** @var array<string, int> Task id to insertion index, ordering the runs of a shared due time. */
@@ -62,7 +65,7 @@ final class TaskGenerator
             $schedule->getState(),
             $schedule->getMutex(),
         );
-        $this->sourceRevision = hash('xxh3', implode(',', $ids));
+        $this->sourceRevision = self::revisionOf($schedule->tasks());
     }
 
     public function getSchedule(): Schedule
@@ -181,6 +184,38 @@ final class TaskGenerator
             $now,
             $now->add(new DateInterval(self::RECOVERY_WINDOW)),
         );
+    }
+
+    /**
+     * What a schedule is, as one value: each task's identifier and what that identifier stands
+     * for.
+     *
+     * The identifiers alone would not say it. One generated from the task describes it already,
+     * but a task given an identifier of its own with {@see RecurringTask::withId()} keeps that
+     * identifier when its trigger or its work changes, and a revision read from identifiers
+     * would call the new configuration the old one.
+     *
+     * Each part is written with its length in front of it, so that no two different lists of
+     * identifiers and definitions are written out the same way. Two tasks that describe
+     * themselves alike are still alike here: this is as exact as
+     * {@see RecurringTask::getDefinition()} and no more.
+     *
+     * @param list<RecurringTask> $tasks
+     */
+    private static function revisionOf(array $tasks): string
+    {
+        $described = array_map(
+            static fn(RecurringTask $task): string => sprintf(
+                '%d:%s:%d:%s',
+                strlen($task->getId()),
+                $task->getId(),
+                strlen($task->getDefinition()),
+                $task->getDefinition(),
+            ),
+            $tasks,
+        );
+
+        return hash('xxh3', implode(',', $described));
     }
 
     private function heap(): TriggerHeap

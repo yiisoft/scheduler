@@ -98,6 +98,70 @@ final class LedgerAdmissionTest extends TestCase
         $this->assertCount(1, $ledger->unresolved('default', 10));
     }
 
+    public function testARedefinedTaskIsAdmittedUnderANewRevision(): void
+    {
+        // The identifier is the generated one here, so it changes with the trigger and the
+        // revision would follow even if it were read from identifiers alone.
+        $this->assertNotSame(
+            $this->revisionOf(RecurringTask::every(60, [self::class, 'reportDaily'])),
+            $this->revisionOf(RecurringTask::every(120, [self::class, 'reportDaily'])),
+        );
+    }
+
+    public function testATaskRetriggeredUnderItsOwnIdentifierIsAdmittedUnderANewRevision(): void
+    {
+        // The case identifiers cannot answer: the trigger changed and the identifier did not,
+        // so a revision read from identifiers would call the new configuration the old one and
+        // recovery would go on running work under a schedule that no longer exists.
+        $this->assertNotSame(
+            $this->revisionOf(RecurringTask::every(60, [self::class, 'reportDaily'])->withId('report')),
+            $this->revisionOf(RecurringTask::every(120, [self::class, 'reportDaily'])->withId('report')),
+        );
+    }
+
+    public function testTaskWorkChangedUnderItsOwnIdentifierIsAdmittedUnderANewRevision(): void
+    {
+        // The other half of the same case: the trigger is untouched and the work is not.
+        $this->assertNotSame(
+            $this->revisionOf(RecurringTask::every(60, [self::class, 'reportDaily'])->withId('report')),
+            $this->revisionOf(RecurringTask::every(60, [self::class, 'reportWeekly'])->withId('report')),
+        );
+    }
+
+    public function testTheSameScheduleIsTheSameRevision(): void
+    {
+        $this->assertSame(
+            $this->revisionOf(RecurringTask::every(60, [self::class, 'reportDaily'])->withId('report')),
+            $this->revisionOf(RecurringTask::every(60, [self::class, 'reportDaily'])->withId('report')),
+        );
+    }
+
+    /** Two named pieces of work, which is all the revision reads of them. */
+    public static function reportDaily(): void {}
+
+    public static function reportWeekly(): void {}
+
+    /**
+     * The revision an occurrence of the given schedule is admitted under, which is the one the
+     * record keeps.
+     */
+    private function revisionOf(RecurringTask $task): string
+    {
+        $ledger = new InMemoryLedger();
+        $clock = new TestClock();
+        $cache = new InMemoryCache();
+
+        (new Scheduler([$this->schedule($cache, $ledger, $task)], new CallableTaskHandler(), $clock))->tick();
+        $clock->advance('+10 minutes');
+        (new Scheduler([$this->schedule($cache, $ledger, $task)], new CallableTaskHandler(), $clock))->tick();
+
+        $admitted = $ledger->unresolved('default', 1);
+
+        $this->assertCount(1, $admitted, 'an occurrence has to be admitted for its revision to be read');
+
+        return $admitted[0]->sourceRevision;
+    }
+
     private function schedule(InMemoryCache $cache, LedgerCommandInterface $ledger, RecurringTask $task): Schedule
     {
         return (new Schedule())
