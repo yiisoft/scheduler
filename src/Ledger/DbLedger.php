@@ -74,6 +74,8 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
             'process_boot_id' => ColumnBuilder::string(255),
             'process_started_at' => ColumnBuilder::string(255),
             'outcome' => ColumnBuilder::string(16),
+            'observation_exit_code' => ColumnBuilder::integer(),
+            'observation_signal' => ColumnBuilder::integer(),
             'admitted_at' => ColumnBuilder::string(26)->notNull(),
             'recovery_deadline' => ColumnBuilder::string(26)->notNull(),
             'claimed_at' => ColumnBuilder::string(26),
@@ -113,6 +115,8 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
                 'process_boot_id' => null,
                 'process_started_at' => null,
                 'outcome' => null,
+                'observation_exit_code' => null,
+                'observation_signal' => null,
                 'admitted_at' => self::writeDate($at),
                 'recovery_deadline' => self::writeDate($recoveryDeadline),
                 'claimed_at' => null,
@@ -139,10 +143,18 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
         ExecutionAuthority $authority,
         DateTimeImmutable $at,
     ): TransitionResult {
-        return $this->transition($identity, $authority, false, [
-            'phase' => ExecutionPhase::Claimed->value,
-            'claimed_at' => self::writeDate($at),
-        ]);
+        // Claimed once. Both planners that admitted this occurrence hold the authority
+        // admission handed out, so the phase is what tells them apart.
+        return $this->transition(
+            $identity,
+            $authority,
+            true,
+            ['phase' => ExecutionPhase::Admitted->value],
+            [
+                'phase' => ExecutionPhase::Claimed->value,
+                'claimed_at' => self::writeDate($at),
+            ],
+        );
     }
 
     public function recordLaunch(
@@ -160,14 +172,20 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
             );
         }
 
-        return $this->transition($identity, $authority, false, [
-            'phase' => ExecutionPhase::Launched->value,
-            'launch' => $launch->value,
-            'process_host' => $process?->host,
-            'process_pid' => $process?->pid,
-            'process_boot_id' => $process?->bootId,
-            'process_started_at' => $process?->startedAt,
-        ]);
+        return $this->transition(
+            $identity,
+            $authority,
+            true,
+            ['and', ['launch' => LaunchFact::None->value], ['process_host' => null]],
+            [
+                'phase' => ExecutionPhase::Launched->value,
+                'launch' => $launch->value,
+                'process_host' => $process?->host,
+                'process_pid' => $process?->pid,
+                'process_boot_id' => $process?->bootId,
+                'process_started_at' => $process?->startedAt,
+            ],
+        );
     }
 
     public function recordOutcome(
@@ -176,7 +194,7 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
         ExecutionOutcome $outcome,
         DateTimeImmutable $at,
     ): TransitionResult {
-        return $this->transition($identity, $authority, true, [
+        return $this->transition($identity, $authority, true, null, [
             'phase' => ExecutionPhase::Terminal->value,
             'outcome' => $outcome->value,
             'resolved_at' => self::writeDate($at),
@@ -186,15 +204,18 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
     public function releaseProcess(
         ExecutionIdentity $identity,
         ExecutionAuthority $authority,
+        ?ProcessObservation $observation,
         DateTimeImmutable $at,
     ): TransitionResult {
         // Not refused once terminal: giving up a process is how a finished execution stops
         // counting against capacity, and that has to work after its outcome is in.
-        return $this->transition($identity, $authority, false, [
+        return $this->transition($identity, $authority, false, null, [
             'process_host' => null,
             'process_pid' => null,
             'process_boot_id' => null,
             'process_started_at' => null,
+            'observation_exit_code' => $observation?->exitCode,
+            'observation_signal' => $observation?->signal,
         ]);
     }
 
@@ -204,14 +225,20 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
         ExecutionAuthority $next,
         DateTimeImmutable $at,
     ): TransitionResult {
-        return $this->transition($identity, $expected, true, [
+        if ($next->equals($expected)) {
+            throw new LogicException(sprintf(
+                'A new attempt needs an authority of its own, and "%s" is the one being replaced.',
+                $next->token,
+            ));
+        }
+
+        // The process columns are deliberately left alone: replacing the authority does not
+        // stop the worker the old one started, and a record that forgot it would leave nothing
+        // for recovery to observe and stop counting against capacity.
+        return $this->transition($identity, $expected, true, null, [
             'authority' => $next->token,
             'phase' => ExecutionPhase::Admitted->value,
             'launch' => LaunchFact::None->value,
-            'process_host' => null,
-            'process_pid' => null,
-            'process_boot_id' => null,
-            'process_started_at' => null,
             'claimed_at' => null,
             // Read from the row being written rather than from one read a moment earlier, so a
             // launch recorded in between is still counted. A previous attempt that started, or
@@ -252,13 +279,17 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
      * One atomic transition: the `WHERE` decides whether it happens, and the row count says
      * whether it did.
      *
-     * @param array<string, mixed> $columns
      * @param bool $refuseTerminal Whether an outcome already recorded forbids the change.
+     * @param array<array-key, mixed>|null $allows What the row has to be for the change to be
+     * allowed at all, beyond not being finished with. It goes in the same `WHERE`, so the
+     * database decides it rather than a read taken a moment earlier.
+     * @param array<string, mixed> $columns
      */
     private function transition(
         ExecutionIdentity $identity,
         ExecutionAuthority $authority,
         bool $refuseTerminal,
+        ?array $allows,
         array $columns,
     ): TransitionResult {
         $condition = [
@@ -270,8 +301,12 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
             $condition[] = ['<>', 'phase', ExecutionPhase::Terminal->value];
         }
 
+        if (null !== $allows) {
+            $condition[] = $allows;
+        }
+
         /** @var TransitionResult */
-        return $this->db->transaction(function () use ($identity, $authority, $columns, $condition) {
+        return $this->db->transaction(function () use ($identity, $authority, $refuseTerminal, $columns, $condition) {
             $changed = $this->db->createCommand()->update($this->table, $columns, $condition)->execute();
             $row = $this->row($identity);
 
@@ -284,11 +319,17 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
                 return TransitionResult::missing();
             }
 
+            $record = self::record($row);
+
             // Authority before terminal, as an actor holding a stale one has no standing to be
             // told anything about the record beyond that it is not its to change.
-            return $row['authority'] === $authority->token
-                ? TransitionResult::alreadyTerminal(self::record($row))
-                : TransitionResult::staleAuthority(self::record($row));
+            if (!$record->authority->equals($authority)) {
+                return TransitionResult::staleAuthority($record);
+            }
+
+            return $refuseTerminal && $record->isTerminal()
+                ? TransitionResult::alreadyTerminal($record)
+                : TransitionResult::phaseNotAllowed($record);
         });
     }
 
@@ -369,6 +410,12 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
             outcome: null === $row['outcome'] ? null : ExecutionOutcome::from((string) $row['outcome']),
             admittedAt: self::readDate((string) $row['admitted_at']),
             recoveryDeadline: self::readDate((string) $row['recovery_deadline']),
+            processObservation: null === $row['observation_exit_code'] && null === $row['observation_signal']
+                ? null
+                : new ProcessObservation(
+                    null === $row['observation_exit_code'] ? null : (int) $row['observation_exit_code'],
+                    null === $row['observation_signal'] ? null : (int) $row['observation_signal'],
+                ),
             claimedAt: null === $row['claimed_at'] ? null : self::readDate((string) $row['claimed_at']),
             resolvedAt: null === $row['resolved_at'] ? null : self::readDate((string) $row['resolved_at']),
             mayHaveRunBefore: (bool) $row['may_have_run_before'],
