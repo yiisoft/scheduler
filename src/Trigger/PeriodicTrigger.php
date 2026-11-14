@@ -57,6 +57,15 @@ final class PeriodicTrigger implements TriggerInterface
     private const DEFAULT_FROM = '2001-01-01 00:00:00';
 
     /**
+     * How an anchor or an end date is written in the description: to the microsecond, with the
+     * offset and with the timezone it is in, so that two dates the trigger tells apart are told
+     * apart here too. The timezone is there because a calendar interval follows the calendar of
+     * its anchor: the same instant written in Europe/Skopje and in +01:00 parts company at the
+     * first daylight saving change after it.
+     */
+    private const BOUND_FORMAT = 'Y-m-d\TH:i:s.uP e';
+
+    /**
      * Dates an interval is tried on to tell whether it is a plain amount of time: the middle
      * and the end of a month, a weekday and a weekend, so a relative format shows itself on
      * at least one of them.
@@ -100,16 +109,34 @@ final class PeriodicTrigger implements TriggerInterface
         }
     }
 
+    /**
+     * The anchor and the end date are part of the description, and so of the identifier a task
+     * derives from it: the same interval counted from two anchors falls due at two different sets
+     * of times, and one that stops in June is not the one that never stops. A trigger left to the
+     * default anchor and no end date keeps the description it has always had.
+     */
     public function __toString(): string
     {
         if (null !== $this->seconds) {
-            return sprintf('every(%d seconds)', $this->seconds);
+            $interval = sprintf('%d seconds', $this->seconds);
+        } else {
+            /** @var DateInterval $dateInterval */
+            $dateInterval = $this->dateInterval;
+
+            $interval = self::describe($dateInterval);
         }
 
-        /** @var DateInterval $interval */
-        $interval = $this->dateInterval;
+        $bounds = '';
 
-        return sprintf('every(%s)', self::describe($interval));
+        if (null !== $this->from) {
+            $bounds .= sprintf(', from %s', $this->from->format(self::BOUND_FORMAT));
+        }
+
+        if (null !== $this->until) {
+            $bounds .= sprintf(', until %s', $this->until->format(self::BOUND_FORMAT));
+        }
+
+        return sprintf('every(%s%s)', $interval, $bounds);
     }
 
     public function getNextRunDate(DateTimeImmutable $lastRun): ?DateTimeImmutable
