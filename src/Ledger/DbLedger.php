@@ -176,7 +176,12 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
             $identity,
             $authority,
             true,
-            ['and', ['launch' => LaunchFact::None->value], ['process_host' => null]],
+            [
+                'and',
+                ['phase' => ExecutionPhase::Claimed->value],
+                ['launch' => LaunchFact::None->value],
+                ['process_host' => null],
+            ],
             [
                 'phase' => ExecutionPhase::Launched->value,
                 'launch' => $launch->value,
@@ -208,8 +213,10 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
         DateTimeImmutable $at,
     ): TransitionResult {
         // Not refused once terminal: giving up a process is how a finished execution stops
-        // counting against capacity, and that has to work after its outcome is in.
-        return $this->transition($identity, $authority, false, null, [
+        // counting against capacity, and that has to work after its outcome is in. Refused
+        // when there is no process, because the observation explains a release and a record
+        // that released nothing has nothing to explain.
+        return $this->transition($identity, $authority, false, ['not', ['process_host' => null]], [
             'process_host' => null,
             'process_pid' => null,
             'process_boot_id' => null,

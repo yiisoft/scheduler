@@ -43,6 +43,7 @@ final class DbLedgerTest extends LedgerContractTestCase
 
         $ledger = $this->ledger();
         $record = $ledger->admit($identity, 'rev-1', $this->at(), $this->at('+1 hour'));
+        $ledger->claim($identity, $record->authority, $this->at());
         $ledger->recordLaunch($identity, $record->authority, LaunchFact::Started, $this->process(), $this->at());
 
         $reopened = $this->open();
