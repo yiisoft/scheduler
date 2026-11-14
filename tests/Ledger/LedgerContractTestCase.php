@@ -98,6 +98,7 @@ abstract class LedgerContractTestCase extends TestCase
         $identity = $this->identity();
 
         $record = $ledger->admit($identity, 'rev-1', $this->at(), $this->at('+1 hour'));
+        $ledger->claim($identity, $record->authority, $this->at());
         $ledger->recordLaunch($identity, $record->authority, LaunchFact::Started, $this->process(), $this->at());
         $ledger->recordOutcome($identity, $record->authority, ExecutionOutcome::Done, $this->at('+1 minute'));
 
@@ -115,6 +116,7 @@ abstract class LedgerContractTestCase extends TestCase
         $identity = $this->identity();
 
         $record = $ledger->admit($identity, 'rev-1', $this->at(), $this->at('+1 hour'));
+        $ledger->claim($identity, $record->authority, $this->at());
         $ledger->recordLaunch($identity, $record->authority, LaunchFact::Started, $this->process(), $this->at());
         $ledger->recordOutcome($identity, $record->authority, ExecutionOutcome::Done, $this->at());
 
@@ -132,6 +134,7 @@ abstract class LedgerContractTestCase extends TestCase
         $identity = $this->identity();
 
         $record = $ledger->admit($identity, 'rev-1', $this->at(), $this->at('+1 hour'));
+        $ledger->claim($identity, $record->authority, $this->at());
         $ledger->recordLaunch($identity, $record->authority, LaunchFact::Unknown, null, $this->at());
 
         $found = $ledger->unresolved($identity->source, 10);
@@ -146,11 +149,13 @@ abstract class LedgerContractTestCase extends TestCase
 
         $clean = $this->identity(taskId: 'clean');
         $cleanRecord = $ledger->admit($clean, 'rev-1', $this->at(), $this->at('+1 hour'));
+        $ledger->claim($clean, $cleanRecord->authority, $this->at());
         $ledger->recordLaunch($clean, $cleanRecord->authority, LaunchFact::ProvenNotStarted, null, $this->at());
         $ledger->reauthorize($clean, $cleanRecord->authority, new ExecutionAuthority('clean-2'), $this->at());
 
         $risky = $this->identity(taskId: 'risky');
         $riskyRecord = $ledger->admit($risky, 'rev-1', $this->at(), $this->at('+1 hour'));
+        $ledger->claim($risky, $riskyRecord->authority, $this->at());
         $ledger->recordLaunch($risky, $riskyRecord->authority, LaunchFact::Unknown, null, $this->at());
         $ledger->reauthorize($risky, $riskyRecord->authority, new ExecutionAuthority('risky-2'), $this->at());
 
@@ -164,10 +169,12 @@ abstract class LedgerContractTestCase extends TestCase
         $identity = $this->identity();
 
         $record = $ledger->admit($identity, 'rev-1', $this->at(), $this->at('+1 hour'));
+        $ledger->claim($identity, $record->authority, $this->at());
         $ledger->recordLaunch($identity, $record->authority, LaunchFact::Unknown, null, $this->at());
 
         $second = new ExecutionAuthority('second');
         $ledger->reauthorize($identity, $record->authority, $second, $this->at());
+        $ledger->claim($identity, $second, $this->at());
         $ledger->recordLaunch($identity, $second, LaunchFact::ProvenNotStarted, null, $this->at());
         $ledger->reauthorize($identity, $second, new ExecutionAuthority('third'), $this->at());
 
@@ -318,10 +325,12 @@ abstract class LedgerContractTestCase extends TestCase
         $identity = $this->identity();
 
         $record = $ledger->admit($identity, 'rev-1', $this->at(), $this->at('+1 hour'));
+        $ledger->claim($identity, $record->authority, $this->at());
         $ledger->recordLaunch($identity, $record->authority, LaunchFact::Started, $this->process(), $this->at());
 
         $second = new ExecutionAuthority('second');
         $ledger->reauthorize($identity, $record->authority, $second, $this->at('+1 minute'));
+        $ledger->claim($identity, $second, $this->at('+1 minute'));
 
         $again = $ledger->recordLaunch($identity, $second, LaunchFact::Started, $this->process(5151), $this->at('+2 minutes'));
 
@@ -335,6 +344,7 @@ abstract class LedgerContractTestCase extends TestCase
         $identity = $this->identity();
 
         $record = $ledger->admit($identity, 'rev-1', $this->at(), $this->at('+1 hour'));
+        $ledger->claim($identity, $record->authority, $this->at());
         $ledger->recordLaunch($identity, $record->authority, LaunchFact::Started, $this->process(), $this->at());
 
         $second = new ExecutionAuthority('second');
@@ -357,6 +367,7 @@ abstract class LedgerContractTestCase extends TestCase
         $identity = $this->identity();
 
         $record = $ledger->admit($identity, 'rev-1', $this->at(), $this->at('+1 hour'));
+        $ledger->claim($identity, $record->authority, $this->at());
         $ledger->recordLaunch($identity, $record->authority, LaunchFact::Started, $this->process(), $this->at());
         $ledger->releaseProcess($identity, $record->authority, new ProcessObservation(137, 9), $this->at('+1 minute'));
 
@@ -365,6 +376,34 @@ abstract class LedgerContractTestCase extends TestCase
         $this->assertSame(137, $after?->processObservation?->exitCode);
         $this->assertSame(9, $after?->processObservation?->signal);
         $this->assertNull($after->outcome, 'an exit status is not what the work achieved');
+    }
+
+    public function testAnExecutionIsNotLaunchedWithoutTheRightToLaunchIt(): void
+    {
+        $ledger = $this->ledger();
+        $identity = $this->identity();
+
+        $record = $ledger->admit($identity, 'rev-1', $this->at(), $this->at('+1 hour'));
+
+        $result = $ledger->recordLaunch($identity, $record->authority, LaunchFact::Started, $this->process(), $this->at());
+
+        $this->assertSame(TransitionStatus::PhaseNotAllowed, $result->status);
+        $this->assertFalse($ledger->find($identity)?->holdsProcess());
+    }
+
+    public function testThereIsNothingToReleaseUntilSomethingWasLaunched(): void
+    {
+        // Otherwise a release writes an observation over the one taken from the process it
+        // actually belongs to.
+        $ledger = $this->ledger();
+        $identity = $this->identity();
+
+        $record = $ledger->admit($identity, 'rev-1', $this->at(), $this->at('+1 hour'));
+
+        $result = $ledger->releaseProcess($identity, $record->authority, new ProcessObservation(0), $this->at());
+
+        $this->assertSame(TransitionStatus::PhaseNotAllowed, $result->status);
+        $this->assertNull($ledger->find($identity)?->processObservation);
     }
 
     abstract protected function ledger(): LedgerCommandInterface&LedgerQueryInterface;
