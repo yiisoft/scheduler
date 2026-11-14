@@ -100,8 +100,11 @@ final class InMemoryLedger implements LedgerCommandInterface, LedgerQueryInterfa
             $identity,
             $authority,
             true,
-            static fn(ExecutionRecord $record): bool
-                => LaunchFact::None === $record->launch && !$record->holdsProcess(),
+            // Claimed first. A claim is the right to launch, and an execution launched
+            // without taking it is the race the claim exists to settle.
+            static fn(ExecutionRecord $record): bool => ExecutionPhase::Claimed === $record->phase
+                && LaunchFact::None === $record->launch
+                && !$record->holdsProcess(),
             static fn(ExecutionRecord $record): ExecutionRecord => self::with(
                 $record,
                 phase: ExecutionPhase::Launched,
@@ -138,12 +141,14 @@ final class InMemoryLedger implements LedgerCommandInterface, LedgerQueryInterfa
         DateTimeImmutable $at,
     ): TransitionResult {
         // Not refused once terminal: giving up a process is how a finished execution stops
-        // counting against capacity, and that has to work after its outcome is in.
+        // counting against capacity, and that has to work after its outcome is in. Refused
+        // when there is no process, because the observation explains a release and a record
+        // that released nothing has nothing to explain.
         return $this->transition(
             $identity,
             $authority,
             false,
-            null,
+            static fn(ExecutionRecord $record): bool => $record->holdsProcess(),
             static fn(ExecutionRecord $record): ExecutionRecord => self::with(
                 $record,
                 process: null,

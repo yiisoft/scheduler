@@ -61,6 +61,9 @@ interface LedgerCommandInterface
      * is proven not to have started has no process to describe, and one whose result is unknown
      * has none that is known to exist.
      *
+     * Only by an attempt that has claimed the execution: a claim is the right to launch, and
+     * an execution launched without taking it is the race the claim exists to settle.
+     *
      * Once per attempt, and not while the record still holds a process. A second report would
      * replace the first, and a launch recorded over an owned process would lose the only
      * description of something that may still be running. An attempt that finds a process still
@@ -102,6 +105,9 @@ interface LedgerCommandInterface
      * explains. It is evidence that something stopped, never evidence of what it achieved: an
      * exit status of zero is not an outcome, and a record whose process is released with one
      * stays without an outcome until the work reports its own.
+     *
+     * Refused when the record holds no process, so that a release cannot write an observation
+     * over the one belonging to the process it was actually taken from.
      */
     public function releaseProcess(
         ExecutionIdentity $identity,
