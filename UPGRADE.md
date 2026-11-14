@@ -20,7 +20,14 @@ application when you upgrade the package from one version to another.
   `new ConsoleTaskHandler($application, new CallableTaskHandler())`. The bundled configuration
   builds that chain by itself; only an application constructing the handler by hand has to
   change. `QueueTaskHandler` now takes any `TaskHandlerInterface` as its fallback rather than a
-  `CallableTaskHandler`.
+  `CallableTaskHandler`, and passes on everything it does not recognise instead of refusing it,
+  so a handler of the application placed behind it is reached. The handler at the back of the
+  chain is the one that answers for a task nobody runs.
+
+- `QueueTaskHandler` checks for a message before it checks for a callable, so an object that is
+  both a `MessageInterface` and invokable is now pushed to the queue rather than invoked in
+  place. No message class of yiisoft/queue is invokable; an application whose own message class
+  is affects only that class.
 
 - `ScheduleProviderInterface` is removed. Nothing in the package implemented, consumed or
   registered it. A schedule built at run time, from a database or anywhere else, is passed to

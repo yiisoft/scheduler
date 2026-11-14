@@ -254,7 +254,8 @@ $scheduler = new Scheduler([$schedule], new CallableTaskHandler(), new SystemClo
 $scheduler->tick();
 ```
 
-That needs `psr/clock`, `psr/simple-cache` and a cron expression parser, and nothing else. Add
+That needs `psr/clock`, `psr/simple-cache`, `psr/log`, `psr/event-dispatcher` and a cron
+expression parser, and nothing else. Add
 `symfony/console` and a `ConsoleTaskHandler` to run tasks named as commands, `yiisoft/queue` and
 a `QueueTaskHandler` to push them, a `LockInterface` to keep two processes off one schedule, and
 a PSR-14 dispatcher or the `before`, `after` and `onFailure` listeners of the schedule to watch
@@ -264,6 +265,38 @@ That is the core: the schedule, the clock, the checkpoint and the lock. How a ta
 stays with the package that runs it — a string task is the name of a console command and needs
 symfony/console, a message task needs yiisoft/queue — and declaring tasks in `config/params.php`
 is the Yii integration rather than the only way to fill a schedule.
+
+### Starting the same core from a host
+
+A framework builds the same three objects from whatever it already has, and nothing about the
+scheduler changes with the host. The bundled Yii wiring in `config/di.php` is this, written as
+container definitions; another host writes it in its own:
+
+```php
+// In the service definitions of the host, whatever shape those take.
+$handler = new CallableTaskHandler();
+
+if ($container->has(Application::class)) {
+    $handler = new ConsoleTaskHandler($container->get(Application::class), $handler);
+}
+
+if ($container->has(QueueProducerInterface::class)) {
+    $handler = new QueueTaskHandler($container->get(QueueProducerInterface::class), $handler);
+}
+
+$scheduler = new Scheduler(
+    [$container->get(Schedule::class)], // however the host declares its tasks
+    $handler,
+    $container->get(ClockInterface::class),
+    $container->get(LoggerInterface::class),
+    $container->get(EventDispatcherInterface::class),
+);
+```
+
+A command of the host then calls `tick()` or `run()` on that service, as the bundled
+`schedule:run` and `schedule:work` do. The handlers compose in that order because each passes
+on what it does not recognise, so a host that has no console or no queue simply builds a
+shorter chain, and a handler of the application goes at the back of it.
 
 ## Task identifiers
 

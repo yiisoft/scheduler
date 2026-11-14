@@ -52,7 +52,7 @@ final class CallableTaskHandlerTest extends TestCase
         $handler = new CallableTaskHandler();
 
         $this->expectException(LogicException::class);
-        $this->expectExceptionMessage('Configure a queue producer to push object tasks');
+        $this->expectExceptionMessage('An object task is pushed to a queue by "Yiisoft\Scheduler\Handler\QueueTaskHandler" in front of this handler');
 
         $handler->handle(new stdClass(), $this->context());
     }

@@ -13,6 +13,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Yiisoft\Scheduler\Event\FailureEvent;
 use Yiisoft\Scheduler\Exception\RuntimeException;
 use Yiisoft\Scheduler\Handler\ConsoleTaskHandler;
+use Yiisoft\Scheduler\Handler\TaskHandlerInterface;
 use Yiisoft\Scheduler\RecurringTask;
 use Yiisoft\Scheduler\Schedule;
 use Yiisoft\Scheduler\Scheduler;
@@ -73,6 +74,21 @@ final class ConsoleTaskHandlerTest extends TestCase
         $scheduler->tick();
 
         $this->assertContains(FailureEvent::class, $dispatcher->events);
+    }
+
+    public function testATaskThatIsNotACommandNameReachesTheHandlerBehindThisOne(): void
+    {
+        $handler = new ConsoleTaskHandler(
+            $this->application(0),
+            new class implements TaskHandlerInterface {
+                public function handle(mixed $task, TaskContext $context): mixed
+                {
+                    return 'handled behind';
+                }
+            },
+        );
+
+        $this->assertSame('handled behind', $handler->handle(static fn(): string => 'not this', $this->context()));
     }
 
     private function application(int $exitCode): Application

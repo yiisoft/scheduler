@@ -22,7 +22,9 @@ interface LockInterface
      * @param int $timeout How long to wait for it, in seconds. Zero, the default, means not to
      * wait: the answer is whether it was free at that moment.
      *
-     * @return bool Whether the lock is now held by this process.
+     * @return bool Whether the lock was free and has now been taken. A lock this process
+     * already holds is not free, so acquiring it a second time answers false rather than
+     * handing out the same lock twice.
      */
     public function acquire(int $timeout = 0): bool;
 

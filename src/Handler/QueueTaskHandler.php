@@ -6,13 +6,7 @@ namespace Yiisoft\Scheduler\Handler;
 
 use Yiisoft\Queue\Message\MessageInterface;
 use Yiisoft\Queue\QueueProducerInterface;
-use Yiisoft\Scheduler\Exception\LogicException;
 use Yiisoft\Scheduler\TaskContext;
-
-use function get_debug_type;
-use function is_callable;
-use function is_string;
-use function sprintf;
 
 /**
  * A task handler pushing message tasks to a queue via yiisoft/queue, while everything else goes
@@ -33,16 +27,9 @@ final class QueueTaskHandler implements TaskHandlerInterface
             return $this->producer->push($task);
         }
 
-        if (is_string($task) || is_callable($task)) {
-            return $this->fallback->handle($task, $context);
-        }
-
-        throw new LogicException(
-            sprintf(
-                'Unable to run a task of type "%s". Object tasks must implement "%s" (see GenericMessage); payloads cross the queue as scalars and arrays only.',
-                get_debug_type($task),
-                MessageInterface::class,
-            ),
-        );
+        // Everything else goes on, as the handler in front of this one passes on what it does
+        // not recognise: the end of the chain is the one that answers for a task nobody runs,
+        // and a handler put behind this one is reachable for the kinds it was added for.
+        return $this->fallback->handle($task, $context);
     }
 }

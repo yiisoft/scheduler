@@ -28,7 +28,7 @@ final class CallableTaskHandler implements TaskHandlerInterface
         if (is_string($task)) {
             throw new LogicException(
                 sprintf(
-                    'Unable to run the "%s" task: a string task is the name of a console command, which needs "%s" in front of this handler.',
+                    'Unable to run the "%s" task: a string task is the name of a console command, which needs "%s" in front of this handler and a console application for it to run; otherwise give the task as a callable.',
                     $task,
                     ConsoleTaskHandler::class,
                 ),
@@ -41,8 +41,9 @@ final class CallableTaskHandler implements TaskHandlerInterface
 
         throw new LogicException(
             sprintf(
-                'Unable to run a task of type "%s". Configure a queue producer to push object tasks, or use a callable or a console command name.',
+                'Unable to run a task of type "%s". An object task is pushed to a queue by "%s" in front of this handler, and the object has to be a message of the queue package; otherwise use a callable or a console command name.',
                 get_debug_type($task),
+                QueueTaskHandler::class,
             ),
         );
     }

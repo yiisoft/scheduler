@@ -37,7 +37,7 @@ The trigger as a **pure function** (`last run → next run`, strictly-after inva
 final class Schedule
 {
     public function task(RecurringTask $task, RecurringTask ...$tasks): static;
-    public function lock(MutexInterface $mutex): static;        // yiisoft/mutex — multi-process safety
+    public function lock(LockInterface $lock): static;          // multi-process safety; MutexLock adapts yiisoft/mutex
     public function stateful(CacheInterface $cache): static;    // PSR-16 — survive restarts, catch up missed runs
     public function processOnlyLastMissedRun(bool $onlyLast = true): static;
 }
