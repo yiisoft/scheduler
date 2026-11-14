@@ -246,6 +246,39 @@ has a PSR-16 cache; the mutex is opt-in — add `->lock($mutex)` as shown above.
 place, a task is still executed exactly once no matter how many servers the schedule runs on,
 and no single server going down stops the schedule.
 
+## The execution ledger
+
+The checkpoint records how far the schedule got. The ledger records what became of each
+execution: when it was admitted, which attempt holds it, whether a process was started, and
+what the work came to. It is what a planner reads after a restart to tell a launch that never
+began from a worker still running from work that is already finished.
+
+`DbLedger` keeps those records in a database through [yiisoft/db](https://github.com/yiisoft/db).
+SQLite is the default because it gives transactions without a server to operate:
+
+```shell
+composer require yiisoft/db-sqlite
+```
+
+```php
+use Yiisoft\Db\Sqlite\Connection;
+use Yiisoft\Db\Sqlite\Driver;
+use Yiisoft\Scheduler\Ledger\DbLedger;
+
+$ledger = new DbLedger(new Connection(new Driver('sqlite:' . __DIR__ . '/runtime/schedule.sq3')));
+$ledger->createTable(); // once; an application with migrations writes the table in one instead
+```
+
+Any other driver that package has works the same way, and an application that would rather keep
+executions in its own tables implements `LedgerCommandInterface` and `LedgerQueryInterface`
+itself and never installs either package. Whatever implements them has to pass
+`LedgerContractTestCase`, which is the 15 cases every store is held to: idempotent admission,
+an authority that fences the attempt it replaced, a first outcome that later observations
+cannot overwrite, and backlog queries bounded and scoped to one source.
+
+The scheduler does not read the ledger yet. Until it does, these records are written and read
+by application code, and the checkpoint stays what the schedule itself runs on.
+
 ## Documentation
 
 - [Internals](docs/internals.md)
