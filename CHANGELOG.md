@@ -2,6 +2,7 @@
 
 ## 1.0.0 under development
 
+- New #20: Add `Schedule::ledger()`: a schedule given one writes the record of an occurrence before it emits it, and its checkpoint moves past an occurrence only once that record is written, so a process that dies between the two leaves work the ledger knows about instead of work the checkpoint has counted and nothing remembers (@KalimeroMK)
 - New #20: Add the execution ledger: `LedgerCommandInterface` and `LedgerQueryInterface` keep a durable record of every admitted occurrence, with the revision it was admitted under, the authority of the attempt holding it, what became of the launch, and the outcome of the work, so that a planner restarting can tell a launch that never began from a worker still running from work that is finished; `InMemoryLedger` implements both and `LedgerContractTestCase` is the contract every other store is held to (@KalimeroMK)
 - Enh #17: Keep a checkpoint record per task instead of one record holding every run emitted at a due time, so that a stored value stays the same size however many tasks share that time and a run costs a single write rather than a write of everything emitted before it (@KalimeroMK)
 - Enh #16: Generate a task identifier with a 64-bit hash instead of a 32-bit one, so that a task added to a schedule cannot be taken for one the checkpoint holds under the same identifier (@KalimeroMK)
