@@ -7,6 +7,7 @@ namespace Yiisoft\Scheduler;
 use Psr\SimpleCache\CacheInterface;
 use Yiisoft\Mutex\MutexInterface;
 use Throwable;
+use Yiisoft\Scheduler\Ledger\LedgerCommandInterface;
 
 use function array_key_exists;
 use function array_values;
@@ -21,6 +22,7 @@ final class Schedule
     private array $tasks = [];
     private ?MutexInterface $mutex = null;
     private ?CacheInterface $state = null;
+    private ?LedgerCommandInterface $ledger = null;
     private bool $onlyLastMissedRun = false;
     /** @var list<callable(TaskContext, RecurringTask): void> */
     private array $beforeListeners = [];
@@ -75,6 +77,20 @@ final class Schedule
     public function lock(MutexInterface $mutex): static
     {
         $this->mutex = $mutex;
+
+        return $this;
+    }
+
+    /**
+     * Records the lifecycle of every occurrence this schedule admits.
+     *
+     * Separate from the checkpoint, which records how far the schedule got. With a ledger, no
+     * occurrence is emitted before its record is written, so a process that dies between the
+     * two leaves work the ledger knows about rather than work nothing remembers.
+     */
+    public function ledger(LedgerCommandInterface $ledger): static
+    {
+        $this->ledger = $ledger;
 
         return $this;
     }
@@ -151,6 +167,11 @@ final class Schedule
     /**
      * @internal
      */
+    public function getLedger(): ?LedgerCommandInterface
+    {
+        return $this->ledger;
+    }
+
     public function getState(): ?CacheInterface
     {
         return $this->state;
