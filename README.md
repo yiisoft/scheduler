@@ -196,6 +196,15 @@ was started, so `every('10 minutes')` runs at :00, :10, :20 and so on, `every('1
 midnight and `every('1 week')` on Mondays. To count from another moment, pass a
 `PeriodicTrigger` with its own `from` date to `RecurringTask::trigger()`.
 
+`every()` takes a number of seconds, a `DateInterval`, or a string `DateInterval` understands —
+`'90 seconds'`, `'10 minutes'`, `'1 day'`, `'2 weeks'`. An interval of hours, minutes and
+seconds alone is an amount of time that passes, so a change of the clock neither skips nor
+repeats its runs; one with days, months or years in it follows the calendar of its anchor's
+timezone instead, so `every('1 day')` stays at the same local time across a change. Two forms
+are refused when the trigger is asked for a date: one that parses but names no fixed amount of
+time, such as `'next tuesday'`, and one that would not move a date forward, such as `'-1 hour'`.
+Neither has a next run to compute; use a cron expression for a schedule of that shape.
+
 When building a schedule by hand, persist its checkpoint, and add a mutex to prevent
 overlapping runs across processes:
 
@@ -207,6 +216,41 @@ $schedule = (new Schedule())
     ->lock($mutex)     // any yiisoft/mutex implementation
     ->task(...);
 ```
+
+## Asking a trigger for more than the next run
+
+A trigger answers one question: given a run, when is the next one? That is all a schedule needs
+while it keeps up. It is not all it needs after an outage: a task due every minute has some
+forty thousand runs behind it after thirty days, and walking them one at a time is work the
+schedule does before it can run anything else.
+
+`TriggerRangeInterface` adds two questions for that case, and both built-in triggers answer
+them:
+
+```php
+$trigger = new PeriodicTrigger(600, new DateTimeImmutable('2026-01-01 00:00:00'));
+
+// The first run at or after a date, rather than strictly after it.
+$trigger->getNextRunDateAtOrAfter(new DateTimeImmutable('2026-01-01 00:10:00'));
+
+// A hundred runs at most, from the backlog between two dates.
+$batch = $trigger->getRunDates($lastHandled, $now, 100);
+```
+
+Both bounds of a range are exclusive, so a batch continued from its own last date neither skips
+a run nor repeats one, and both questions take a `$lastRun`: a run already accounted for, never
+answered with again. The dates are the ones the trigger gives one at a time, in the same order —
+a range is a different question about the same sequence, not a different sequence.
+
+A custom trigger implements `TriggerInterface` alone and is asked one date at a time, as before.
+Implement `TriggerRangeInterface` as well when the sequence can be enumerated more cheaply than
+by walking it.
+
+Walking is what a long gap makes expensive, whichever interface a trigger implements: a task due
+every minute whose last run was a year ago is a year of dates before the first one is emitted. A
+tick therefore walks at most ten thousand occurrences of any one task — a week of a minute task,
+so an ordinary outage still drains in one — and leaves the rest to the tick after it. Nothing is
+skipped: each tick seeds from the checkpoint and carries on where the one before stopped.
 
 ## Task identifiers
 

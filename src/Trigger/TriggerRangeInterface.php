@@ -18,6 +18,11 @@ use DateTimeImmutable;
  *
  * A trigger that only knows the next run date implements {@see TriggerInterface} alone; what a
  * schedule does with one is its own decision.
+ *
+ * Which timezone a run date is written in is the trigger's own business, and the two bundled
+ * triggers differ: a cron expression answers in the timezone it is read in, while an interval
+ * answers in the timezone of the date it was counted from. The instant is the answer; a caller
+ * comparing dates compares instants, and one that needs a particular timezone sets it.
  */
 interface TriggerRangeInterface extends TriggerInterface
 {
