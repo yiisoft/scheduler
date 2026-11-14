@@ -13,6 +13,7 @@ use Throwable;
 use Yiisoft\Scheduler\Event\FailureEvent;
 use Yiisoft\Scheduler\Event\PostRunEvent;
 use Yiisoft\Scheduler\Event\PreRunEvent;
+use Yiisoft\Scheduler\Exception\LockTimeoutException;
 use Yiisoft\Scheduler\Exception\LogicException;
 use Yiisoft\Scheduler\Exception\RuntimeException;
 use Yiisoft\Scheduler\Generator\TaskGenerator;
@@ -485,19 +486,74 @@ final class Scheduler
     /** Records what became of a claimed run with the schedule it belongs to. */
     private function resolve(TaskContext $context, TaskStatus $status): void
     {
-        $this->generators[$context->scheduleName]->resolve($context, $status);
+        $this->record(
+            fn() => $this->generators[$context->scheduleName]->resolve($context, $status),
+            $context,
+            'record what became of',
+        );
     }
 
     /** Gives a claimed run that was never started back to the schedule, leaving it due. */
     private function release(TaskContext $context): void
     {
-        $this->generators[$context->scheduleName]->release($context);
+        $this->record(
+            fn() => $this->generators[$context->scheduleName]->release($context),
+            $context,
+            'give back',
+        );
     }
 
     /** Whether the run is still this process's to start. */
     private function markStarted(TaskContext $context): bool
     {
-        return $this->generators[$context->scheduleName]->markStarted($context);
+        // Null where the lock could not be taken: nothing durable says the run is still this
+        // process's, so it is not started here.
+        return true === $this->record(
+            fn(): bool => $this->generators[$context->scheduleName]->markStarted($context),
+            $context,
+            'start',
+        );
+    }
+
+    /**
+     * Writes something about a run to the checkpoint, and keeps a daemon running when the
+     * schedule lock cannot be taken in time to do it.
+     *
+     * Another process holding the lock is ordinary on a shared schedule, and on the sequential
+     * path it holds it for as long as its slowest task takes. Letting that end the loop would
+     * stop a whole schedule over a run of a task somewhere else, so the write is dropped and
+     * the run stays claimed, to be picked up by whoever reaches it once the lock is free or its
+     * window runs out. A single `tick()` has no loop to keep alive and the failure goes to its
+     * caller.
+     *
+     * @template T
+     *
+     * @param callable(): T $write
+     *
+     * @return T|null
+     */
+    private function record(callable $write, TaskContext $context, string $what): mixed
+    {
+        try {
+            return $write();
+        } catch (LockTimeoutException $exception) {
+            if (!$this->looping) {
+                throw $exception;
+            }
+
+            $this->logger->error(
+                'Unable to {what} the run of task {task} of schedule {schedule}: {message} The run'
+                . ' stays claimed until the lock is free or its reclaim window runs out.',
+                [
+                    'what' => $what,
+                    'task' => $context->taskId,
+                    'schedule' => $context->scheduleName,
+                    'message' => $exception->getMessage(),
+                ],
+            );
+
+            return null;
+        }
     }
 
     /**
@@ -812,6 +868,32 @@ final class Scheduler
     }
 
     /**
+     * Records what became of a child collected during shutdown, and forgets it.
+     *
+     * A claim outlives the process that holds it, so a child left claimed here is handed out
+     * again by the next scheduler and its task runs a second time — including one that had
+     * finished its work and was only signalled on the way out. No event is dispatched: a
+     * shutdown is not a task failure, which is what the caller's documentation says. A status
+     * that could not be collected leaves the run claimed, because nothing was learned about it.
+     */
+    private function resolveStoppedChild(int $pid, ?int $status): void
+    {
+        $child = $this->children[$pid] ?? null;
+        unset($this->children[$pid]);
+
+        if (null === $child || null === $status) {
+            return;
+        }
+
+        [, $context] = $child;
+
+        $this->resolve(
+            $context,
+            pcntl_wifexited($status) && 0 === pcntl_wexitstatus($status) ? TaskStatus::Done : TaskStatus::Failed,
+        );
+    }
+
+    /**
      * The shutdown itself: SIGTERM, a grace period, then SIGKILL for whatever is left.
      */
     private function stopChildren(): void
@@ -840,8 +922,11 @@ final class Scheduler
             foreach ($pending as $index => $pid) {
                 // Anything but "still running" ends the wait for this one, a vanished child
                 // (-1) included - there is nothing left to collect from it.
-                if (0 !== pcntl_waitpid($pid, $status, WNOHANG)) {
-                    unset($this->children[$pid], $pending[$index]);
+                $reaped = pcntl_waitpid($pid, $status, WNOHANG);
+
+                if (0 !== $reaped) {
+                    $this->resolveStoppedChild($pid, $pid === $reaped ? $status : null);
+                    unset($pending[$index]);
                 }
             }
 
@@ -854,8 +939,8 @@ final class Scheduler
                     posix_kill($pid, SIGKILL);
                     // Just killed, so this returns at once; a signal interrupting it (-1)
                     // still ends the wait rather than looping on a process that is gone.
-                    pcntl_waitpid($pid, $status);
-                    unset($this->children[$pid]);
+                    $reaped = pcntl_waitpid($pid, $status);
+                    $this->resolveStoppedChild($pid, $pid === $reaped ? $status : null);
                 }
 
                 break;

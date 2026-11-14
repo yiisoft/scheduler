@@ -2,6 +2,7 @@
 
 ## 1.0.0 under development
 
+- Bug #19: Fix a daemon ending over a schedule lock another process holds, a run recorded by another process being emitted again by a long-lived generator, a live run of a container sharing the host's name being reclaimed at once because its pid belongs to another namespace, and a child that finished its work being left claimed by a shutdown and run again afterwards (@KalimeroMK)
 - Bug #19: Fix a claimed run being handed out a second time when it waits for a free process slot under `--max-processes`, or is handed out behind a task slower than the reclaim window; the window now starts when the run starts rather than when it was claimed (@KalimeroMK)
 - New #19: Record what became of a run: it is claimed as it is handed out and recorded as done, failed, skipped or cancelled once its outcome is known, so a run nobody started is given back to the schedule instead of passing for one that happened, and a claim left by a process that is gone is handed out again. Added `TaskStatus` and `Schedule::reclaimAfter()` (@KalimeroMK)
 - Enh #17: Keep a checkpoint record per task instead of one record holding every run emitted at a due time, so that a stored value stays the same size however many tasks share that time and a run costs a single write rather than a write of everything emitted before it (@KalimeroMK)

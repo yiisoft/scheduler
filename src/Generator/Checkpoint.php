@@ -9,6 +9,7 @@ use DateTimeImmutable;
 use Psr\SimpleCache\CacheInterface;
 use Throwable;
 use Yiisoft\Mutex\MutexInterface;
+use Yiisoft\Scheduler\Exception\LockTimeoutException;
 use Yiisoft\Scheduler\Exception\RuntimeException;
 use Yiisoft\Scheduler\TaskStatus;
 
@@ -64,6 +65,10 @@ final class Checkpoint
     private array $records = [];
     private bool $locked = false;
     private int $revision = 0;
+
+    /** Worked out once: both are the same for the whole life of the process. */
+    private static ?string $host = null;
+    private static ?string $owner = null;
 
     /** @var list<string> Ids of the tasks whose records are read back. */
     private array $taskIds = [];
@@ -316,7 +321,7 @@ final class Checkpoint
         // became of a run that already happened has to be recorded, and whoever holds the lock
         // holds it for a read and a write.
         if (!$this->mutex->acquire(self::WRITE_LOCK_TIMEOUT_SECONDS)) {
-            throw new RuntimeException(sprintf(
+            throw new LockTimeoutException(sprintf(
                 'Unable to record the outcome of a run of schedule "%s": the schedule lock was held'
                 . ' for longer than %d seconds.',
                 $this->scheduleName,
@@ -421,13 +426,22 @@ final class Checkpoint
         /** @var mixed $stored */
         $stored = $this->cache->get($this->taskKey($taskId));
 
+        $before = $this->records[$taskId] ?? null;
+
         if (null === $stored) {
             unset($this->records[$taskId]);
-
-            return;
+        } else {
+            $this->records[$taskId] = $this->readRecord($stored, $taskId);
         }
 
-        $this->records[$taskId] = $this->readRecord($stored, $taskId);
+        // The revision is what tells a generator its cached pending work is stale, and load()
+        // can only see a change by comparing what it read against what is held. Rereading one
+        // record has already replaced it, so the change would be invisible there: a generator
+        // would keep a heap built from the record this call just replaced and emit a run that
+        // another process has since recorded as done.
+        if (($this->records[$taskId] ?? null) != $before) {
+            ++$this->revision;
+        }
     }
 
     private function writePosition(DateTimeImmutable $now): void
@@ -463,7 +477,17 @@ final class Checkpoint
     /** The process a claim is made by, as "host/pid". */
     private static function owner(): string
     {
-        return self::host() . '/' . (getmypid() ?: 0);
+        if (null !== self::$owner) {
+            return self::$owner;
+        }
+
+        $pid = getmypid();
+
+        // A pid that cannot be read is given a token of its own rather than a zero: two such
+        // processes on one host would otherwise share an owner, and each would read the other's
+        // claim as its own and record an outcome for a run it never made. The token is kept for
+        // the life of the process, because an owner has to be the same string every time.
+        return self::$owner = self::host() . '/' . (false === $pid ? 'unknown-' . bin2hex(random_bytes(8)) : $pid);
     }
 
     /**
@@ -473,7 +497,20 @@ final class Checkpoint
      */
     private static function host(): string
     {
-        return gethostname() ?: 'unknown';
+        if (null !== self::$host) {
+            return self::$host;
+        }
+
+        $host = gethostname() ?: 'unknown';
+
+        // The pid namespace as well as the name, because a pid only means anything inside the
+        // one it was taken in. Containers sharing the host's network namespace — `docker run
+        // --network host`, a pod with `hostNetwork: true` — report the same name while keeping
+        // their own pids, so a claim of one would be checked against a pid of the other and a
+        // live run reclaimed at once, which is exactly what the window exists to prevent.
+        $namespace = is_file('/proc/self/ns/pid') ? fileinode('/proc/self/ns/pid') : false;
+
+        return self::$host = false === $namespace ? $host : $host . ':' . $namespace;
     }
 
     private static function isGone(string $owner): bool

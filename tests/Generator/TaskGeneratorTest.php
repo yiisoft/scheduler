@@ -9,8 +9,11 @@ use DateTimeImmutable;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\RequiresPhpExtension;
 use PHPUnit\Framework\TestCase;
+use ReflectionMethod;
 use Yiisoft\Mutex\MutexInterface;
+use Yiisoft\Scheduler\Exception\LockTimeoutException;
 use Yiisoft\Scheduler\Exception\RuntimeException;
+use Yiisoft\Scheduler\Generator\Checkpoint;
 use Yiisoft\Scheduler\Generator\TaskGenerator;
 use Yiisoft\Scheduler\Handler\CallableTaskHandler;
 use Yiisoft\Scheduler\RecurringTask;
@@ -22,7 +25,6 @@ use Yiisoft\Scheduler\TaskContext;
 use Yiisoft\Scheduler\TaskStatus;
 use Yiisoft\Scheduler\Tests\Support\TestClock;
 
-use function gethostname;
 use function hash;
 use function pcntl_fork;
 use function pcntl_waitpid;
@@ -138,7 +140,11 @@ final class TaskGeneratorTest extends TestCase
         pcntl_waitpid($pid, $status);
 
         $claimedAt = $clock->now()->modify('+1 minute');
-        $this->leaveClaim($cache, $task, $claimedAt, (gethostname() ?: 'unknown') . '/' . $pid);
+        // Built the way the checkpoint builds it, because a host is more than its name: the pid
+        // namespace is part of it, and a claim naming another one is left to the window.
+        $host = (new ReflectionMethod(Checkpoint::class, 'host'))->invoke(null);
+
+        $this->leaveClaim($cache, $task, $claimedAt, $host . '/' . $pid);
 
         $clock->set($claimedAt->modify('+30 seconds'));
 
@@ -877,10 +883,59 @@ final class TaskGeneratorTest extends TestCase
         // Another process takes the schedule lock and keeps it.
         $mutex->forceLock();
 
-        $this->expectException(RuntimeException::class);
+        $this->expectException(LockTimeoutException::class);
         $this->expectExceptionMessage('the schedule lock was held');
 
         $generator->resolve($claimed, TaskStatus::Done);
+    }
+
+    public function testARunAnotherProcessRecordedIsNotEmittedAgainByAGeneratorThatKeptRunning(): void
+    {
+        $cache = new InMemoryCache();
+        $clock = new TestClock();
+        $task = static fn() => null;
+
+        $generator = new TaskGenerator($this->schedule($cache, [$task]), $clock);
+        $this->assertNotNull($generator->getNextRunDate());
+
+        // A run claimed here and left in flight, which is what keeps this generator's view of
+        // the schedule where it is while another process moves it on.
+        $clock->advance('+1 minute');
+        $claimed = null;
+
+        foreach ($generator->getTasks() as $context => $ignored) {
+            $claimed = $context;
+        }
+
+        $this->assertNotNull($claimed);
+
+        // Another process writes an outcome for the run after this one and nothing else: a late
+        // outcome rather than a drained tick, so nothing here moves the schedule position.
+        $done = $claimed->triggeredAt->modify('+1 minute');
+        $cache->set($this->taskKey($task), [
+            'time' => $done->format('U.u'),
+            'status' => 'done',
+            'owner' => null,
+            'at' => null,
+        ]);
+
+        // Reads that record back in, which is where the pending work this generator holds
+        // stops matching what the schedule says is left.
+        $generator->resolve($claimed, TaskStatus::Done);
+
+        $clock->advance('+2 minutes');
+
+        $emitted = [];
+
+        foreach ($generator->getTasks() as $context => $ignored) {
+            $emitted[] = $context->triggeredAt->format('H:i');
+        }
+
+        $this->assertNotContains(
+            $done->format('H:i'),
+            $emitted,
+            'the run the other process recorded as done is not emitted again',
+        );
     }
 
     /**

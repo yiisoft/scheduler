@@ -222,9 +222,11 @@ window, set with `reclaimAfter()` and a day by default:
 $schedule->reclaimAfter(900); // or a DateInterval
 ```
 
-The window has to outlast a run, counted from the moment it starts. Under `--max-processes` a
-due run waits for a free slot first, and that wait is not charged against the window. Taking a
-run back while its process still means to make it runs the task a second time.
+The window has to outlast a run, counted from the moment it starts: the window is restarted
+when the run begins, so the wait for a free slot under `--max-processes` does not eat into it.
+A claim can still be taken back during that wait, and the scheduler that was holding it then
+finds it gone and leaves the run to whoever took it over rather than making it twice. Taking a
+run back while its process is actually making it does run the task a second time.
 
 A claim made by a process of this host is taken back sooner than that, as soon as the process
 is gone, which needs `ext-posix`. Asking about the process only brings the window forward and
@@ -268,8 +270,15 @@ to be shared between the servers:
 
 The bundled configuration wires the checkpoint cache automatically as soon as the application
 has a PSR-16 cache; the mutex is opt-in — add `->lock($mutex)` as shown above. With both in
-place, a task is still executed exactly once no matter how many servers the schedule runs on,
-and no single server going down stops the schedule.
+place a due run is handed out to one server only, and no single server going down stops the
+schedule.
+
+That holds while a run finishes inside its reclaim window, a day by default. A run still going
+when the window runs out is handed out again and the task runs a second time, whether or not
+the process that holds it is alive, so set `reclaimAfter()` longer than the slowest task. The
+other end of the same rule: a claim made on another server is only ever taken back by the
+window, because a process of another host cannot be asked about, so a server that dies mid-run
+leaves its run waiting the whole window rather than being picked up at once.
 
 ## Documentation
 
