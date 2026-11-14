@@ -419,6 +419,55 @@ final class PeriodicTriggerTest extends TestCase
         $this->assertSame($oneAtATime, $written);
     }
 
+    public function testARangeOpeningBeforeTheAnchorDoesNotWriteItsDatesInTwoTimezones(): void
+    {
+        // An interval counted on the timestamp writes a run in the timezone of the date it was
+        // counted from. The anchor is given back as it stands, so the dates after it are
+        // counted from the anchor and not from the date the range was asked about, or the list
+        // holds the anchor in one timezone and everything after it in another.
+        $trigger = new PeriodicTrigger(
+            3600,
+            new DateTimeImmutable('2026-05-01 00:00:00', new DateTimeZone('Europe/Skopje')),
+        );
+
+        $dates = $trigger->getRunDates(
+            new DateTimeImmutable('2026-04-30 12:00:00', new DateTimeZone('UTC')),
+            new DateTimeImmutable('2026-05-01 03:00:00', new DateTimeZone('Europe/Skopje')),
+            10,
+        );
+
+        $this->assertSame(
+            [
+                '2026-05-01T00:00:00+02:00',
+                '2026-05-01T01:00:00+02:00',
+                '2026-05-01T02:00:00+02:00',
+            ],
+            array_map(static fn(DateTimeImmutable $date): string => $date->format('c'), $dates),
+        );
+
+        foreach ($dates as $date) {
+            $this->assertSame('Europe/Skopje', $date->getTimezone()->getName());
+        }
+    }
+
+    public function testADateCarryingMicrosecondsIsAnsweredWithTheRunAfterIt(): void
+    {
+        // The question is put a microsecond earlier so that a run exactly at the date asked
+        // about is an answer; a date part of the way into a second must not be moved back onto
+        // the run before it.
+        $trigger = new PeriodicTrigger(3600, new DateTimeImmutable('2026-01-01 00:00:00+00:00'));
+
+        $next = $trigger->getNextRunDateAtOrAfter(new DateTimeImmutable('2026-01-01 05:00:00.500000+00:00'));
+
+        $this->assertNotNull($next);
+        $this->assertSame('2026-01-01T06:00:00+00:00', $next->format('c'));
+
+        $exactly = $trigger->getNextRunDateAtOrAfter(new DateTimeImmutable('2026-01-01 05:00:00.000000+00:00'));
+
+        $this->assertNotNull($exactly);
+        $this->assertSame('2026-01-01T05:00:00+00:00', $exactly->format('c'));
+    }
+
     public function testAnIntervalThatDoesNotAdvanceIsRejectedByARangeAsWell(): void
     {
         // The anchor is a run date, so a range that starts before it would otherwise answer
@@ -581,19 +630,19 @@ final class PeriodicTriggerTest extends TestCase
         );
     }
 
-    public function testAPhaseBeforeTheDateAskedAboutChangesNothing(): void
+    public function testARunAlreadyAccountedForBeforeTheDateAskedAboutChangesNothing(): void
     {
         $trigger = new PeriodicTrigger(3600);
         $date = new DateTimeImmutable('2026-01-01 05:00:00+00:00');
-        $phase = new DateTimeImmutable('2026-01-01 01:00:00+00:00');
+        $lastRun = new DateTimeImmutable('2026-01-01 01:00:00+00:00');
 
         $this->assertEquals(
             $trigger->getNextRunDateAtOrAfter($date),
-            $trigger->getNextRunDateAtOrAfter($date, $phase),
+            $trigger->getNextRunDateAtOrAfter($date, $lastRun),
         );
     }
 
-    public function testAPhaseCarriesARangePastTheRunsAlreadyAccountedFor(): void
+    public function testARunAlreadyAccountedForCarriesARangePastIt(): void
     {
         $trigger = new PeriodicTrigger(3600, new DateTimeImmutable('2026-01-01 00:00:00+00:00'));
         $window = new DateTimeImmutable('2026-01-01 00:00:00+00:00');

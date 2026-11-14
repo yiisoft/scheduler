@@ -169,13 +169,13 @@ final class PeriodicTrigger implements TriggerRangeInterface
         return $next;
     }
 
-    public function getNextRunDateAtOrAfter(DateTimeImmutable $date, ?DateTimeImmutable $phase = null): ?DateTimeImmutable
+    public function getNextRunDateAtOrAfter(DateTimeImmutable $date, ?DateTimeImmutable $lastRun = null): ?DateTimeImmutable
     {
         // getNextRunDate() answers with the first run strictly after the date it is given, and
         // the run at the date asked about is an answer here, so the question is put a
-        // microsecond earlier. A phase is a run already accounted for: nothing at or before it
-        // is an answer, whatever the date asked about.
-        $after = null !== $phase && $phase >= $date ? $phase : self::microsecondBefore($date);
+        // microsecond earlier. A run already accounted for moves the question past itself:
+        // nothing at or before it is an answer, whatever date is asked about.
+        $after = null !== $lastRun && $lastRun >= $date ? $lastRun : self::microsecondBefore($date);
 
         return $this->getNextRunDate($after);
     }
@@ -184,13 +184,13 @@ final class PeriodicTrigger implements TriggerRangeInterface
         DateTimeImmutable $after,
         DateTimeImmutable $before,
         int $limit,
-        ?DateTimeImmutable $phase = null,
+        ?DateTimeImmutable $lastRun = null,
     ): array {
         if ($limit <= 0) {
             throw new LogicException(sprintf('The limit must be greater than zero, "%d" given.', $limit));
         }
 
-        $cursor = null !== $phase && $phase > $after ? $phase : $after;
+        $cursor = null !== $lastRun && $lastRun > $after ? $lastRun : $after;
         $from = $this->from ?? new DateTimeImmutable(self::DEFAULT_FROM);
 
         // Before the search rather than inside it: an interval that does not advance would
@@ -207,14 +207,21 @@ final class PeriodicTrigger implements TriggerRangeInterface
 
         $dates = [];
 
+        // Each date is written in the timezone of the one before it, which is what asking for
+        // them one at a time does: every answer is fed back in as the date to count from. Keep
+        // the cursor here instead and a range that opens before the anchor writes the anchor in
+        // its own timezone and every date after it in the caller's, so one list holds two.
+        $in = $cursor;
+
         while (count($dates) < $limit) {
-            $date = $this->atIndex($from, $index, $cursor);
+            $date = $this->atIndex($from, $index, $in);
 
             if ($date >= $before || (null !== $this->until && $date > $this->until)) {
                 break;
             }
 
             $dates[] = $date;
+            $in = $date;
             ++$index;
         }
 
@@ -335,6 +342,15 @@ final class PeriodicTrigger implements TriggerRangeInterface
      */
     private function firstMultipleAfter(DateTimeImmutable $from, DateTimeImmutable $lastRun): DateTimeImmutable
     {
+        // The first run past the anchor is what the check for an interval that advances at all
+        // already builds, and on the common path it is the answer, so it is kept rather than
+        // counted a second time.
+        $first = $this->assertAdvancing($from);
+
+        if ($first > $lastRun) {
+            return $first;
+        }
+
         return $this->multiple($from, $this->firstMultipleIndexAfter($from, $lastRun));
     }
 

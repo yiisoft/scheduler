@@ -26,13 +26,13 @@ interface TriggerRangeInterface extends TriggerInterface
      * answers with the first one strictly after it.
      *
      * @param DateTimeImmutable $date The date to seek from, itself a candidate.
-     * @param DateTimeImmutable|null $phase A run already accounted for. A date at or before it is
+     * @param DateTimeImmutable|null $lastRun A run already accounted for. A date at or before it is
      * never an answer, so a caller that was interrupted can ask again from where it left off and
      * receive the run after the last one it saw rather than that one again.
      *
      * @return DateTimeImmutable|null The run date, or null when the trigger is exhausted.
      */
-    public function getNextRunDateAtOrAfter(DateTimeImmutable $date, ?DateTimeImmutable $phase = null): ?DateTimeImmutable;
+    public function getNextRunDateAtOrAfter(DateTimeImmutable $date, ?DateTimeImmutable $lastRun = null): ?DateTimeImmutable;
 
     /**
      * The run dates falling between two dates, at most as many as asked for.
@@ -44,7 +44,7 @@ interface TriggerRangeInterface extends TriggerInterface
      * @param DateTimeImmutable $after The date the batch starts after.
      * @param DateTimeImmutable $before The date the batch stops before.
      * @param int $limit How many dates at most. Must be greater than zero.
-     * @param DateTimeImmutable|null $phase A run already accounted for, as above.
+     * @param DateTimeImmutable|null $lastRun A run already accounted for, as above.
      *
      * @return list<DateTimeImmutable> The run dates in order, empty when there are none in
      * range or the trigger is exhausted. Fewer than `$limit` of them means the range held no
@@ -55,6 +55,6 @@ interface TriggerRangeInterface extends TriggerInterface
         DateTimeImmutable $after,
         DateTimeImmutable $before,
         int $limit,
-        ?DateTimeImmutable $phase = null,
+        ?DateTimeImmutable $lastRun = null,
     ): array;
 }
