@@ -7,11 +7,11 @@ namespace Yiisoft\Scheduler\Ledger;
 use DateTimeImmutable;
 use Yiisoft\Scheduler\Exception\LogicException;
 
-use function array_filter;
-use function array_slice;
-use function array_values;
+use function array_splice;
+use function count;
+use function intdiv;
 use function sprintf;
-use function usort;
+use function strcmp;
 
 /**
  * The ledger kept in the memory of one process.
@@ -24,15 +24,24 @@ use function usort;
  * It survives nothing. A process that exits takes its records with it, which makes it the wrong
  * choice for the recovery this ledger exists for.
  *
- * It also grows without bound, because nothing here removes a record once its work is finished,
- * and it sorts every matching record on every page rather than reading an ordered index. Both
- * are what a reference implementation can afford and a long-running planner cannot, which is
- * what a durable store backed by an indexed table is for.
+ * It also grows without bound, because nothing here removes a record once its work is finished.
+ * That is what a reference implementation can afford and a long-running planner cannot, which
+ * is what a durable store is for.
  */
 final class InMemoryLedger implements LedgerCommandInterface, LedgerQueryInterface
 {
     /** @var array<string, ExecutionRecord> */
     private array $records = [];
+    /**
+     * The keys of the records above in the order the queries read them, kept sorted as records
+     * are admitted rather than sorted again on every page: a recovery pass walking a backlog
+     * in small pages would otherwise pay for the whole backlog on each of them.
+     *
+     * An occurrence never changes after it is admitted, so a position once found stays right.
+     *
+     * @var list<string>
+     */
+    private array $order = [];
 
     public function admit(
         ExecutionIdentity $identity,
@@ -48,10 +57,13 @@ final class InMemoryLedger implements LedgerCommandInterface, LedgerQueryInterfa
             return $existing;
         }
 
+        array_splice($this->order, $this->position($identity), 0, [$identity->key()]);
+
         return $this->records[$identity->key()] = new ExecutionRecord(
             identity: $identity,
             sourceRevision: $sourceRevision,
-            authority: new ExecutionAuthority($identity->key() . '/1'),
+            authority: ExecutionAuthority::forAttempt($identity, 1),
+            attempt: 1,
             phase: ExecutionPhase::Admitted,
             launch: LaunchFact::None,
             process: null,
@@ -161,16 +173,8 @@ final class InMemoryLedger implements LedgerCommandInterface, LedgerQueryInterfa
     public function reauthorize(
         ExecutionIdentity $identity,
         ExecutionAuthority $expected,
-        ExecutionAuthority $next,
         DateTimeImmutable $at,
     ): TransitionResult {
-        if ($next->equals($expected)) {
-            throw new LogicException(sprintf(
-                'A new attempt needs an authority of its own, and "%s" is the one being replaced.',
-                $next->token,
-            ));
-        }
-
         return $this->transition(
             $identity,
             $expected,
@@ -181,7 +185,8 @@ final class InMemoryLedger implements LedgerCommandInterface, LedgerQueryInterfa
             // recovery to observe and stop counting against capacity.
             static fn(ExecutionRecord $record): ExecutionRecord => self::with(
                 $record,
-                authority: $next,
+                authority: ExecutionAuthority::forAttempt($record->identity, $record->attempt + 1),
+                attempt: $record->attempt + 1,
                 phase: ExecutionPhase::Admitted,
                 launch: LaunchFact::None,
                 claimedAt: null,
@@ -239,8 +244,8 @@ final class InMemoryLedger implements LedgerCommandInterface, LedgerQueryInterfa
             return TransitionResult::missing();
         }
 
-        // Before the terminal check, because an actor holding a stale authority has no standing
-        // to be told anything about the record beyond that it is not its to change.
+        // Before the terminal check, because an authority that is not the record's makes every
+        // other answer about it beside the point.
         if (!$record->authority->equals($authority)) {
             return TransitionResult::staleAuthority($record);
         }
@@ -267,44 +272,73 @@ final class InMemoryLedger implements LedgerCommandInterface, LedgerQueryInterfa
             throw new LogicException(sprintf('The limit must be greater than zero, "%d" given.', $limit));
         }
 
+        // The order is already the one the queries promise, so a page starts where the one
+        // before it ended rather than at the beginning of the backlog.
         $found = [];
+        $at = null === $after ? 0 : $this->position($after);
 
-        foreach ($this->records as $record) {
-            if ($record->identity->source !== $source || !$matches($record)) {
-                continue;
+        for ($last = count($this->order); $at < $last && count($found) < $limit; ++$at) {
+            $record = $this->records[$this->order[$at]];
+
+            if ($record->identity->source === $source && $matches($record)) {
+                $found[] = $record;
             }
-
-            $found[] = $record;
         }
 
-        // By the occurrence they are for, so a backlog is worked through in the order it
-        // happened; by key after that, so that two tasks sharing a due time have an order at
-        // all and a page continued from its last record cannot miss one of them.
-        usort(
-            $found,
-            static fn(ExecutionRecord $a, ExecutionRecord $b): int => [$a->identity->occurrence, $a->identity->key()]
-                <=> [$b->identity->occurrence, $b->identity->key()],
-        );
-
-        if (null !== $after) {
-            $position = [$after->occurrence, $after->key()];
-
-            $found = array_values(array_filter(
-                $found,
-                static fn(ExecutionRecord $record): bool
-                    => [$record->identity->occurrence, $record->identity->key()] > $position,
-            ));
-        }
-
-        return array_slice($found, 0, $limit);
+        return $found;
     }
 
+    /**
+     * Where an identity belongs in the order: by the occurrence it is for, so a backlog is
+     * worked through in the order it happened, and by key after that, so that two tasks sharing
+     * a due time have an order at all and a page continued from its last record cannot miss one
+     * of them.
+     *
+     * The first position past every record that sorts before it, which is where it is inserted
+     * and, for a record already there, the position after it.
+     */
+    private function position(ExecutionIdentity $identity): int
+    {
+        $low = 0;
+        $high = count($this->order);
+
+        while ($low < $high) {
+            $middle = intdiv($low + $high, 2);
+
+            if (self::compare($this->records[$this->order[$middle]]->identity, $identity) <= 0) {
+                $low = $middle + 1;
+            } else {
+                $high = $middle;
+            }
+        }
+
+        return $low;
+    }
+
+    /**
+     * By the instant the occurrence is for, then by the bytes of the key.
+     *
+     * The key is compared with `strcmp()` rather than with `<=>`, because a key is a hex digest
+     * and about one in seven hundred of them is a numeric string: `1088125e73947010` is one.
+     * PHP compares two numeric strings as numbers and a numeric one against an ordinary one as
+     * bytes, which is not an ordering at all — `3311582943040238` sorts before
+     * `1088125e73947010`, which sorts before `18a60ec26900a883`, which sorts before the first.
+     * A sort over a cycle like that drops records, and a binary search over it never finds its
+     * answer. It also happens to be how a database orders the same column.
+     */
+    private static function compare(ExecutionIdentity $a, ExecutionIdentity $b): int
+    {
+        return $a->occurrence <=> $b->occurrence ?: strcmp($a->key(), $b->key());
+    }
+
+    /** @param positive-int|null $attempt */
     private static function with(
         ExecutionRecord $record,
         ?ExecutionAuthority $authority = null,
         ?ExecutionPhase $phase = null,
         ?LaunchFact $launch = null,
         ?LaunchDescription $process = null,
+        ?int $attempt = null,
         bool $clearProcess = false,
         ?ProcessObservation $processObservation = null,
         ?ExecutionOutcome $outcome = null,
@@ -317,6 +351,7 @@ final class InMemoryLedger implements LedgerCommandInterface, LedgerQueryInterfa
             identity: $record->identity,
             sourceRevision: $record->sourceRevision,
             authority: $authority ?? $record->authority,
+            attempt: $attempt ?? $record->attempt,
             phase: $phase ?? $record->phase,
             launch: $launch ?? $record->launch,
             process: $clearProcess ? null : ($process ?? $record->process),

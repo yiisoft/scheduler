@@ -130,13 +130,17 @@ interface LedgerCommandInterface
      * against capacity and leave nothing for recovery to observe. The new attempt releases it
      * once it is known to be closed, and only then may it launch anything itself.
      *
-     * Refused once an outcome is recorded: there is nothing left to attempt. `$next` must be an
-     * authority this execution is not already under, which is the caller's to arrange.
+     * The new authority is minted here and carried by the returned record, rather than passed
+     * in: a token a caller picked could be one an earlier attempt of this execution already
+     * held, and the worker that attempt left behind would pass the authority check again. A
+     * caller can still build an authority of its own, and a write naming one simply will not
+     * match.
+     *
+     * Refused once an outcome is recorded: there is nothing left to attempt.
      */
     public function reauthorize(
         ExecutionIdentity $identity,
         ExecutionAuthority $expected,
-        ExecutionAuthority $next,
         DateTimeImmutable $at,
     ): TransitionResult;
 }

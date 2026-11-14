@@ -10,9 +10,10 @@ use DateTimeImmutable;
  * Everything the ledger durably knows about one admitted execution.
  *
  * Read-only: a record is produced by the ledger and never changed in place, so a caller holding
- * one holds what was true when it read it and has to go back for anything newer. Every mutation
- * returns the record as it stands afterwards, which is how a caller learns that what it believed
- * was already out of date.
+ * one holds what was true when it read it and has to go back for anything newer. A mutation
+ * returns the record as it stands afterwards, accepted or refused, which is how a caller learns
+ * that what it believed was already out of date. Only a mutation of an execution that was never
+ * admitted comes back without one, there being no record to return.
  */
 final class ExecutionRecord
 {
@@ -25,6 +26,13 @@ final class ExecutionRecord
          */
         public readonly string $sourceRevision,
         public readonly ExecutionAuthority $authority,
+        /**
+         * Which attempt at this execution the authority above belongs to. It only ever goes
+         * up, so no two attempts at one execution are ever under the same authority.
+         *
+         * @var positive-int
+         */
+        public readonly int $attempt,
         public readonly ExecutionPhase $phase,
         public readonly LaunchFact $launch,
         public readonly ?LaunchDescription $process,
