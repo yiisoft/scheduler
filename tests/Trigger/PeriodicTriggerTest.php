@@ -106,6 +106,30 @@ final class PeriodicTriggerTest extends TestCase
         $this->assertSame('every(P0D)', (string) new PeriodicTrigger(new DateInterval('PT0S')));
     }
 
+    public function testDescriptionWritesTheBoundsToTheMicrosecondWithTheirTimezone(): void
+    {
+        // A task takes its identifier from this string, so dropping the microseconds, the offset
+        // or the timezone name would quietly give two triggers one identifier. The name is there
+        // because a calendar interval follows the calendar of its anchor: the same instant in
+        // Europe/Skopje and in +01:00 parts company at the first clock change after it.
+        $trigger = new PeriodicTrigger(
+            3600,
+            new DateTimeImmutable('2026-01-01 00:00:00.000001', new DateTimeZone('Europe/Skopje')),
+            new DateTimeImmutable('2026-06-01 12:30:45.500000', new DateTimeZone('UTC')),
+        );
+
+        $this->assertSame(
+            'every(3600 seconds, from 2026-01-01T00:00:00.000001+01:00 Europe/Skopje'
+            . ', until 2026-06-01T12:30:45.500000+00:00 UTC)',
+            (string) $trigger,
+        );
+    }
+
+    public function testDescriptionLeavesOutTheBoundsThatWereNotGiven(): void
+    {
+        $this->assertSame('every(3600 seconds)', (string) new PeriodicTrigger(3600));
+    }
+
     public function testShortDateIntervalFarPastTheAnchor(): void
     {
         $from = new DateTimeImmutable('2026-01-01 00:00:00+00:00');
