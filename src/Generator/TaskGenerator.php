@@ -4,15 +4,19 @@ declare(strict_types=1);
 
 namespace Yiisoft\Scheduler\Generator;
 
+use DateInterval;
 use DateTimeImmutable;
 use Psr\Clock\ClockInterface;
 use Yiisoft\Scheduler\Exception\LogicException;
+use Yiisoft\Scheduler\Ledger\ExecutionIdentity;
 use Yiisoft\Scheduler\RecurringTask;
 use Yiisoft\Scheduler\Schedule;
 use Yiisoft\Scheduler\TaskContext;
 
 use function array_map;
 use function count;
+use function hash;
+use function implode;
 
 /**
  * Computes which tasks of a schedule are due, in run order.
@@ -24,9 +28,25 @@ use function count;
  */
 final class TaskGenerator
 {
+    /**
+     * How long after it was admitted an occurrence is still worth starting again.
+     *
+     * A constant rather than a setting, because the window belongs to the recovery loop that
+     * reads it and not to the record it bounds. It bounds new attempts only: a process
+     * already owned is still observed afterwards, since an expired deadline says nothing about
+     * whether it stopped.
+     */
+    private const RECOVERY_WINDOW = 'P1D';
+
     private ?TriggerHeap $heap = null;
     private int $heapRevision = -1;
     private readonly Checkpoint $checkpoint;
+    /**
+     * The revision of the configuration this schedule was built from, which is the set of tasks
+     * it holds. A deploy that adds, removes or redefines one changes it, and an execution
+     * admitted under the old one keeps saying so.
+     */
+    private readonly string $sourceRevision;
     /** @var array<string, int> Task id to insertion index, ordering the runs of a shared due time. */
     private array $indices = [];
 
@@ -34,12 +54,15 @@ final class TaskGenerator
         private readonly Schedule $schedule,
         private readonly ClockInterface $clock,
     ) {
+        $ids = array_map(static fn(RecurringTask $task): string => $task->getId(), $schedule->tasks());
+
         $this->checkpoint = new Checkpoint(
             $schedule->getName(),
-            array_map(static fn(RecurringTask $task): string => $task->getId(), $schedule->tasks()),
+            $ids,
             $schedule->getState(),
             $schedule->getMutex(),
         );
+        $this->sourceRevision = hash('xxh3', implode(',', $ids));
     }
 
     public function getSchedule(): Schedule
@@ -85,9 +108,17 @@ final class TaskGenerator
                 }
 
                 if (!$yield) {
+                    // Not admitted: a missed run the schedule is configured to skip is never
+                    // executed, so there is no execution to keep a record of.
                     $this->checkpoint->save($task->getId(), $time);
                     continue;
                 }
+
+                // Before the occurrence is emitted, and so before the checkpoint below moves
+                // past it: nothing may acknowledge scheduling progress past an occurrence whose
+                // record is not durable yet. A ledger that cannot write throws, the checkpoint
+                // is not reached, and the occurrence stays due for the next process.
+                $this->admit($task->getId(), $time, $now);
 
                 $context = new TaskContext($this->schedule->getName(), $task->getId(), $task->getTrigger(), $time, $nextTime);
 
@@ -127,6 +158,29 @@ final class TaskGenerator
         } finally {
             $this->checkpoint->release();
         }
+    }
+
+    /**
+     * Writes the record of an occurrence about to be emitted, where there is a ledger to write
+     * it to.
+     *
+     * Idempotent by identity, so a process that died between this and the checkpoint below it
+     * admits the same occurrence again on the next pass and finds what it already wrote.
+     */
+    private function admit(string $taskId, DateTimeImmutable $occurrence, DateTimeImmutable $now): void
+    {
+        $ledger = $this->schedule->getLedger();
+
+        if (null === $ledger) {
+            return;
+        }
+
+        $ledger->admit(
+            new ExecutionIdentity($this->schedule->getName(), $taskId, $occurrence),
+            $this->sourceRevision,
+            $now,
+            $now->add(new DateInterval(self::RECOVERY_WINDOW)),
+        );
     }
 
     private function heap(): TriggerHeap

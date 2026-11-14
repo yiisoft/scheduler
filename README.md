@@ -249,12 +249,27 @@ and no single server going down stops the schedule.
 ## The execution ledger
 
 The checkpoint records how far the schedule got. The ledger records what became of each
-execution: when it was admitted, which attempt holds it, whether a process was started, and
-what the work came to. It is what a planner reads after a restart to tell a launch that never
-began from a worker still running from work that is already finished.
+execution: when it was admitted, which attempt holds it, whether a process was started, and what
+the work came to. It is what a planner reads after a restart to tell a launch that never began
+from a worker still running from work that is already finished.
 
-`DbLedger` keeps those records in a database through [yiisoft/db](https://github.com/yiisoft/db).
-SQLite is the default because it gives transactions without a server to operate:
+```php
+$schedule = (new Schedule())
+    ->stateful($cache)
+    ->ledger($ledger)
+    ->task(...);
+```
+
+A schedule with a ledger writes the record of an occurrence before it emits it, and the
+checkpoint only moves past an occurrence whose record is already written. A process that dies
+between the two leaves work the ledger knows about rather than work the checkpoint has counted
+and nothing remembers; the next pass admits the same occurrence again and finds what it wrote,
+because admission is idempotent. A missed run the schedule is configured to skip is never
+executed, so it is never admitted either.
+
+`DbLedger` is the ledger to give it. It keeps the records in a database through
+[yiisoft/db](https://github.com/yiisoft/db), and SQLite is the default because it gives
+transactions without a server to operate:
 
 ```shell
 composer require yiisoft/db-sqlite
@@ -269,15 +284,14 @@ $ledger = new DbLedger(new Connection(new Driver('sqlite:' . __DIR__ . '/runtime
 $ledger->createTable(); // once; an application with migrations writes the table in one instead
 ```
 
-Any other driver that package has works the same way, and an application that would rather keep
-executions in its own tables implements `LedgerCommandInterface` and `LedgerQueryInterface`
-itself and never installs either package. Whatever implements them has to pass
-`LedgerContractTestCase`, which is the 15 cases every store is held to: idempotent admission,
-an authority that fences the attempt it replaced, a first outcome that later observations
-cannot overwrite, and backlog queries bounded and scoped to one source.
-
-The scheduler does not read the ledger yet. Until it does, these records are written and read
-by application code, and the checkpoint stays what the schedule itself runs on.
+Any other driver that package has works the same way. `InMemoryLedger` implements the same two
+interfaces and survives nothing, which makes it the right choice for a single process and the
+wrong one for the recovery a ledger exists for, and an application keeping executions in its own
+tables implements `LedgerCommandInterface` and `LedgerQueryInterface` itself and installs
+neither package. Whatever implements them has to pass `LedgerContractTestCase`, which is the
+cases the planner relies on: idempotent admission, an authority that fences the attempt it
+replaced, a first outcome that later observations cannot overwrite, and backlog queries bounded
+and scoped to one source.
 
 ## Documentation
 
