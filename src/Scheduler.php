@@ -284,6 +284,7 @@ final class Scheduler
     {
         $concurrent = $concurrent && self::supportsForking();
         $this->looping = true;
+        $failure = null;
 
         try {
             while (!$this->shouldStop) {
@@ -301,15 +302,25 @@ final class Scheduler
 
                 $this->reapChildren();
             }
+        } catch (Throwable $error) {
+            // Held rather than thrown: the children are stopped first, and a failure of that
+            // must not take the place of this one.
+            $failure = $error;
         } finally {
             try {
                 $this->terminateChildren();
+            } catch (Throwable $error) {
+                $failure = $this->firstFailure($failure, $error);
             } finally {
                 // The stop request ends this run only; left in place it would keep every later
                 // run() from entering the loop at all. Cleared last, so a second request
                 // arriving while the children are being stopped is spent on this run too.
                 $this->shouldStop = false;
             }
+        }
+
+        if (null !== $failure) {
+            throw $failure;
         }
     }
 
@@ -875,22 +886,37 @@ final class Scheduler
      * finished its work and was only signalled on the way out. No event is dispatched: a
      * shutdown is not a task failure, which is what the caller's documentation says. A status
      * that could not be collected leaves the run claimed, because nothing was learned about it.
+     *
+     * A failure to record is handed back rather than thrown: every other child still has to be
+     * stopped and collected, and one that cannot be written about would otherwise leave the
+     * ones behind it running with nobody to reap them. The run it belongs to stays claimed
+     * until its reclaim window runs out, which is what an unrecorded outcome always means.
+     *
+     * @param Throwable|null $failure The failure of an earlier child, if any.
+     *
+     * @return Throwable|null The one to report once the shutdown is through.
      */
-    private function resolveStoppedChild(int $pid, ?int $status): void
+    private function resolveStoppedChild(int $pid, ?int $status, ?Throwable $failure): ?Throwable
     {
         $child = $this->children[$pid] ?? null;
         unset($this->children[$pid]);
 
         if (null === $child || null === $status) {
-            return;
+            return $failure;
         }
 
         [, $context] = $child;
 
-        $this->resolve(
-            $context,
-            pcntl_wifexited($status) && 0 === pcntl_wexitstatus($status) ? TaskStatus::Done : TaskStatus::Failed,
-        );
+        try {
+            $this->resolve(
+                $context,
+                pcntl_wifexited($status) && 0 === pcntl_wexitstatus($status) ? TaskStatus::Done : TaskStatus::Failed,
+            );
+        } catch (Throwable $error) {
+            return $this->firstFailure($failure, $error);
+        }
+
+        return $failure;
     }
 
     /**
@@ -917,6 +943,7 @@ final class Scheduler
 
         $deadline = hrtime(true) + self::TERMINATION_TIMEOUT_SECONDS * 1_000_000_000;
         $pending = array_keys($this->children);
+        $failure = null;
 
         while (true) {
             foreach ($pending as $index => $pid) {
@@ -925,7 +952,7 @@ final class Scheduler
                 $reaped = pcntl_waitpid($pid, $status, WNOHANG);
 
                 if (0 !== $reaped) {
-                    $this->resolveStoppedChild($pid, $pid === $reaped ? $status : null);
+                    $failure = $this->resolveStoppedChild($pid, $pid === $reaped ? $status : null, $failure);
                     unset($pending[$index]);
                 }
             }
@@ -940,13 +967,19 @@ final class Scheduler
                     // Just killed, so this returns at once; a signal interrupting it (-1)
                     // still ends the wait rather than looping on a process that is gone.
                     $reaped = pcntl_waitpid($pid, $status);
-                    $this->resolveStoppedChild($pid, $pid === $reaped ? $status : null);
+                    $failure = $this->resolveStoppedChild($pid, $pid === $reaped ? $status : null, $failure);
                 }
 
                 break;
             }
 
             usleep(10_000);
+        }
+
+        // Every child is stopped and collected by now, so what could not be recorded about
+        // them is safe to report.
+        if (null !== $failure) {
+            throw $failure;
         }
     }
 

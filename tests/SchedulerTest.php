@@ -38,6 +38,7 @@ use const LOCK_EX;
 use const SIGKILL;
 use const SIGTERM;
 use const SIG_DFL;
+use const SIG_IGN;
 use const PHP_OS_FAMILY;
 
 final class SchedulerTest extends TestCase
@@ -1499,6 +1500,88 @@ final class SchedulerTest extends TestCase
             $next->tick();
 
             $this->assertSame(1, $recovered);
+        } finally {
+            array_map(unlink(...), glob("$dir/*") ?: []);
+            rmdir($dir);
+        }
+    }
+
+    /**
+     * A shutdown that cannot record what became of one child still has to stop the rest of
+     * them: a task process left behind outlives the daemon that forked it.
+     */
+    #[RequiresPhpExtension('pcntl')]
+    #[RequiresPhpExtension('posix')]
+    public function testShutdownStopsEveryChildWhenAnOutcomeCannotBeRecorded(): void
+    {
+        $dir = sys_get_temp_dir() . '/yii-scheduler-test-' . uniqid();
+        mkdir($dir);
+
+        $cache = new InMemoryCache();
+        $clock = new TestClock();
+
+        $schedule = (new Schedule('shutdown'))
+            ->stateful($cache)
+            ->task(
+                RecurringTask::cron('* * * * *', static function () use ($dir): void {
+                    file_put_contents("$dir/quick", (string) getmypid());
+                })->withId('quick'),
+                RecurringTask::cron('* * * * *', static function () use ($dir): void {
+                    // Deaf to the stop request, so it is still there when the outcome of the
+                    // first child cannot be written, and only SIGKILL ends it.
+                    pcntl_signal(SIGTERM, SIG_IGN);
+                    file_put_contents("$dir/stubborn", (string) getmypid());
+
+                    $deadline = microtime(true) + 30;
+
+                    while (microtime(true) < $deadline) {
+                        usleep(10_000);
+                    }
+                })->withId('stubborn'),
+            );
+
+        $scheduler = new Scheduler([$schedule], new CallableTaskHandler(), $clock);
+
+        try {
+            $scheduler->tick();
+            $clock->advance('+1 minute');
+            $scheduler->tick(true);
+
+            // Both children are up and past the point where the second one stops listening
+            // for SIGTERM, so the shutdown has something to fail at and something to kill.
+            $deadline = microtime(true) + 15;
+
+            while (
+                (!file_exists("$dir/quick") || !file_exists("$dir/stubborn"))
+                && microtime(true) < $deadline
+            ) {
+                usleep(10_000);
+            }
+
+            $this->assertFileExists("$dir/quick");
+            $this->assertFileExists("$dir/stubborn");
+
+            $stubborn = (int) file_get_contents("$dir/stubborn");
+            $this->assertNotSame(0, $stubborn);
+
+            // From here the outcome of every child is unwritable, the first one's included.
+            $cache->failWrites();
+            $scheduler->stop();
+
+            $error = null;
+
+            try {
+                $scheduler->run(0.01);
+            } catch (SchedulerRuntimeException $caught) {
+                $error = $caught;
+            }
+
+            $this->assertFalse($scheduler->hasRunningChildren());
+            // Killed and collected, rather than left behind by a shutdown that gave up at the
+            // first outcome it could not record.
+            $this->assertFalse(posix_kill($stubborn, 0));
+            $this->assertNotNull($error);
+            $this->assertStringContainsString('Unable to persist the checkpoint', $error->getMessage());
         } finally {
             array_map(unlink(...), glob("$dir/*") ?: []);
             rmdir($dir);
