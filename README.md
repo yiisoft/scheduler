@@ -191,6 +191,13 @@ The bundled configuration makes the schedule stateful automatically when the app
 PSR-16 cache. `schedule:work` keeps the position in memory and works either way, though a
 checkpoint also lets it compensate the runs missed while it was down.
 
+Both commands tell the terminal what they are doing, as the program status of
+[OSC 7501](https://www.superlogical.com/rex/docs/build/program-status): `schedule:run`
+reports the due batch and how it went, and `schedule:work` reports what it is waiting for, so
+a live daemon between runs can be told from a dead one. A terminal that does not know the
+sequence ignores it, and nothing is written at all when the output is redirected or piped,
+in quiet mode, or with `--no-ansi`. Pass `--no-program-status` to turn it off everywhere else.
+
 An interval is counted from a fixed point in time rather than from the moment the scheduler
 was started, so `every('10 minutes')` runs at :00, :10, :20 and so on, `every('1 day')` at
 midnight and `every('1 week')` on Mondays. To count from another moment, pass a

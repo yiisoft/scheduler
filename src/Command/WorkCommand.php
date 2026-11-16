@@ -37,6 +37,13 @@ final class WorkCommand extends Command implements SignalableCommandInterface
      */
     private ?Throwable $failure = null;
 
+    /**
+     * What the terminal is told the daemon is doing. Built once the output is known, and
+     * kept because the signal handler refreshes it between ticks. Null until the command
+     * runs, because a signal can reach the handler of a command that never started.
+     */
+    private ?ProgramStatus $status = null;
+
     public function __construct(
         private readonly Scheduler $scheduler,
     ) {
@@ -64,6 +71,12 @@ final class WorkCommand extends Command implements SignalableCommandInterface
             InputOption::VALUE_REQUIRED,
             'The most task processes to run at once. Unlimited by default.',
         );
+        $this->addOption(
+            'no-program-status',
+            null,
+            InputOption::VALUE_NONE,
+            'Do not tell the terminal what the scheduler is doing.',
+        );
     }
 
     public function getSubscribedSignals(): array
@@ -86,9 +99,15 @@ final class WorkCommand extends Command implements SignalableCommandInterface
                 $this->scheduler->stop();
             }
 
+            // A task that finished is the one moment this process knows something changed
+            // without the loop telling it, so it is where the record is brought up to date.
+            // A task that failed does not end the daemon, and must not report it as stopped.
+            $this->status?->working($this->waiting());
+
             return false;
         }
 
+        $this->status?->working('Stopping, waiting for the running tasks.');
         $this->scheduler->stop();
 
         return false;
@@ -96,6 +115,8 @@ final class WorkCommand extends Command implements SignalableCommandInterface
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
+        $this->status = ProgramStatus::of($output, !$input->getOption('no-program-status'));
+
         /** @var mixed $sleep */
         $sleep = $input->getOption('sleep');
 
@@ -126,18 +147,45 @@ final class WorkCommand extends Command implements SignalableCommandInterface
 
         $output->writeln('<info>Scheduler started.</info>');
 
-        $this->scheduler->run(
-            (float) $sleep,
-            !(bool) $input->getOption('sequential'),
-            null === $maxProcesses ? null : (int) $maxProcesses,
-        );
+        // A daemon between runs looks exactly like a dead one from the outside, which is the
+        // state worth reporting: the terminal drops a working record when the process ends.
+        $this->status->working($this->waiting());
+
+        try {
+            $this->scheduler->run(
+                (float) $sleep,
+                !(bool) $input->getOption('sequential'),
+                null === $maxProcesses ? null : (int) $maxProcesses,
+            );
+        } catch (Throwable $error) {
+            $this->status->error($error->getMessage());
+
+            throw $error;
+        }
 
         if (null !== $this->failure) {
+            $this->status->error($this->failure->getMessage());
+
             throw $this->failure;
         }
 
         $output->writeln('<info>Scheduler stopped.</info>');
+        $this->status->done('Scheduler stopped.');
 
         return Command::SUCCESS;
+    }
+
+    /** What the daemon is waiting for, as far as it can say between two ticks. */
+    private function waiting(): string
+    {
+        if ($this->scheduler->hasRunningChildren()) {
+            return 'Running a task.';
+        }
+
+        $next = $this->scheduler->nextRunDate();
+
+        return null === $next
+            ? 'Waiting, no task has a pending run.'
+            : sprintf('Waiting for the next run at %s.', $next->format('Y-m-d H:i:s'));
     }
 }

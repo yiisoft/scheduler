@@ -18,6 +18,7 @@
 - Bug #10: Fix the schedule mutex staying locked when the persisted checkpoint cannot be read (@samdark)
 - Docs: Document the multi-server setup: a shared mutex driver and a shared checkpoint cache let every application server run the schedule without duplicate runs or a single point of failure (@KalimeroMK)
 - Bug #3: Fix `schedule:work` crashing on Windows, where `time_nanosleep()` is not available (@KalimeroMK)
+- New #45: Report what the scheduler is doing to the terminal as OSC 7501 program status, so that `schedule:run` shows the due batch and its outcome and a `schedule:work` daemon waiting for its next run can be told from a dead one; `--no-program-status` turns it off, and nothing is written to a redirected output, in quiet mode or with `--no-ansi` (@KalimeroMK)
 - Bug #3: Fix a `SIGCHLD` arriving between the fork and the bookkeeping leaving a task process uncollected (@KalimeroMK)
 - Bug #3: Reset the inherited signal handlers in a forked task, so it stops on `SIGTERM` instead of ignoring it and no longer reaps the subprocesses it starts itself (@KalimeroMK)
 - Bug #3: Wait only on the scheduler's own child processes, leaving those of the host application to their owner (@KalimeroMK)

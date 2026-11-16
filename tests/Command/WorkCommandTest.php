@@ -83,6 +83,31 @@ final class WorkCommandTest extends TestCase
     }
 
     /**
+     * The tester is not a terminal, which is also what a daemon under a service manager has
+     * for an output: the status sequences would end up in its log.
+     */
+    public function testNoProgramStatusReachesAnOutputThatIsNotATerminal(): void
+    {
+        $tester = new CommandTester(new WorkCommand($this->selfStoppingScheduler()));
+        $tester->execute(['--sleep' => '0.01', '--sequential' => true]);
+
+        $this->assertStringNotContainsString("\033]7501", $tester->getDisplay());
+    }
+
+    public function testProgramStatusCanBeTurnedOff(): void
+    {
+        $tester = new CommandTester(new WorkCommand($this->selfStoppingScheduler()));
+        $exitCode = $tester->execute([
+            '--sleep' => '0.01',
+            '--sequential' => true,
+            '--no-program-status' => true,
+        ]);
+
+        $this->assertSame(Command::SUCCESS, $exitCode);
+        $this->assertStringContainsString('Scheduler stopped.', $tester->getDisplay());
+    }
+
+    /**
      * A scheduler with one due task that stops the loop as soon as it runs.
      */
     private function selfStoppingScheduler(): Scheduler

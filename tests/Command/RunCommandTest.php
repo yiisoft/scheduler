@@ -70,4 +70,33 @@ final class RunCommandTest extends TestCase
         $this->assertStringContainsString('reports', $tester->getDisplay());
         $this->assertStringContainsString('stateful', $tester->getDisplay());
     }
+
+    public function testNoProgramStatusReachesAnOutputThatIsNotATerminal(): void
+    {
+        $scheduler = new Scheduler(
+            [(new Schedule())->stateful(new InMemoryCache())],
+            new CallableTaskHandler(),
+            new TestClock(),
+        );
+
+        $tester = new CommandTester(new RunCommand($scheduler));
+        $tester->execute([]);
+
+        $this->assertStringNotContainsString("\033]7501", $tester->getDisplay());
+    }
+
+    public function testProgramStatusCanBeTurnedOff(): void
+    {
+        $scheduler = new Scheduler(
+            [(new Schedule())->stateful(new InMemoryCache())],
+            new CallableTaskHandler(),
+            new TestClock(),
+        );
+
+        $tester = new CommandTester(new RunCommand($scheduler));
+        $tester->execute(['--no-program-status' => true]);
+
+        $this->assertStringContainsString('No task is due.', $tester->getDisplay());
+        $this->assertSame(0, $tester->getStatusCode());
+    }
 }
