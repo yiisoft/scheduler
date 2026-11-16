@@ -110,7 +110,17 @@ final class ProgramStatus
      */
     private static function line(string $message): string
     {
-        $message = trim((string) preg_replace('/[\s\x00-\x1F\x7F]+/', ' ', $message));
+        // Bounded before anything is done to it: the message can be the output of a task,
+        // and normalizing one of those would copy the whole of it first.
+        $message = substr($message, 0, self::MESSAGE_LIMIT * 4);
+
+        // Every kind of space, the line and paragraph separators among them, down to one
+        // space: a record holds one line, and U+2028 breaks one as surely as "\n" does.
+        $normalized = preg_replace('/[\s\p{Z}\p{Cc}\p{Cf}]+/u', ' ', $message);
+
+        // Null where the bound above cut a character in half. The ASCII controls are what is
+        // left to clean out then, and what survives it is dropped below unless it is text.
+        $message = trim($normalized ?? (string) preg_replace('/[\s\x00-\x1F\x7F]+/', ' ', $message));
 
         if (strlen($message) > self::MESSAGE_LIMIT) {
             $message = substr($message, 0, self::MESSAGE_LIMIT);

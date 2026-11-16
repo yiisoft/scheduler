@@ -64,6 +64,29 @@ final class ProgramStatusTest extends TestCase
         $this->assertSame('Task failed: at line 11', $this->message($output));
     }
 
+    /** A line separator breaks a line as surely as a newline does. */
+    public function testUnicodeSeparatorsAreReportedAsOneLine(): void
+    {
+        $stream = $this->stream();
+
+        (new ProgramStatus($stream))->error("Task failed:\u{2028}at line 11\u{2029}of 40\u{00A0}in all");
+
+        $this->assertSame('Task failed: at line 11 of 40 in all', $this->message($stream));
+    }
+
+    /**
+     * The message can be whatever a task put in its error, and working on the whole of one
+     * of those is how a status report runs a command out of memory.
+     */
+    public function testAMessageOfAnyLengthIsBounded(): void
+    {
+        $stream = $this->stream();
+
+        (new ProgramStatus($stream))->error(str_repeat('a', 2_000_000));
+
+        $this->assertSame(str_repeat('a', 512), $this->message($stream));
+    }
+
     /**
      * A terminal discards a report over 4096 bytes whole, so a long message is cut rather
      * than left to take the state with it.
