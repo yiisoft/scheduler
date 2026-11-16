@@ -1589,6 +1589,89 @@ final class SchedulerTest extends TestCase
     }
 
     /**
+     * The window bounds every claim, one whose process is alive and still making the run
+     * included, so a run that outlasts it is handed out again and the task runs a second
+     * time. That is what the readme promises, and it is covered here through the public
+     * scheduler rather than through the generator alone.
+     */
+    #[RequiresPhpExtension('pcntl')]
+    #[RequiresPhpExtension('posix')]
+    public function testRunStillGoingWhenItsWindowRunsOutIsHandedOutAgain(): void
+    {
+        $dir = sys_get_temp_dir() . '/yii-scheduler-test-' . uniqid();
+        mkdir($dir);
+
+        $cache = new InMemoryCache();
+        $clock = new TestClock();
+
+        $holder = (new Schedule('fleet'))
+            ->stateful($cache)
+            ->reclaimAfter(10)
+            ->task(
+                RecurringTask::cron('* * * * *', static function () use ($dir): void {
+                    file_put_contents("$dir/running", (string) getmypid());
+
+                    $deadline = microtime(true) + 15;
+
+                    while (!file_exists("$dir/stop") && microtime(true) < $deadline) {
+                        usleep(10_000);
+                    }
+                })->withId('slow'),
+            );
+
+        // The same task to the schedule, by the identifier both are keyed under, and a body
+        // that only says it ran.
+        $taker = (new Schedule('fleet'))
+            ->stateful($cache)
+            ->reclaimAfter(10)
+            ->task(
+                RecurringTask::cron('* * * * *', static function () use ($dir): void {
+                    file_put_contents("$dir/again", 'ran');
+                })->withId('slow'),
+            );
+
+        $first = new Scheduler([$holder], new CallableTaskHandler(), $clock);
+
+        try {
+            $first->tick();
+            $clock->advance('+1 minute');
+            $first->tick(true);
+
+            $deadline = microtime(true) + 15;
+
+            while (!file_exists("$dir/running") && microtime(true) < $deadline) {
+                usleep(10_000);
+            }
+
+            $this->assertFileExists("$dir/running");
+
+            $running = (int) file_get_contents("$dir/running");
+
+            // Past the window, and short of the next run of the task, so the only run the
+            // second scheduler can emit is the one the first is still making.
+            $clock->advance('+11 seconds');
+
+            $second = new Scheduler([$taker], new CallableTaskHandler(), $clock);
+            $second->tick();
+
+            $this->assertTrue(posix_kill($running, 0));
+            $this->assertFileExists("$dir/again");
+        } finally {
+            file_put_contents("$dir/stop", '');
+
+            $deadline = microtime(true) + 15;
+
+            while ($first->hasRunningChildren() && microtime(true) < $deadline) {
+                $first->reapChildren();
+                usleep(10_000);
+            }
+
+            array_map(unlink(...), glob("$dir/*") ?: []);
+            rmdir($dir);
+        }
+    }
+
+    /**
      * Two schedules with a due task each, the first of which cannot read its checkpoint. The
      * dispatcher records the schedules whose task got as far as its pre-run event and cancels
      * the run, so nothing is forked.
