@@ -102,7 +102,7 @@ final class WorkCommand extends Command implements SignalableCommandInterface
             // A task that finished is the one moment this process knows something changed
             // without the loop telling it, so it is where the record is brought up to date.
             // A task that failed does not end the daemon, and must not report it as stopped.
-            $this->status?->working($this->waiting());
+            $this->status?->working($this->doing());
 
             return false;
         }
@@ -149,7 +149,7 @@ final class WorkCommand extends Command implements SignalableCommandInterface
 
         // A daemon between runs looks exactly like a dead one from the outside, which is the
         // state worth reporting: the terminal drops a working record when the process ends.
-        $this->status->working($this->waiting());
+        $this->status->working($this->doing());
 
         try {
             $this->scheduler->run(
@@ -175,17 +175,18 @@ final class WorkCommand extends Command implements SignalableCommandInterface
         return Command::SUCCESS;
     }
 
-    /** What the daemon is waiting for, as far as it can say between two ticks. */
-    private function waiting(): string
+    /**
+     * What the daemon is doing, as far as it can say between two ticks.
+     *
+     * Only what is already in hand: the time of the next run would have to be read from the
+     * checkpoint, which takes the schedule lock and can fail, and this is called from a
+     * signal handler. A date written once would also go stale where nothing refreshes it,
+     * which is a daemon running its tasks one after another, or any host without ext-pcntl:
+     * there is no child to end and no signal to refresh on. A time in the past reads exactly
+     * like the dead scheduler this is here to tell apart from a live one.
+     */
+    private function doing(): string
     {
-        if ($this->scheduler->hasRunningChildren()) {
-            return 'Running a task.';
-        }
-
-        $next = $this->scheduler->nextRunDate();
-
-        return null === $next
-            ? 'Waiting, no task has a pending run.'
-            : sprintf('Waiting for the next run at %s.', $next->format('Y-m-d H:i:s'));
+        return $this->scheduler->hasRunningChildren() ? 'Running a task.' : 'Waiting for the next run.';
     }
 }

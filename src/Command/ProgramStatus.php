@@ -7,6 +7,7 @@ namespace Yiisoft\Scheduler\Command;
 use Symfony\Component\Console\Output\ConsoleOutputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Output\StreamOutput;
+use Throwable;
 
 use function base64_encode;
 use function preg_match;
@@ -92,9 +93,15 @@ final class ProgramStatus
             $pairs .= ':msg=' . base64_encode($message);
         }
 
-        // Raw: the sequence is for the terminal, and the formatter would read its brackets as
-        // markup of its own.
-        $this->stream->write("\033]7501;" . $pairs . "\033\\", false, OutputInterface::OUTPUT_RAW);
+        try {
+            // Raw: the sequence is for the terminal, and the formatter would read its brackets
+            // as markup of its own.
+            $this->stream->write("\033]7501;" . $pairs . "\033\\", false, OutputInterface::OUTPUT_RAW);
+        } catch (Throwable) {
+            // A status nobody could be told is not worth a failure of its own, and one of the
+            // callers is a signal handler that lands wherever the loop happens to be: thrown
+            // from there it would abort a tick or a shutdown halfway through.
+        }
     }
 
     /**

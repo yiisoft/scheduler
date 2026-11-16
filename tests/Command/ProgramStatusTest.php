@@ -11,6 +11,7 @@ use Yiisoft\Scheduler\Command\ProgramStatus;
 
 use function base64_decode;
 use function base64_encode;
+use function fclose;
 use function fopen;
 use function preg_match;
 use function rewind;
@@ -88,6 +89,22 @@ final class ProgramStatusTest extends TestCase
         (new ProgramStatus($output))->error("\xB1\x31 went wrong");
 
         $this->assertSame("\033]7501;state=error:app=yii-scheduler\033\\", $this->read($output));
+    }
+
+    /**
+     * The status is told from a signal handler as well, which lands wherever the loop happens
+     * to be: a write that failed must not be thrown from there.
+     */
+    public function testWriteThatFailsIsNotThrown(): void
+    {
+        $handle = fopen('php://memory', 'wb+');
+        $output = new StreamOutput($handle);
+
+        fclose($handle);
+
+        (new ProgramStatus($output))->working('Running.');
+
+        $this->expectNotToPerformAssertions();
     }
 
     public function testNothingIsReportedWithoutAStream(): void
