@@ -66,9 +66,11 @@ final class Checkpoint
     private bool $locked = false;
     private int $revision = 0;
 
-    /** Worked out once: both are the same for the whole life of the process. */
+    /** Worked out once: the host is the same for the whole life of the process. */
     private static ?string $host = null;
     private static ?string $owner = null;
+    /** The pid the owner in hand was made for, so a fork is told apart from its parent. */
+    private static int|false|null $ownerPid = null;
 
     /** @var list<string> Ids of the tasks whose records are read back. */
     private array $taskIds = [];
@@ -477,16 +479,25 @@ final class Checkpoint
     /** The process a claim is made by, as "host/pid". */
     private static function owner(): string
     {
-        if (null !== self::$owner) {
+        $pid = getmypid();
+
+        // The pid is read every time and the owner kept only while it stands. A fork copies
+        // the memory of its parent, this string with it, so a worker forked from a process
+        // that has claimed anything would otherwise claim as its parent: its claim would name
+        // a pid that is still alive once the worker is gone, and the run would wait out the
+        // reclaim window instead of being picked up as soon as the worker is collected.
+        if (null !== self::$owner && $pid === self::$ownerPid) {
             return self::$owner;
         }
 
-        $pid = getmypid();
+        self::$ownerPid = $pid;
 
         // A pid that cannot be read is given a token of its own rather than a zero: two such
         // processes on one host would otherwise share an owner, and each would read the other's
         // claim as its own and record an outcome for a run it never made. The token is kept for
-        // the life of the process, because an owner has to be the same string every time.
+        // as long as the pid stays unreadable, because an owner has to be the same string every
+        // time; a fork of such a process is the one case this cannot tell apart, and its claim
+        // is left to the window.
         return self::$owner = self::host() . '/' . (false === $pid ? 'unknown-' . bin2hex(random_bytes(8)) : $pid);
     }
 

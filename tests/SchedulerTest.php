@@ -15,6 +15,7 @@ use Yiisoft\Scheduler\RecurringTask;
 use Yiisoft\Scheduler\Schedule;
 use Yiisoft\Scheduler\Scheduler;
 use Yiisoft\Scheduler\TaskContext;
+use Yiisoft\Scheduler\Tests\Support\FileCache;
 use Yiisoft\Scheduler\Tests\Support\InMemoryCache;
 use Yiisoft\Scheduler\Tests\Support\TestClock;
 use Psr\EventDispatcher\EventDispatcherInterface;
@@ -1419,6 +1420,88 @@ final class SchedulerTest extends TestCase
             if (file_exists($marker)) {
                 unlink($marker);
             }
+        }
+    }
+
+    /**
+     * A daemon that forks workers of its own, each running a scheduler. A worker claims a run
+     * and dies holding it, and the run has to be free again as soon as that worker is
+     * collected - not at the end of the reclaim window, which is an hour away here.
+     *
+     * The parent claims a run of its own first, so a claim identity carried over the fork
+     * would name the parent: a process that is still very much alive.
+     */
+    #[RequiresPhpExtension('pcntl')]
+    #[RequiresPhpExtension('posix')]
+    public function testClaimOfAForkedWorkerIsFreedOnceThatWorkerIsGone(): void
+    {
+        $dir = sys_get_temp_dir() . '/yii-scheduler-test-' . uniqid();
+        mkdir($dir);
+
+        $cache = new FileCache($dir);
+        $clock = new TestClock();
+
+        $schedule = static fn(callable $run): Schedule => (new Schedule('workers'))
+            ->stateful($cache)
+            ->reclaimAfter(3600)
+            ->task(RecurringTask::cron('* * * * *', $run)->withId('work'));
+
+        try {
+            $ran = 0;
+            $parent = new Scheduler(
+                [$schedule(static function () use (&$ran): void {
+                    ++$ran;
+                })],
+                new CallableTaskHandler(),
+                $clock,
+            );
+
+            $parent->tick();
+            $clock->advance('+1 minute');
+            $parent->tick();
+
+            // The claim of this run is what leaves the parent's own identity behind.
+            $this->assertSame(1, $ran);
+
+            $clock->advance('+1 minute');
+
+            $pid = pcntl_fork();
+
+            if (0 === $pid) {
+                $worker = new Scheduler(
+                    [$schedule(static function (): void {
+                        // Killed rather than exited: PHPUnit's shutdown has no business
+                        // running here, and a worker that dies mid-run is the case at hand.
+                        posix_kill((int) getmypid(), SIGKILL);
+                        usleep(5_000_000);
+                    })],
+                    new CallableTaskHandler(),
+                    $clock,
+                );
+
+                $worker->tick();
+
+                posix_kill((int) getmypid(), SIGKILL);
+            }
+
+            $this->assertNotSame(-1, $pid);
+            $this->assertSame($pid, pcntl_waitpid($pid, $status));
+
+            $recovered = 0;
+            $next = new Scheduler(
+                [$schedule(static function () use (&$recovered): void {
+                    ++$recovered;
+                })],
+                new CallableTaskHandler(),
+                $clock,
+            );
+
+            $next->tick();
+
+            $this->assertSame(1, $recovered);
+        } finally {
+            array_map(unlink(...), glob("$dir/*") ?: []);
+            rmdir($dir);
         }
     }
 
