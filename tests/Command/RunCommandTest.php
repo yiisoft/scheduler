@@ -84,5 +84,4 @@ final class RunCommandTest extends TestCase
 
         $this->assertStringNotContainsString("\033]7501", $tester->getDisplay());
     }
-
 }
