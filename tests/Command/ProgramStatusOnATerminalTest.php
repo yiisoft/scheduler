@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Yiisoft\Scheduler\Tests\Command;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 use function dirname;
@@ -18,31 +19,41 @@ use const DIRECTORY_SEPARATOR;
 use const PHP_BINARY;
 
 /**
- * What the command writes to a terminal, which is the one place the status is meant for and
- * the one an ordinary test cannot give it: the tester and every redirected stream are not
+ * What the commands write to a terminal, which is the one place the status is meant for and
+ * the one an ordinary test cannot give them: the tester and every redirected stream are not
  * terminals, so a command ignoring `--no-program-status` would pass unnoticed everywhere
- * else. The command runs through a pseudo-terminal here instead.
+ * else. Each command runs through a pseudo-terminal here instead.
  */
 final class ProgramStatusOnATerminalTest extends TestCase
 {
-    public function testStatusIsReportedToATerminal(): void
+    #[DataProvider('commandProvider')]
+    public function testStatusIsReportedToATerminal(string $command, string $expected): void
     {
-        $output = $this->runOnATerminal();
+        $output = $this->runOnATerminal($command);
 
         $this->assertStringContainsString("\033]7501;state=working:app=yii-scheduler", $output);
         $this->assertStringContainsString("\033]7501;state=done:app=yii-scheduler", $output);
-        $this->assertStringContainsString('No task is due.', $output);
+        $this->assertStringContainsString($expected, $output);
     }
 
-    public function testNoProgramStatusIsHonouredOnATerminal(): void
+    #[DataProvider('commandProvider')]
+    public function testNoProgramStatusIsHonouredOnATerminal(string $command, string $expected): void
     {
-        $output = $this->runOnATerminal('--no-program-status');
+        $output = $this->runOnATerminal($command, '--no-program-status');
 
         $this->assertStringNotContainsString("\033]7501", $output);
-        $this->assertStringContainsString('No task is due.', $output);
+        $this->assertStringContainsString($expected, $output);
     }
 
-    private function runOnATerminal(string ...$options): string
+    public static function commandProvider(): array
+    {
+        return [
+            'schedule:run' => ['run', 'No task is due.'],
+            'schedule:work' => ['work', 'Scheduler stopped.'],
+        ];
+    }
+
+    private function runOnATerminal(string $command, string ...$options): string
     {
         if ('/' !== DIRECTORY_SEPARATOR) {
             $this->markTestSkipped('A pseudo-terminal is opened on POSIX systems only.');
@@ -50,7 +61,13 @@ final class ProgramStatusOnATerminalTest extends TestCase
 
         $root = dirname(__DIR__, 2);
         $process = @proc_open(
-            [PHP_BINARY, $root . '/tests/Support/run-command.php', $root . '/vendor/autoload.php', ...$options],
+            [
+                PHP_BINARY,
+                $root . '/tests/Support/run-command.php',
+                $root . '/vendor/autoload.php',
+                $command,
+                ...$options,
+            ],
             [['pty'], ['pty'], ['pty']],
             $pipes,
             $root,

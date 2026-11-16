@@ -94,19 +94,6 @@ final class WorkCommandTest extends TestCase
         $this->assertStringNotContainsString("\033]7501", $tester->getDisplay());
     }
 
-    public function testProgramStatusCanBeTurnedOff(): void
-    {
-        $tester = new CommandTester(new WorkCommand($this->selfStoppingScheduler()));
-        $exitCode = $tester->execute([
-            '--sleep' => '0.01',
-            '--sequential' => true,
-            '--no-program-status' => true,
-        ]);
-
-        $this->assertSame(Command::SUCCESS, $exitCode);
-        $this->assertStringContainsString('Scheduler stopped.', $tester->getDisplay());
-    }
-
     /**
      * A scheduler with one due task that stops the loop as soon as it runs.
      */
