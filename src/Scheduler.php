@@ -469,6 +469,11 @@ final class Scheduler
      * Keeps the first failure of a batch as the one to throw once it is through. A later one
      * cannot be thrown along with it, so it is logged: dropped, it would reach nobody but the
      * failure listeners, and an error of a schedule itself would not even reach them.
+     *
+     * A logger that fails at that is swallowed rather than thrown. This is called from the
+     * loops that stop and collect the children, and a throw here would end one of them with
+     * a child still running and nobody to reap it - and would report the destination of the
+     * log in place of the failure being kept, which is the one worth reporting.
      */
     private function firstFailure(?Throwable $first, Throwable $error): Throwable
     {
@@ -476,10 +481,14 @@ final class Scheduler
             return $error;
         }
 
-        $this->logger->error(
-            'A failure is not rethrown because an earlier one is: {error}',
-            ['error' => $error->getMessage(), 'exception' => $error],
-        );
+        try {
+            $this->logger->error(
+                'A failure is not rethrown because an earlier one is: {error}',
+                ['error' => $error->getMessage(), 'exception' => $error],
+            );
+        } catch (Throwable) {
+            // Nowhere left to say so: the log is where a failure goes once it cannot be thrown.
+        }
 
         return $first;
     }

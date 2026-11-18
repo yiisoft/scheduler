@@ -22,6 +22,7 @@ use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Log\AbstractLogger;
 use Psr\Log\LogLevel;
 use Stringable;
+use Throwable;
 use Yiisoft\Scheduler\Exception\LogicException;
 use Yiisoft\Scheduler\Exception\RuntimeException as SchedulerRuntimeException;
 use Yiisoft\Scheduler\Tests\Support\InMemoryMutex;
@@ -1581,6 +1582,104 @@ final class SchedulerTest extends TestCase
             // first outcome it could not record.
             $this->assertFalse(posix_kill($stubborn, 0));
             $this->assertNotNull($error);
+            $this->assertStringContainsString('Unable to persist the checkpoint', $error->getMessage());
+        } finally {
+            array_map(unlink(...), glob("$dir/*") ?: []);
+            rmdir($dir);
+        }
+    }
+
+    /**
+     * The same shutdown with the log destination gone as well. The second outcome that cannot
+     * be written is logged rather than thrown, so a logger that fails there used to end the
+     * collection loop with a child still running, and reported the log destination instead of
+     * the write that failed.
+     */
+    #[RequiresPhpExtension('pcntl')]
+    #[RequiresPhpExtension('posix')]
+    public function testShutdownStopsEveryChildWhenTheLogOfAnUnrecordedOutcomeFailsToo(): void
+    {
+        $dir = sys_get_temp_dir() . '/yii-scheduler-test-' . uniqid();
+        mkdir($dir);
+
+        $cache = new InMemoryCache();
+        $clock = new TestClock();
+
+        $quick = static fn(string $id): callable => static function () use ($dir, $id): void {
+            file_put_contents("$dir/$id", (string) getmypid());
+        };
+
+        $schedule = (new Schedule('shutdown'))
+            ->stateful($cache)
+            ->task(
+                // Two of them, so the second outcome that cannot be written reaches the log
+                // while the third child is still running.
+                RecurringTask::cron('* * * * *', $quick('first'))->withId('first'),
+                RecurringTask::cron('* * * * *', $quick('second'))->withId('second'),
+                RecurringTask::cron('* * * * *', static function () use ($dir): void {
+                    // Deaf to the stop request, so only SIGKILL ends it.
+                    pcntl_signal(SIGTERM, SIG_IGN);
+                    file_put_contents("$dir/stubborn", (string) getmypid());
+
+                    $deadline = microtime(true) + 30;
+
+                    while (microtime(true) < $deadline) {
+                        usleep(10_000);
+                    }
+                })->withId('stubborn'),
+            );
+
+        $logger = new class extends AbstractLogger {
+            public bool $failing = false;
+
+            public function log($level, string|Stringable $message, array $context = []): void
+            {
+                if ($this->failing && LogLevel::ERROR === $level) {
+                    throw new RuntimeException('The log destination is gone.');
+                }
+            }
+        };
+
+        $scheduler = new Scheduler([$schedule], new CallableTaskHandler(), $clock, null, $logger);
+
+        try {
+            $scheduler->tick();
+            $clock->advance('+1 minute');
+            $scheduler->tick(true, 3);
+
+            $deadline = microtime(true) + 15;
+
+            while (
+                (!file_exists("$dir/first") || !file_exists("$dir/second") || !file_exists("$dir/stubborn"))
+                && microtime(true) < $deadline
+            ) {
+                usleep(10_000);
+            }
+
+            $this->assertFileExists("$dir/first");
+            $this->assertFileExists("$dir/second");
+            $this->assertFileExists("$dir/stubborn");
+
+            $stubborn = (int) file_get_contents("$dir/stubborn");
+            $this->assertNotSame(0, $stubborn);
+
+            $cache->failWrites();
+            $logger->failing = true;
+            $scheduler->stop();
+
+            $error = null;
+
+            try {
+                $scheduler->run(0.01);
+            } catch (Throwable $caught) {
+                $error = $caught;
+            }
+
+            $this->assertFalse($scheduler->hasRunningChildren());
+            $this->assertFalse(posix_kill($stubborn, 0));
+            $this->assertNotNull($error);
+            // The write that failed, not the log of it.
+            $this->assertInstanceOf(SchedulerRuntimeException::class, $error);
             $this->assertStringContainsString('Unable to persist the checkpoint', $error->getMessage());
         } finally {
             array_map(unlink(...), glob("$dir/*") ?: []);
