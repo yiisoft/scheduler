@@ -9,10 +9,15 @@ use DateTimeZone;
 use Yiisoft\Db\Connection\ConnectionInterface;
 use Yiisoft\Db\Expression\Expression;
 use Yiisoft\Db\Schema\Column\ColumnBuilder;
+use Throwable;
 use Yiisoft\Scheduler\Exception\LogicException;
 use Yiisoft\Scheduler\Exception\RuntimeException;
 
+use function hash;
+use function in_array;
+use function is_bool;
 use function is_callable;
+use function is_int;
 use function max;
 use function sprintf;
 
@@ -62,35 +67,55 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
             return;
         }
 
-        $this->db->createCommand()->createTable($this->table, [
-            'identity_key' => ColumnBuilder::string(16)->notNull()->primaryKey(),
-            'source' => ColumnBuilder::string(255)->notNull(),
-            'task_id' => ColumnBuilder::string(255)->notNull(),
-            'occurrence' => ColumnBuilder::string(26)->notNull(),
-            'source_revision' => ColumnBuilder::string(255)->notNull(),
-            'authority' => ColumnBuilder::string(255)->notNull(),
-            'attempt' => ColumnBuilder::integer()->notNull(),
-            'phase' => ColumnBuilder::string(16)->notNull(),
-            'launch' => ColumnBuilder::string(20)->notNull(),
-            'process_host' => ColumnBuilder::string(255),
-            'process_pid' => ColumnBuilder::integer(),
-            'process_boot_id' => ColumnBuilder::string(255),
-            'process_started_at' => ColumnBuilder::string(255),
-            'outcome' => ColumnBuilder::string(16),
-            'observation_exit_code' => ColumnBuilder::integer(),
-            'observation_signal' => ColumnBuilder::integer(),
-            'admitted_at' => ColumnBuilder::string(26)->notNull(),
-            'recovery_deadline' => ColumnBuilder::string(26)->notNull(),
-            'claimed_at' => ColumnBuilder::string(26),
-            'resolved_at' => ColumnBuilder::string(26),
-            'may_have_run_before' => ColumnBuilder::boolean()->notNull(),
-        ])->execute();
+        try {
+            $this->db->createCommand()->createTable($this->table, [
+                'identity_key' => ColumnBuilder::string(16)->notNull()->primaryKey(),
+                // The name the application gave, beside the key every query of it is made by.
+                // A source, a task id and a revision are whatever the application calls them,
+                // so none of them has a length to declare here, and comparing the name itself
+                // would leave which executions belong to which schedule to the collation of
+                // the database: under a case-insensitive one, which is the default on MySQL,
+                // two schedules named apart would read each other's backlog.
+                'source' => ColumnBuilder::text()->notNull(),
+                'source_key' => ColumnBuilder::string(16)->notNull(),
+                'task_id' => ColumnBuilder::text()->notNull(),
+                'occurrence' => ColumnBuilder::string(26)->notNull(),
+                'source_revision' => ColumnBuilder::text()->notNull(),
+                'authority' => ColumnBuilder::string(255)->notNull(),
+                'attempt' => ColumnBuilder::integer()->notNull(),
+                'phase' => ColumnBuilder::string(16)->notNull(),
+                'launch' => ColumnBuilder::string(20)->notNull(),
+                'process_host' => ColumnBuilder::string(255),
+                'process_pid' => ColumnBuilder::integer(),
+                'process_boot_id' => ColumnBuilder::string(255),
+                'process_started_at' => ColumnBuilder::string(255),
+                'outcome' => ColumnBuilder::string(16),
+                // Whether a release was explained at all, separately from what it said. An
+                // observation carrying neither an exit code nor a signal is an honest one, so
+                // two null columns cannot be the way the record says there was none.
+                'observation' => ColumnBuilder::boolean()->notNull(),
+                'observation_exit_code' => ColumnBuilder::integer(),
+                'observation_signal' => ColumnBuilder::integer(),
+                'admitted_at' => ColumnBuilder::string(26)->notNull(),
+                'recovery_deadline' => ColumnBuilder::string(26)->notNull(),
+                'claimed_at' => ColumnBuilder::string(26),
+                'resolved_at' => ColumnBuilder::string(26),
+                'may_have_run_before' => ColumnBuilder::boolean()->notNull(),
+            ])->execute();
 
-        // The order every query of this ledger reads in, so that a recovery pass walking a year
-        // of executions in pages reads an index rather than the table.
-        $this->db->createCommand()
-            ->createIndex($this->table, 'idx_scheduler_execution_backlog', ['source', 'occurrence', 'identity_key'])
-            ->execute();
+            // The order every query of this ledger reads in, so that a recovery pass walking a
+            // year of executions in pages reads an index rather than the table.
+            $this->db->createCommand()
+                ->createIndex($this->table, $this->indexName(), ['source_key', 'occurrence', 'identity_key'])
+                ->execute();
+        } catch (Throwable $error) {
+            // Two workers setting the ledger up at once both get past the check above, and the
+            // one that lost is told the table is already there. That is the answer it came for,
+            // so it is not a failure to start over. A table that is still missing is.
+            if (null === $this->db->getTableSchema($this->table, true)) {
+                throw $error;
+            }
+        }
     }
 
     public function admit(
@@ -107,6 +132,7 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
             $this->db->createCommand()->upsert($this->table, [
                 'identity_key' => $identity->key(),
                 'source' => $identity->source,
+                'source_key' => self::sourceKey($identity->source),
                 'task_id' => $identity->taskId,
                 'occurrence' => self::writeDate($identity->occurrence),
                 'source_revision' => $sourceRevision,
@@ -119,6 +145,7 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
                 'process_boot_id' => null,
                 'process_started_at' => null,
                 'outcome' => null,
+                'observation' => false,
                 'observation_exit_code' => null,
                 'observation_signal' => null,
                 'admitted_at' => self::writeDate($at),
@@ -225,6 +252,7 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
             'process_pid' => null,
             'process_boot_id' => null,
             'process_started_at' => null,
+            'observation' => null !== $observation,
             'observation_exit_code' => $observation?->exitCode,
             'observation_signal' => $observation?->signal,
         ]);
@@ -247,11 +275,11 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
             $attempt = (int) $row['attempt'] + 1;
 
             return [
-                'authority' => ExecutionAuthority::forAttempt($identity, $attempt)->token,
-                'attempt' => $attempt,
-                'phase' => ExecutionPhase::Admitted->value,
-                'launch' => LaunchFact::None->value,
-                'claimed_at' => null,
+                // First, and before `launch` is cleared below, because MySQL works an `UPDATE`
+                // through its assignments in the order they are written and would read the
+                // value this statement just put there. The other drivers read the row as it
+                // stands whatever the order, so first is right everywhere.
+                //
                 // Read from the row being written rather than from one read a moment earlier,
                 // so a launch recorded in between is still counted. A previous attempt that
                 // started, or that may have, is why this is worth recording at all.
@@ -263,6 +291,11 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
                     ),
                     [':started' => LaunchFact::Started->value, ':unknown' => LaunchFact::Unknown->value],
                 ),
+                'authority' => ExecutionAuthority::forAttempt($identity, $attempt)->token,
+                'attempt' => $attempt,
+                'phase' => ExecutionPhase::Admitted->value,
+                'launch' => LaunchFact::None->value,
+                'claimed_at' => null,
             ];
         });
     }
@@ -286,6 +319,15 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
     public function holdingProcess(string $source, int $limit, ?ExecutionIdentity $after = null): array
     {
         return $this->page($source, $limit, $after, ['not', ['process_host' => null]]);
+    }
+
+    /**
+     * Named after the table rather than fixed, because an index name belongs to the schema and
+     * not to the table it is on: two ledgers in one database would collide on one name.
+     */
+    private function indexName(): string
+    {
+        return 'idx_' . $this->db->getQuoter()->getRawTableName($this->table) . '_backlog';
     }
 
     /**
@@ -369,7 +411,7 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
         $query = $this->db
             ->createQuery()
             ->from($this->table)
-            ->where(['source' => $source])
+            ->where(['source_key' => self::sourceKey($source)])
             ->andWhere($matching)
             // By the occurrence they are for, so a backlog is worked through in the order it
             // happened; by key after that, so that two tasks sharing a due time have an order at
@@ -433,16 +475,37 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
             outcome: null === $row['outcome'] ? null : ExecutionOutcome::from((string) $row['outcome']),
             admittedAt: self::readDate((string) $row['admitted_at']),
             recoveryDeadline: self::readDate((string) $row['recovery_deadline']),
-            processObservation: null === $row['observation_exit_code'] && null === $row['observation_signal']
-                ? null
-                : new ProcessObservation(
-                    null === $row['observation_exit_code'] ? null : (int) $row['observation_exit_code'],
-                    null === $row['observation_signal'] ? null : (int) $row['observation_signal'],
-                ),
+            processObservation: !self::readBool($row['observation']) ? null : new ProcessObservation(
+                null === $row['observation_exit_code'] ? null : (int) $row['observation_exit_code'],
+                null === $row['observation_signal'] ? null : (int) $row['observation_signal'],
+            ),
             claimedAt: null === $row['claimed_at'] ? null : self::readDate((string) $row['claimed_at']),
             resolvedAt: null === $row['resolved_at'] ? null : self::readDate((string) $row['resolved_at']),
-            mayHaveRunBefore: (bool) $row['may_have_run_before'],
+            mayHaveRunBefore: self::readBool($row['may_have_run_before']),
         );
+    }
+
+    /**
+     * What a source is found by. A hash rather than the name, so that which executions belong
+     * to a schedule is decided by the bytes the application gave rather than by whether the
+     * collation of the database happens to tell two names apart.
+     */
+    private static function sourceKey(string $source): string
+    {
+        return hash('xxh3', $source);
+    }
+
+    /**
+     * What a driver returned for a boolean column: a bool on one, an integer on another, and
+     * the string "f" on PostgreSQL, which a plain cast reads as true.
+     */
+    private static function readBool(mixed $value): bool
+    {
+        return match (true) {
+            is_bool($value) => $value,
+            is_int($value) => 0 !== $value,
+            default => !in_array((string) $value, ['', '0', 'f', 'false'], true),
+        };
     }
 
     private static function writeDate(DateTimeImmutable $date): string
