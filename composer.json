@@ -44,10 +44,14 @@
         "shipmonk/composer-dependency-analyser": "^1.8",
         "spatie/phpunit-watcher": "^1.24.0",
         "vimeo/psalm": "^5.26.1 || ^6.12",
+        "yiisoft/db": "^2.0",
+        "yiisoft/db-sqlite": "^2.0",
         "yiisoft/mutex": "^1.1",
         "yiisoft/queue": "dev-master"
     },
     "suggest": {
+        "yiisoft/db": "To keep the execution ledger in a database with DbLedger.",
+        "yiisoft/db-sqlite": "To keep the execution ledger in a local SQLite file, which needs no database server.",
         "yiisoft/mutex": "To prevent overlapping runs across processes.",
         "yiisoft/queue": "To push due tasks to a queue instead of running them in the scheduler process.",
         "ext-pcntl": "To handle signals and run due tasks in parallel in the schedule:work command.",
