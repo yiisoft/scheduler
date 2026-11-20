@@ -15,12 +15,14 @@ use Yiisoft\Scheduler\RecurringTask;
 use Yiisoft\Scheduler\Schedule;
 use Yiisoft\Scheduler\Scheduler;
 use Yiisoft\Scheduler\TaskContext;
+use Yiisoft\Scheduler\Tests\Support\FileCache;
 use Yiisoft\Scheduler\Tests\Support\InMemoryCache;
 use Yiisoft\Scheduler\Tests\Support\TestClock;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Log\AbstractLogger;
 use Psr\Log\LogLevel;
 use Stringable;
+use Throwable;
 use Yiisoft\Scheduler\Exception\LogicException;
 use Yiisoft\Scheduler\Exception\RuntimeException as SchedulerRuntimeException;
 use Yiisoft\Scheduler\Tests\Support\InMemoryMutex;
@@ -37,6 +39,7 @@ use const LOCK_EX;
 use const SIGKILL;
 use const SIGTERM;
 use const SIG_DFL;
+use const SIG_IGN;
 use const PHP_OS_FAMILY;
 
 final class SchedulerTest extends TestCase
@@ -382,6 +385,98 @@ final class SchedulerTest extends TestCase
     }
 
     #[RequiresPhpExtension('pcntl')]
+    public function testEveryMissedRunOfACatchUpIsStartedWhileTheyQueueForOneSlot(): void
+    {
+        // Concurrent generation claims all three missed runs before starting any of them, and
+        // they share the one record. Mistaking the earlier two for runs some other scheduler
+        // took over loses the whole backlog but its last run, while the tick still reports
+        // three.
+        $clock = new TestClock();
+        $cache = new InMemoryCache();
+
+        $schedule = (new Schedule())->stateful($cache)->task(
+            RecurringTask::every(60, static fn() => null)->withId('minute'),
+        );
+
+        $logger = new class extends AbstractLogger {
+            /** @var list<string> */
+            public array $warnings = [];
+
+            public function log($level, string|Stringable $message, array $context = []): void
+            {
+                if (LogLevel::WARNING === $level) {
+                    $this->warnings[] = (string) $message;
+                }
+            }
+        };
+
+        $scheduler = new Scheduler([$schedule], new CallableTaskHandler(), $clock, null, $logger);
+        $scheduler->tick();
+        $clock->advance('+3 minutes');
+
+        $this->assertSame(3, $scheduler->tick(true, 1));
+
+        while ($scheduler->hasRunningChildren()) {
+            $scheduler->reapChildren();
+            usleep(10_000);
+        }
+
+        $this->assertSame([], $logger->warnings);
+    }
+
+    #[RequiresPhpExtension('pcntl')]
+    public function testRunTakenOverWhileItWaitedForASlotIsNotStartedByThisScheduler(): void
+    {
+        $clock = new TestClock();
+        $cache = new InMemoryCache();
+
+        $first = RecurringTask::cron('* * * * *', static fn() => null)->withId('first');
+        $second = RecurringTask::cron('* * * * *', static fn() => null)->withId('second');
+        $schedule = (new Schedule())->stateful($cache)->task($first, $second);
+
+        $logger = new class extends AbstractLogger {
+            /** @var list<string> */
+            public array $warnings = [];
+
+            public function log($level, string|Stringable $message, array $context = []): void
+            {
+                if (LogLevel::WARNING === $level) {
+                    $this->warnings[] = (string) $message;
+                }
+            }
+        };
+
+        $scheduler = new Scheduler([$schedule], new CallableTaskHandler(), $clock, null, $logger);
+        $scheduler->tick();
+        $clock->advance('+1 minute');
+
+        // Both runs are claimed as the tick is drained, and the second one waits behind the
+        // first. Another scheduler takes it over during that wait.
+        $taken = [
+            'time' => $clock->now()->format('U.u'),
+            'status' => 'claimed',
+            'owner' => 'another-host/1',
+            'at' => $clock->now()->format('U.u'),
+        ];
+        $key = 'yii_schedule_checkpoint_' . hash('xxh3', 'default') . '_' . hash('xxh3', $second->getId());
+        $cache->replaceOnRead($key, $taken);
+
+        $scheduler->tick(true);
+
+        while ($scheduler->hasRunningChildren()) {
+            $scheduler->reapChildren();
+            usleep(10_000);
+        }
+
+        // Starting it here too would be the second time that run happened.
+        $this->assertCount(1, $logger->warnings);
+        $this->assertStringContainsString('taken over', $logger->warnings[0]);
+
+        // And the scheduler that lost it does not get to say anything about it either.
+        $this->assertSame($taken, $cache->get($key));
+    }
+
+    #[RequiresPhpExtension('pcntl')]
     public function testFailingScheduleDoesNotKeepTheOtherSchedulesFromRunningConcurrently(): void
     {
         [$scheduler, $dispatcher] = $this->schedulerWithAnUnreadableFirstSchedule();
@@ -594,7 +689,7 @@ final class SchedulerTest extends TestCase
         $this->assertSame(5, $ran);
     }
 
-    public function testTaskFailureIsNotMaskedByACheckpointPersistenceFailure(): void
+    public function testRunIsNotHandedOutWhenItsClaimCannotBePersisted(): void
     {
         $cache = new InMemoryCache();
         $clock = new TestClock();
@@ -613,8 +708,10 @@ final class SchedulerTest extends TestCase
         $clock->advance('+1 minute');
         $cache->failWrites();
 
-        $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('Task failed.');
+        // A run is claimed before it is handed out, so a checkpoint that cannot be written stops
+        // the task from running at all rather than letting it run unrecorded and be repeated.
+        $this->expectException(SchedulerRuntimeException::class);
+        $this->expectExceptionMessage('Unable to persist the checkpoint');
 
         $scheduler->tick();
     }
@@ -1326,6 +1423,500 @@ final class SchedulerTest extends TestCase
                 unlink($marker);
             }
         }
+    }
+
+    /**
+     * A daemon that forks workers of its own, each running a scheduler. A worker claims a run
+     * and dies holding it, and the run has to be free again as soon as that worker is
+     * collected - not at the end of the reclaim window, which is an hour away here.
+     *
+     * The parent claims a run of its own first, so a claim identity carried over the fork
+     * would name the parent: a process that is still very much alive.
+     */
+    #[RequiresPhpExtension('pcntl')]
+    #[RequiresPhpExtension('posix')]
+    public function testClaimOfAForkedWorkerIsFreedOnceThatWorkerIsGone(): void
+    {
+        $dir = sys_get_temp_dir() . '/yii-scheduler-test-' . uniqid();
+        mkdir($dir);
+
+        $cache = new FileCache($dir);
+        $clock = new TestClock();
+
+        $schedule = static fn(callable $run): Schedule => (new Schedule('workers'))
+            ->stateful($cache)
+            ->reclaimAfter(3600)
+            ->task(RecurringTask::cron('* * * * *', $run)->withId('work'));
+
+        try {
+            $ran = 0;
+            $parent = new Scheduler(
+                [$schedule(static function () use (&$ran): void {
+                    ++$ran;
+                })],
+                new CallableTaskHandler(),
+                $clock,
+            );
+
+            $parent->tick();
+            $clock->advance('+1 minute');
+            $parent->tick();
+
+            // The claim of this run is what leaves the parent's own identity behind.
+            $this->assertSame(1, $ran);
+
+            $clock->advance('+1 minute');
+
+            $pid = pcntl_fork();
+
+            if (0 === $pid) {
+                $worker = new Scheduler(
+                    [$schedule(static function (): void {
+                        // Killed rather than exited: PHPUnit's shutdown has no business
+                        // running here, and a worker that dies mid-run is the case at hand.
+                        posix_kill((int) getmypid(), SIGKILL);
+                        usleep(5_000_000);
+                    })],
+                    new CallableTaskHandler(),
+                    $clock,
+                );
+
+                $worker->tick();
+
+                posix_kill((int) getmypid(), SIGKILL);
+            }
+
+            $this->assertNotSame(-1, $pid);
+            $this->assertSame($pid, pcntl_waitpid($pid, $status));
+
+            $recovered = 0;
+            $next = new Scheduler(
+                [$schedule(static function () use (&$recovered): void {
+                    ++$recovered;
+                })],
+                new CallableTaskHandler(),
+                $clock,
+            );
+
+            $next->tick();
+
+            $this->assertSame(1, $recovered);
+        } finally {
+            array_map(unlink(...), glob("$dir/*") ?: []);
+            rmdir($dir);
+        }
+    }
+
+    /**
+     * A shutdown that cannot record what became of one child still has to stop the rest of
+     * them: a task process left behind outlives the daemon that forked it.
+     */
+    #[RequiresPhpExtension('pcntl')]
+    #[RequiresPhpExtension('posix')]
+    public function testShutdownStopsEveryChildWhenAnOutcomeCannotBeRecorded(): void
+    {
+        $dir = sys_get_temp_dir() . '/yii-scheduler-test-' . uniqid();
+        mkdir($dir);
+
+        $cache = new InMemoryCache();
+        $clock = new TestClock();
+
+        $schedule = (new Schedule('shutdown'))
+            ->stateful($cache)
+            ->task(
+                RecurringTask::cron('* * * * *', static function () use ($dir): void {
+                    file_put_contents("$dir/quick", (string) getmypid());
+                })->withId('quick'),
+                RecurringTask::cron('* * * * *', static function () use ($dir): void {
+                    // Deaf to the stop request, so it is still there when the outcome of the
+                    // first child cannot be written, and only SIGKILL ends it.
+                    pcntl_signal(SIGTERM, SIG_IGN);
+                    file_put_contents("$dir/stubborn", (string) getmypid());
+
+                    $deadline = microtime(true) + 30;
+
+                    while (microtime(true) < $deadline) {
+                        usleep(10_000);
+                    }
+                })->withId('stubborn'),
+            );
+
+        $scheduler = new Scheduler([$schedule], new CallableTaskHandler(), $clock);
+
+        try {
+            $scheduler->tick();
+            $clock->advance('+1 minute');
+            $scheduler->tick(true);
+
+            // Both children are up and past the point where the second one stops listening
+            // for SIGTERM, so the shutdown has something to fail at and something to kill.
+            $deadline = microtime(true) + 15;
+
+            while (
+                (!file_exists("$dir/quick") || !file_exists("$dir/stubborn"))
+                && microtime(true) < $deadline
+            ) {
+                usleep(10_000);
+            }
+
+            $this->assertFileExists("$dir/quick");
+            $this->assertFileExists("$dir/stubborn");
+
+            $stubborn = (int) file_get_contents("$dir/stubborn");
+            $this->assertNotSame(0, $stubborn);
+
+            // From here the outcome of every child is unwritable, the first one's included.
+            $cache->failWrites();
+            $scheduler->stop();
+
+            $error = null;
+
+            try {
+                $scheduler->run(0.01);
+            } catch (SchedulerRuntimeException $caught) {
+                $error = $caught;
+            }
+
+            $this->assertFalse($scheduler->hasRunningChildren());
+            // Killed and collected, rather than left behind by a shutdown that gave up at the
+            // first outcome it could not record.
+            $this->assertFalse(posix_kill($stubborn, 0));
+            $this->assertNotNull($error);
+            $this->assertStringContainsString('Unable to persist the checkpoint', $error->getMessage());
+        } finally {
+            array_map(unlink(...), glob("$dir/*") ?: []);
+            rmdir($dir);
+        }
+    }
+
+    /**
+     * The same shutdown with the log destination gone as well. The second outcome that cannot
+     * be written is logged rather than thrown, so a logger that fails there used to end the
+     * collection loop with a child still running, and reported the log destination instead of
+     * the write that failed.
+     */
+    #[RequiresPhpExtension('pcntl')]
+    #[RequiresPhpExtension('posix')]
+    public function testShutdownStopsEveryChildWhenTheLogOfAnUnrecordedOutcomeFailsToo(): void
+    {
+        $dir = sys_get_temp_dir() . '/yii-scheduler-test-' . uniqid();
+        mkdir($dir);
+
+        $cache = new InMemoryCache();
+        $clock = new TestClock();
+
+        $quick = static fn(string $id): callable => static function () use ($dir, $id): void {
+            file_put_contents("$dir/$id", (string) getmypid());
+        };
+
+        $schedule = (new Schedule('shutdown'))
+            ->stateful($cache)
+            ->task(
+                // Two of them, so the second outcome that cannot be written reaches the log
+                // while the third child is still running.
+                RecurringTask::cron('* * * * *', $quick('first'))->withId('first'),
+                RecurringTask::cron('* * * * *', $quick('second'))->withId('second'),
+                RecurringTask::cron('* * * * *', static function () use ($dir): void {
+                    // Deaf to the stop request, so only SIGKILL ends it.
+                    pcntl_signal(SIGTERM, SIG_IGN);
+                    file_put_contents("$dir/stubborn", (string) getmypid());
+
+                    $deadline = microtime(true) + 30;
+
+                    while (microtime(true) < $deadline) {
+                        usleep(10_000);
+                    }
+                })->withId('stubborn'),
+            );
+
+        $logger = new class extends AbstractLogger {
+            public bool $failing = false;
+
+            public function log($level, string|Stringable $message, array $context = []): void
+            {
+                if ($this->failing && LogLevel::ERROR === $level) {
+                    throw new RuntimeException('The log destination is gone.');
+                }
+            }
+        };
+
+        $scheduler = new Scheduler([$schedule], new CallableTaskHandler(), $clock, null, $logger);
+
+        try {
+            $scheduler->tick();
+            $clock->advance('+1 minute');
+            $scheduler->tick(true, 3);
+
+            $deadline = microtime(true) + 15;
+
+            while (
+                (!file_exists("$dir/first") || !file_exists("$dir/second") || !file_exists("$dir/stubborn"))
+                && microtime(true) < $deadline
+            ) {
+                usleep(10_000);
+            }
+
+            $this->assertFileExists("$dir/first");
+            $this->assertFileExists("$dir/second");
+            $this->assertFileExists("$dir/stubborn");
+
+            $stubborn = (int) file_get_contents("$dir/stubborn");
+            $this->assertNotSame(0, $stubborn);
+
+            $cache->failWrites();
+            $logger->failing = true;
+            $scheduler->stop();
+
+            $error = null;
+
+            try {
+                $scheduler->run(0.01);
+            } catch (Throwable $caught) {
+                $error = $caught;
+            }
+
+            $this->assertFalse($scheduler->hasRunningChildren());
+            $this->assertFalse(posix_kill($stubborn, 0));
+            $this->assertNotNull($error);
+            // The write that failed, not the log of it.
+            $this->assertInstanceOf(SchedulerRuntimeException::class, $error);
+            $this->assertStringContainsString('Unable to persist the checkpoint', $error->getMessage());
+        } finally {
+            array_map(unlink(...), glob("$dir/*") ?: []);
+            rmdir($dir);
+        }
+    }
+
+    /**
+     * The window bounds every claim, one whose process is alive and still making the run
+     * included, so a run that outlasts it is handed out again and the task runs a second
+     * time. That is what the readme promises, and it is covered here through the public
+     * scheduler rather than through the generator alone.
+     */
+    #[RequiresPhpExtension('pcntl')]
+    #[RequiresPhpExtension('posix')]
+    public function testRunStillGoingWhenItsWindowRunsOutIsHandedOutAgain(): void
+    {
+        $dir = sys_get_temp_dir() . '/yii-scheduler-test-' . uniqid();
+        mkdir($dir);
+
+        $cache = new InMemoryCache();
+        $clock = new TestClock();
+
+        $holder = (new Schedule('fleet'))
+            ->stateful($cache)
+            ->reclaimAfter(10)
+            ->task(
+                RecurringTask::cron('* * * * *', static function () use ($dir): void {
+                    file_put_contents("$dir/running", (string) getmypid());
+
+                    $deadline = microtime(true) + 15;
+
+                    while (!file_exists("$dir/stop") && microtime(true) < $deadline) {
+                        usleep(10_000);
+                    }
+                })->withId('slow'),
+            );
+
+        // The same task to the schedule, by the identifier both are keyed under, and a body
+        // that only says it ran.
+        $taker = (new Schedule('fleet'))
+            ->stateful($cache)
+            ->reclaimAfter(10)
+            ->task(
+                RecurringTask::cron('* * * * *', static function () use ($dir): void {
+                    file_put_contents("$dir/again", 'ran');
+                })->withId('slow'),
+            );
+
+        $first = new Scheduler([$holder], new CallableTaskHandler(), $clock);
+
+        try {
+            $first->tick();
+            $clock->advance('+1 minute');
+            $first->tick(true);
+
+            $deadline = microtime(true) + 15;
+
+            while (!file_exists("$dir/running") && microtime(true) < $deadline) {
+                usleep(10_000);
+            }
+
+            $this->assertFileExists("$dir/running");
+
+            $running = (int) file_get_contents("$dir/running");
+
+            // Past the window, and short of the next run of the task, so the only run the
+            // second scheduler can emit is the one the first is still making.
+            $clock->advance('+11 seconds');
+
+            $second = new Scheduler([$taker], new CallableTaskHandler(), $clock);
+            $second->tick();
+
+            $this->assertTrue(posix_kill($running, 0));
+            $this->assertFileExists("$dir/again");
+        } finally {
+            file_put_contents("$dir/stop", '');
+
+            $deadline = microtime(true) + 15;
+
+            while ($first->hasRunningChildren() && microtime(true) < $deadline) {
+                $first->reapChildren();
+                usleep(10_000);
+            }
+
+            array_map(unlink(...), glob("$dir/*") ?: []);
+            rmdir($dir);
+        }
+    }
+
+    #[RequiresPhpExtension('pcntl')]
+    #[RequiresPhpExtension('posix')]
+    public function testCrashBeforeStartingQueuedCatchUpRunsRecoversEveryMissedRun(): void
+    {
+        $clock = new TestClock();
+        $dir = sys_get_temp_dir() . '/yii-scheduler-test-' . uniqid();
+        mkdir($dir);
+
+        $cache = new FileCache($dir);
+        $schedule = (new Schedule())
+            ->stateful($cache)
+            ->task(
+                RecurringTask::every(60, static function (TaskContext $context) use ($dir): void {
+                    file_put_contents("$dir/runs", $context->triggeredAt->format('H:i:s') . "\n", FILE_APPEND);
+                })->withId('minute'),
+            );
+        $handler = new CallableTaskHandler();
+
+        try {
+            (new Scheduler([$schedule], $handler, $clock))->tick();
+            $clock->advance('+3 minutes');
+
+            $pid = pcntl_fork();
+
+            if (0 === $pid) {
+                $schedule->before(static function (): void {
+                    posix_kill((int) getmypid(), SIGKILL);
+                });
+                (new Scheduler([$schedule], $handler, $clock))->tick(true, 1);
+                posix_kill((int) getmypid(), SIGKILL);
+            }
+
+            $this->assertNotSame(-1, $pid);
+            pcntl_waitpid($pid, $status);
+            $this->assertTrue(pcntl_wifsignaled($status));
+
+            $this->assertSame(3, (new Scheduler([$schedule], $handler, $clock))->tick());
+            $this->assertSame(
+                ['00:01:00', '00:02:00', '00:03:00'],
+                file("$dir/runs", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [],
+            );
+        } finally {
+            array_map(unlink(...), glob("$dir/*") ?: []);
+            rmdir($dir);
+        }
+    }
+
+    #[RequiresPhpExtension('pcntl')]
+    public function testChildFailingDuringSlotWaitStillStartsRemainingQueuedTasks(): void
+    {
+        $clock = new TestClock();
+        $file = tempnam(sys_get_temp_dir(), 'yii-scheduler-test-');
+        $this->assertIsString($file);
+
+        $schedule = (new Schedule())
+            ->stateful(new InMemoryCache())
+            ->task(
+                RecurringTask::every(60, static function (): void {
+                    throw new RuntimeException('first failed');
+                })->withId('first'),
+                RecurringTask::every(60, static function () use ($file): void {
+                    file_put_contents($file, 'ran');
+                })->withId('second'),
+            );
+
+        $scheduler = new Scheduler([$schedule], new CallableTaskHandler(), $clock);
+
+        try {
+            $scheduler->tick();
+            $clock->advance('+1 minute');
+
+            $error = null;
+
+            try {
+                $scheduler->tick(true, 1);
+            } catch (Throwable $caught) {
+                $error = $caught;
+            }
+
+            while ($scheduler->hasRunningChildren()) {
+                $scheduler->reapChildren();
+                usleep(10_000);
+            }
+
+            $this->assertInstanceOf(SchedulerRuntimeException::class, $error);
+            $this->assertSame('The task process exited with code 1.', $error->getMessage());
+            $this->assertSame('ran', file_get_contents($file));
+            $this->assertSame(0, $scheduler->tick(true, 1));
+        } finally {
+            if (file_exists($file)) {
+                unlink($file);
+            }
+        }
+    }
+
+    #[RequiresPhpExtension('pcntl')]
+    public function testChildOutcomeNotificationsAndFailureArePreservedWhenCheckpointWriteFails(): void
+    {
+        $clock = new TestClock();
+        $cache = new InMemoryCache();
+        $events = [];
+
+        $schedule = (new Schedule())
+            ->stateful($cache)
+            ->after(static function (TaskContext $context) use (&$events): void {
+                $events[] = 'after:' . $context->taskId;
+            })
+            ->onFailure(static function (TaskContext $context) use (&$events): void {
+                $events[] = 'failure:' . $context->taskId;
+            })
+            ->task(
+                RecurringTask::every(60, static fn() => null)->withId('ok'),
+                RecurringTask::every(60, static function (): void {
+                    throw new RuntimeException('boom');
+                })->withId('bad'),
+            );
+
+        $scheduler = new Scheduler([$schedule], new CallableTaskHandler(), $clock);
+        $scheduler->tick();
+        $clock->advance('+1 minute');
+        $scheduler->tick(true);
+
+        $cache->failWrites();
+
+        $error = null;
+
+        try {
+            while ($scheduler->hasRunningChildren()) {
+                $scheduler->reapChildren();
+                usleep(10_000);
+            }
+        } catch (Throwable $caught) {
+            $error = $caught;
+        }
+
+        while ($scheduler->hasRunningChildren()) {
+            try {
+                $scheduler->reapChildren();
+            } catch (Throwable $caught) {
+                $error ??= $caught;
+            }
+            usleep(10_000);
+        }
+
+        $this->assertContains('after:ok', $events);
+        $this->assertContains('failure:bad', $events);
+        $this->assertNotNull($error);
     }
 
     /**
