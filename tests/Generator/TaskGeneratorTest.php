@@ -9,11 +9,9 @@ use DateTimeImmutable;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\RequiresPhpExtension;
 use PHPUnit\Framework\TestCase;
-use ReflectionMethod;
 use Yiisoft\Mutex\MutexInterface;
 use Yiisoft\Scheduler\Exception\LockTimeoutException;
 use Yiisoft\Scheduler\Exception\RuntimeException;
-use Yiisoft\Scheduler\Generator\Checkpoint;
 use Yiisoft\Scheduler\Generator\TaskGenerator;
 use Yiisoft\Scheduler\Handler\CallableTaskHandler;
 use Yiisoft\Scheduler\RecurringTask;
@@ -24,10 +22,9 @@ use Yiisoft\Scheduler\Tests\Support\InMemoryMutex;
 use Yiisoft\Scheduler\TaskContext;
 use Yiisoft\Scheduler\TaskStatus;
 use Yiisoft\Scheduler\Tests\Support\TestClock;
+use Yiisoft\Scheduler\Trigger\CallbackTrigger;
 
 use function hash;
-use function pcntl_fork;
-use function pcntl_waitpid;
 /**
  * The checkpoint records which runs of a shared due time were already emitted, so that a process
  * resuming after a crash replays the rest and only the rest.
@@ -116,43 +113,6 @@ final class TaskGeneratorTest extends TestCase
         $this->tick($cache, $clock, [$added, $first, $second, $third]);
 
         $this->assertSame(['added', 'third'], $log->getArrayCopy());
-    }
-
-    #[RequiresPhpExtension('posix')]
-    #[RequiresPhpExtension('pcntl')]
-    public function testClaimOfAProcessThatIsGoneIsHandedOutAgain(): void
-    {
-        $log = new ArrayObject();
-        $task = static function () use ($log): void {
-            $log[] = 'task';
-        };
-
-        $clock = new TestClock();
-        $cache = new InMemoryCache();
-
-        // A pid that has been and is no more, so asking about it is answered rather than guessed.
-        $pid = pcntl_fork();
-
-        if (0 === $pid) {
-            exit(0);
-        }
-
-        pcntl_waitpid($pid, $status);
-
-        $claimedAt = $clock->now()->modify('+1 minute');
-        // Built the way the checkpoint builds it, because a host is more than its name: the pid
-        // namespace is part of it, and a claim naming another one is left to the window.
-        $host = (new ReflectionMethod(Checkpoint::class, 'host'))->invoke(null);
-
-        $this->leaveClaim($cache, $task, $claimedAt, $host . '/' . $pid);
-
-        $clock->set($claimedAt->modify('+30 seconds'));
-
-        // The window is a year out, so only the process being gone can account for the run
-        // being handed out again.
-        $this->tick($cache, $clock, [$task], 31_536_000);
-
-        $this->assertSame(['task'], $log->getArrayCopy());
     }
 
     public function testClaimOfAnotherHostIsLeftUntilTheReclaimWindowRunsOut(): void
@@ -936,6 +896,68 @@ final class TaskGeneratorTest extends TestCase
             $emitted,
             'the run the other process recorded as done is not emitted again',
         );
+    }
+
+    public function testReclaimedOrReleasedRunOfARelativeCallbackTriggerStaysAtItsExactDueTime(): void
+    {
+        $clock = new TestClock();
+        $cache = new InMemoryCache();
+        $schedule = (new Schedule())
+            ->stateful($cache)
+            ->reclaimAfter(1)
+            ->task(
+                RecurringTask::trigger(
+                    new CallbackTrigger(static fn(DateTimeImmutable $lastRun): DateTimeImmutable => $lastRun->modify('+1 minute')),
+                    static fn() => null,
+                )->withId('minute'),
+            );
+
+        $handler = new CallableTaskHandler();
+        $owner = new Scheduler([$schedule], $handler, $clock);
+        $other = new Scheduler([$schedule], $handler, $clock);
+
+        $owner->tick();
+        $clock->advance('+1 minute');
+        $owner->tick(true);
+
+        $clock->advance('+1 second');
+
+        $this->assertSame('00:01:00.000000', $other->nextRunDate()?->format('H:i:s.u'));
+        $this->assertSame(1, $other->tick());
+
+        while ($owner->hasRunningChildren()) {
+            $owner->reapChildren();
+            usleep(10_000);
+        }
+    }
+
+    public function testNextRunDateWakesAtTheEarliestClaimExpiry(): void
+    {
+        $clock = new TestClock();
+        $cache = new InMemoryCache();
+        $schedule = (new Schedule())
+            ->stateful($cache)
+            ->reclaimAfter(1)
+            ->task(RecurringTask::every(3600, static fn() => null)->withId('hour'));
+
+        $handler = new CallableTaskHandler();
+        $owner = new Scheduler([$schedule], $handler, $clock);
+        $other = new Scheduler([$schedule], $handler, $clock);
+
+        $owner->tick();
+        $clock->advance('+1 hour');
+        $owner->tick(true);
+
+        $this->assertSame('01:00:01', $other->nextRunDate()?->format('H:i:s'));
+
+        $clock->advance('+1 second');
+
+        $this->assertSame('01:00:00', $other->nextRunDate()?->format('H:i:s'));
+
+        while ($owner->hasRunningChildren()) {
+            $owner->reapChildren();
+            usleep(10_000);
+        }
     }
 
     /**

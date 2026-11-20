@@ -10,9 +10,11 @@ namespace Yiisoft\Scheduler;
 enum TaskStatus: string
 {
     /**
-     * Handed out, outcome not known: a run in flight, or one left by a process that is gone. The
-     * first is left alone; the second is handed out again, at once when the process can be shown
-     * to be gone and otherwise once the reclaim window of the schedule runs out.
+     * Handed out, outcome not known: a run in flight, or one left by a process that is gone.
+     *
+     * Every claim is handed out again once the reclaim window of the schedule runs out, including
+     * one whose process is still there; a claim of a process of this host that can be shown to be
+     * gone is handed out again before that.
      */
     case Claimed = 'claimed';
 

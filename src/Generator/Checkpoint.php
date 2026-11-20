@@ -13,8 +13,10 @@ use Yiisoft\Scheduler\Exception\LockTimeoutException;
 use Yiisoft\Scheduler\Exception\RuntimeException;
 use Yiisoft\Scheduler\TaskStatus;
 
+use function array_key_last;
 use function array_keys;
 use function array_pad;
+use function count;
 use function explode;
 use function function_exists;
 use function gethostname;
@@ -22,6 +24,7 @@ use function getmypid;
 use function hash;
 use function is_array;
 use function is_string;
+use function ksort;
 use function posix_get_last_error;
 use function posix_kill;
 use function sprintf;
@@ -44,7 +47,8 @@ use function sprintf;
  *
  * @internal
  *
- * @psalm-type Record = array{DateTimeImmutable, TaskStatus, string|null, DateTimeImmutable|null}
+ * @psalm-type Claim = array{string, DateTimeImmutable}
+ * @psalm-type Record = array{DateTimeImmutable, TaskStatus, string|null, DateTimeImmutable|null, array<string, Claim>}
  */
 final class Checkpoint
 {
@@ -61,8 +65,10 @@ final class Checkpoint
     private const WRITE_LOCK_TIMEOUT_SECONDS = 10;
 
     private ?DateTimeImmutable $time = null;
-    /** @var array<string, Record> Run, outcome, and the owner and moment of a claim. */
+    /** @var array<string, Record> Run, outcome, and the owner, moment and claims of a task. */
     private array $records = [];
+    /** @var array<string, true> Tasks whose record still carries an unresolved claim. */
+    private array $claimedTasks = [];
     private bool $locked = false;
     private int $revision = 0;
 
@@ -135,7 +141,7 @@ final class Checkpoint
     /**
      * @psalm-return Record|null
      *
-     * @return array{DateTimeImmutable, TaskStatus, string|null, DateTimeImmutable|null}|null
+     * @return array{DateTimeImmutable, TaskStatus, string|null, DateTimeImmutable|null, array<string, array{string, DateTimeImmutable}>}|null
      */
     public function record(string $taskId): ?array
     {
@@ -156,8 +162,51 @@ final class Checkpoint
         $claimed = TaskStatus::Claimed === $status;
         $owner = $claimed ? $owner ?? self::owner() : null;
         $at = $claimed ? $at ?? $time : null;
+        $runKey = $time->format('U.u');
 
-        $this->records[$taskId] = [$time, $status, $owner, $at];
+        $previous = $this->records[$taskId] ?? null;
+        $claims = $previous[4] ?? [];
+
+        if ($claimed && null !== $owner && null !== $at) {
+            $claims[$runKey] = [$owner, $at];
+            ksort($claims);
+        } elseif (TaskStatus::Released === $status) {
+            $claims[$runKey] = ['', $time];
+            ksort($claims);
+        } else {
+            unset($claims[$runKey]);
+        }
+
+        // Resolving an earlier run of a catch-up must not move the task's position behind a
+        // later run that has already been recorded.
+        if (null !== $previous && $previous[0] > $time && !$claimed) {
+            $time = $previous[0];
+
+            if (isset($claims[$time->format('U.u')])) {
+                [$claimOwner, $claimAt] = $claims[$time->format('U.u')];
+                $status = '' === $claimOwner ? TaskStatus::Released : TaskStatus::Claimed;
+                $owner = '' === $claimOwner ? null : $claimOwner;
+                $at = '' === $claimOwner ? null : $claimAt;
+            } else {
+                $status = $previous[1];
+                $owner = $previous[2];
+                $at = $previous[3];
+            }
+        } elseif ([] !== $claims && !$claimed && TaskStatus::Released !== $status) {
+            $lastClaimKey = array_key_last($claims);
+            $lastClaimTime = DateTimeImmutable::createFromFormat('U.u', $lastClaimKey);
+
+            if ($lastClaimTime instanceof DateTimeImmutable && $lastClaimTime >= $time) {
+                [$claimOwner, $claimAt] = $claims[$lastClaimKey];
+                $time = $lastClaimTime;
+                $status = '' === $claimOwner ? TaskStatus::Released : TaskStatus::Claimed;
+                $owner = '' === $claimOwner ? null : $claimOwner;
+                $at = '' === $claimOwner ? null : $claimAt;
+            }
+        }
+
+        $this->records[$taskId] = [$time, $status, $owner, $at, $claims];
+        $this->trackClaimedTask($taskId);
 
         if (null === $this->cache) {
             return;
@@ -169,6 +218,19 @@ final class Checkpoint
             'owner' => $owner,
             'at' => $at?->format('U.u'),
         ];
+
+        if ($this->needsPersistedClaims($this->records[$taskId])) {
+            $persistedClaims = [];
+
+            foreach ($claims as $claimKey => [$claimOwner, $claimAt]) {
+                $persistedClaims[$claimKey] = [
+                    'owner' => '' === $claimOwner ? null : $claimOwner,
+                    'at' => '' === $claimOwner ? null : $claimAt->format('U.u'),
+                ];
+            }
+
+            $state['claims'] = $persistedClaims;
+        }
 
         if (!$this->cache->set($this->taskKey($taskId), $state)) {
             throw new RuntimeException(sprintf(
@@ -196,6 +258,17 @@ final class Checkpoint
     public function markStarted(string $taskId, DateTimeImmutable $time, DateTimeImmutable $at): bool
     {
         return $this->exclusively(fn(): bool => $this->startUnderLock($taskId, $time, $at));
+    }
+
+    /**
+     * Hands the claim of a forked run over to the child process that is executing it, so a child
+     * that outlives or dies independently of its parent is tracked by its own pid.
+     */
+    public function assignChildOwner(string $taskId, DateTimeImmutable $time, int $pid): void
+    {
+        $this->exclusively(function () use ($taskId, $time, $pid): void {
+            $this->assignChildOwnerUnderLock($taskId, $time, $pid);
+        });
     }
 
     /**
@@ -231,9 +304,7 @@ final class Checkpoint
     }
 
     /**
-     * Where the task resumes: after its recorded run, or just before it when that run is to be
-     * handed out again: given back unstarted, or claimed by a process that is gone or has been
-     * holding it longer than the schedule waits.
+     * Where the task resumes for new runs after everything recorded so far.
      */
     public function resumePoint(string $taskId, DateTimeImmutable $now, DateInterval $reclaimAfter): ?DateTimeImmutable
     {
@@ -243,13 +314,46 @@ final class Checkpoint
             return null;
         }
 
-        [$time, $status] = $record;
+        return $record[0];
+    }
 
-        if (TaskStatus::Released === $status || self::isReclaimable($record, $now, $reclaimAfter)) {
-            return $time->modify('-1 microsecond');
+    /**
+     * Runs of the task that were handed back unstarted or whose claim can now be taken back, in
+     * chronological order, to be put directly back on the schedule before the next trigger date.
+     *
+     * @return list<DateTimeImmutable>
+     */
+    public function pendingRuns(string $taskId, DateTimeImmutable $now, DateInterval $reclaimAfter): array
+    {
+        $record = $this->records[$taskId] ?? null;
+
+        if (null === $record) {
+            return [];
         }
 
-        return $time;
+        [$time, $status, , , $claims] = $record;
+
+        if ([] === $claims) {
+            if (TaskStatus::Released === $status || self::isReclaimable($record, $now, $reclaimAfter)) {
+                return [$time];
+            }
+
+            return [];
+        }
+
+        $pending = [];
+
+        foreach ($claims as $runKey => [$owner, $at]) {
+            if ('' === $owner || self::isClaimReclaimable($owner, $at, $now, $reclaimAfter)) {
+                $runTime = DateTimeImmutable::createFromFormat('U.u', $runKey);
+
+                if ($runTime instanceof DateTimeImmutable) {
+                    $pending[] = $runTime;
+                }
+            }
+        }
+
+        return $pending;
     }
 
     /**
@@ -259,13 +363,40 @@ final class Checkpoint
      */
     public function hasReclaimableClaim(DateTimeImmutable $now, DateInterval $reclaimAfter): bool
     {
-        foreach ($this->records as $record) {
-            if (self::isReclaimable($record, $now, $reclaimAfter)) {
+        foreach ($this->claimedTasks as $taskId => $_) {
+            $record = $this->records[$taskId] ?? null;
+
+            if (null !== $record && self::hasReclaimableInRecord($record, $now, $reclaimAfter)) {
                 return true;
             }
         }
 
         return false;
+    }
+
+    /**
+     * The earliest moment an active claim of the schedule can be taken back by the reclaim window,
+     * so a sleeping daemon wakes up to reclaim it even when the task's next trigger run is later.
+     */
+    public function nextReclaimDate(DateTimeImmutable $now, DateInterval $reclaimAfter): ?DateTimeImmutable
+    {
+        $earliest = null;
+
+        foreach ($this->claimedTasks as $taskId => $_) {
+            $record = $this->records[$taskId] ?? null;
+
+            if (null === $record) {
+                continue;
+            }
+
+            foreach (self::claimDeadlines($record, $now, $reclaimAfter) as $deadline) {
+                if (null === $earliest || $deadline < $earliest) {
+                    $earliest = $deadline;
+                }
+            }
+        }
+
+        return $earliest;
     }
 
     /**
@@ -276,10 +407,10 @@ final class Checkpoint
      * elsewhere. Writing the outcome anyway would move the record behind a run that is over, and
      * hand that run out again.
      */
-    public function resolve(string $taskId, DateTimeImmutable $time, TaskStatus $status): void
+    public function resolve(string $taskId, DateTimeImmutable $time, TaskStatus $status, ?int $childPid = null): void
     {
-        $this->exclusively(function () use ($taskId, $time, $status): void {
-            $this->resolveUnderLock($taskId, $time, $status);
+        $this->exclusively(function () use ($taskId, $time, $status, $childPid): void {
+            $this->resolveUnderLock($taskId, $time, $status, $childPid);
         });
     }
 
@@ -343,33 +474,81 @@ final class Checkpoint
 
     private function startUnderLock(string $taskId, DateTimeImmutable $time, DateTimeImmutable $at): bool
     {
-        $claim = $this->ourClaim($taskId);
+        $this->reread($taskId);
 
-        // At or before the record, not exactly on it: one tick of catch-up claims every missed
-        // run of a task before it starts any of them, and they share the one record, which
-        // stands for the newest. A run at or before it is one this process claimed itself; a
-        // later one is a run it never claimed.
-        if (null === $claim || $time > $claim[0]) {
+        $record = $this->records[$taskId] ?? null;
+
+        if (null === $record) {
             return false;
         }
 
-        // Only the newest claim carries the window. An earlier run of the same catch-up starts
-        // under the record as it is rather than moving it back to its own time, which is what
-        // would hand the runs between the two out again.
-        if ($time == $claim[0]) {
-            $this->write($taskId, $time, TaskStatus::Claimed, self::owner(), $at);
+        [$recordTime, $status, $owner, , $claims] = $record;
+        $runKey = $time->format('U.u');
+
+        if (isset($claims[$runKey])) {
+            if (self::owner() !== $claims[$runKey][0]) {
+                return false;
+            }
+        } elseif (TaskStatus::Claimed !== $status || self::owner() !== $owner || $time > $recordTime) {
+            return false;
         }
+
+        $this->write($taskId, $time, TaskStatus::Claimed, self::owner(), $at);
 
         return true;
     }
 
-    private function resolveUnderLock(string $taskId, DateTimeImmutable $time, TaskStatus $status): void
+    private function assignChildOwnerUnderLock(string $taskId, DateTimeImmutable $time, int $pid): void
     {
-        $claim = $this->ourClaim($taskId);
+        $this->reread($taskId);
 
-        // Only the newest run claimed is the one the record stands for; the outcome of an older
-        // one of the same catch-up says nothing about where the task has got to.
-        if (null === $claim || $time != $claim[0]) {
+        $record = $this->records[$taskId] ?? null;
+
+        if (null === $record) {
+            return;
+        }
+
+        [$recordTime, $status, $owner, $at, $claims] = $record;
+        $runKey = $time->format('U.u');
+        $childOwner = self::host() . '/' . $pid;
+
+        if (isset($claims[$runKey])) {
+            if (self::owner() !== $claims[$runKey][0]) {
+                return;
+            }
+
+            $at = $claims[$runKey][1];
+        } elseif (TaskStatus::Claimed !== $status || self::owner() !== $owner || $time != $recordTime) {
+            return;
+        }
+
+        $this->write($taskId, $time, TaskStatus::Claimed, $childOwner, $at ?? $time);
+    }
+
+    private function resolveUnderLock(string $taskId, DateTimeImmutable $time, TaskStatus $status, ?int $childPid = null): void
+    {
+        $this->reread($taskId);
+
+        $record = $this->records[$taskId] ?? null;
+
+        if (null === $record) {
+            return;
+        }
+
+        [$recordTime, $recordStatus, $owner, , $claims] = $record;
+        $runKey = $time->format('U.u');
+
+        if (isset($claims[$runKey])) {
+            if (!$this->isOurOwner($claims[$runKey][0], $childPid)) {
+                return;
+            }
+
+            $this->write($taskId, $time, $status);
+
+            return;
+        }
+
+        if (TaskStatus::Claimed !== $recordStatus || !$this->isOurOwner($owner, $childPid) || $time != $recordTime) {
             return;
         }
 
@@ -378,44 +557,45 @@ final class Checkpoint
 
     private function giveBackUnderLock(string $taskId, DateTimeImmutable $time): void
     {
-        $claim = $this->ourClaim($taskId);
+        $this->reread($taskId);
 
-        if (null === $claim || $time > $claim[0]) {
+        $record = $this->records[$taskId] ?? null;
+
+        if (null === $record) {
+            return;
+        }
+
+        [$recordTime, $recordStatus, $owner, , $claims] = $record;
+        $runKey = $time->format('U.u');
+
+        if (isset($claims[$runKey])) {
+            if (self::owner() !== $claims[$runKey][0]) {
+                return;
+            }
+
+            $this->write($taskId, $time, TaskStatus::Released);
+
+            return;
+        }
+
+        if (TaskStatus::Claimed !== $recordStatus || self::owner() !== $owner || $time > $recordTime) {
             return;
         }
 
         $this->write($taskId, $time, TaskStatus::Released);
     }
 
-    /**
-     * The record of a task if the shared state still holds it as a claim of this process.
-     *
-     * It is read back first: the one in hand was read when the run was claimed, and what has
-     * happened to it since is the whole question. Another process may have taken the task over,
-     * because the claim ran out of window or because the run after it was handed out and
-     * finished. Nothing may then be recorded about it from here.
-     *
-     * The time on the record is the newest run claimed, which is not necessarily the one being
-     * reported on: a catch-up claims every missed run of a task before any of them is started,
-     * and they all share the one record.
-     *
-     * @psalm-return Record|null
-     *
-     * @return array{DateTimeImmutable, TaskStatus, string|null, DateTimeImmutable|null}|null
-     */
-    private function ourClaim(string $taskId): ?array
+    private function isOurOwner(?string $owner, ?int $childPid): bool
     {
-        $this->reread($taskId);
-
-        $record = $this->records[$taskId] ?? null;
-
-        if (null === $record) {
-            return null;
+        if (null === $owner) {
+            return false;
         }
 
-        [, $status, $owner] = $record;
+        if (self::owner() === $owner) {
+            return true;
+        }
 
-        return TaskStatus::Claimed === $status && self::owner() === $owner ? $record : null;
+        return null !== $childPid && (self::host() . '/' . $childPid) === $owner;
     }
 
     /** Replaces the record of one task with what the shared state holds for it now. */
@@ -435,6 +615,8 @@ final class Checkpoint
         } else {
             $this->records[$taskId] = $this->readRecord($stored, $taskId);
         }
+
+        $this->trackClaimedTask($taskId);
 
         // The revision is what tells a generator its cached pending work is stale, and load()
         // can only see a change by comparing what it read against what is held. Rereading one
@@ -474,6 +656,137 @@ final class Checkpoint
 
         return (null !== $owner && self::isGone($owner))
             || (null !== $at && $at->add($reclaimAfter) <= $now);
+    }
+
+    private static function isClaimReclaimable(
+        string $owner,
+        DateTimeImmutable $at,
+        DateTimeImmutable $now,
+        DateInterval $reclaimAfter,
+    ): bool {
+        return ('' !== $owner && self::isGone($owner))
+            || $at->add($reclaimAfter) <= $now;
+    }
+
+    /**
+     * @psalm-param Record $record
+     */
+    private static function hasReclaimableInRecord(
+        array $record,
+        DateTimeImmutable $now,
+        DateInterval $reclaimAfter,
+    ): bool {
+        [, , , , $claims] = $record;
+
+        if ([] === $claims) {
+            return self::isReclaimable($record, $now, $reclaimAfter);
+        }
+
+        foreach ($claims as [$owner, $at]) {
+            if ('' !== $owner && self::isClaimReclaimable($owner, $at, $now, $reclaimAfter)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @psalm-param Record $record
+     *
+     * @return list<DateTimeImmutable>
+     */
+    private static function claimDeadlines(
+        array $record,
+        DateTimeImmutable $now,
+        DateInterval $reclaimAfter,
+    ): array {
+        [, $status, $owner, $at, $claims] = $record;
+
+        if ([] === $claims) {
+            if (TaskStatus::Claimed !== $status || null === $at) {
+                return [];
+            }
+
+            if (null !== $owner && self::isGone($owner)) {
+                return [$now];
+            }
+
+            return [$at->add($reclaimAfter)];
+        }
+
+        $deadlines = [];
+
+        foreach ($claims as [$claimOwner, $claimAt]) {
+            if ('' === $claimOwner) {
+                continue;
+            }
+
+            $deadlines[] = self::isGone($claimOwner) ? $now : $claimAt->add($reclaimAfter);
+        }
+
+        return $deadlines;
+    }
+
+    private function trackClaimedTask(string $taskId): void
+    {
+        $record = $this->records[$taskId] ?? null;
+
+        if (null !== $record && self::recordHasActiveClaim($record)) {
+            $this->claimedTasks[$taskId] = true;
+        } else {
+            unset($this->claimedTasks[$taskId]);
+        }
+    }
+
+    /**
+     * @psalm-param Record $record
+     */
+    private static function recordHasActiveClaim(array $record): bool
+    {
+        [, $status, , , $claims] = $record;
+
+        if (TaskStatus::Claimed === $status) {
+            return true;
+        }
+
+        foreach ($claims as [$owner]) {
+            if ('' !== $owner) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @psalm-param Record $record
+     */
+    private function needsPersistedClaims(array $record): bool
+    {
+        [$time, $status, $owner, $at, $claims] = $record;
+
+        if ([] === $claims) {
+            return false;
+        }
+
+        if (count($claims) > 1) {
+            return true;
+        }
+
+        $runKey = $time->format('U.u');
+
+        if (!isset($claims[$runKey])) {
+            return true;
+        }
+
+        [$claimOwner, $claimAt] = $claims[$runKey];
+
+        if ('' === $claimOwner) {
+            return TaskStatus::Released !== $status;
+        }
+
+        return TaskStatus::Claimed !== $status || $owner !== $claimOwner || $at != $claimAt;
     }
 
     /** The process a claim is made by, as "host/pid". */
@@ -582,6 +895,11 @@ final class Checkpoint
 
         $this->time = $time;
         $this->records = $records;
+        $this->claimedTasks = [];
+
+        foreach ($this->records as $taskId => $_) {
+            $this->trackClaimedTask($taskId);
+        }
 
         ++$this->revision;
     }
@@ -607,7 +925,7 @@ final class Checkpoint
     /**
      * @psalm-return Record
      *
-     * @return array{DateTimeImmutable, TaskStatus, string|null, DateTimeImmutable|null}
+     * @return array{DateTimeImmutable, TaskStatus, string|null, DateTimeImmutable|null, array<string, array{string, DateTimeImmutable}>}
      */
     private function readRecord(mixed $stored, string $taskId): array
     {
@@ -616,6 +934,7 @@ final class Checkpoint
         $status = TaskStatus::Done;
         $owner = null;
         $at = null;
+        $claims = [];
 
         if (is_array($stored)) {
             if (!isset($stored['time'], $stored['status']) || !is_string($stored['status'])) {
@@ -646,6 +965,55 @@ final class Checkpoint
                 }
             }
 
+            /** @var mixed $storedClaims */
+            $storedClaims = $stored['claims'] ?? null;
+
+            if (null !== $storedClaims) {
+                if (!is_array($storedClaims)) {
+                    throw new RuntimeException($this->unexpectedTaskPayload($taskId));
+                }
+
+                /** @var mixed $claimEntry */
+                foreach ($storedClaims as $claimKey => $claimEntry) {
+                    if (!is_string($claimKey) || !is_array($claimEntry)) {
+                        throw new RuntimeException($this->unexpectedTaskPayload($taskId));
+                    }
+
+                    $claimTime = DateTimeImmutable::createFromFormat('U.u', $claimKey);
+
+                    if (!$claimTime instanceof DateTimeImmutable) {
+                        throw new RuntimeException($this->unexpectedTaskPayload($taskId));
+                    }
+
+                    /** @var mixed $claimOwner */
+                    $claimOwner = $claimEntry['owner'] ?? null;
+
+                    if (null !== $claimOwner && !is_string($claimOwner)) {
+                        throw new RuntimeException($this->unexpectedTaskPayload($taskId));
+                    }
+
+                    /** @var mixed $claimAtRaw */
+                    $claimAtRaw = $claimEntry['at'] ?? null;
+                    $claimAt = $claimTime;
+
+                    if (null !== $claimAtRaw) {
+                        $parsedAt = is_string($claimAtRaw)
+                            ? DateTimeImmutable::createFromFormat('U.u', $claimAtRaw)
+                            : false;
+
+                        if (!$parsedAt instanceof DateTimeImmutable) {
+                            throw new RuntimeException($this->unexpectedTaskPayload($taskId));
+                        }
+
+                        $claimAt = $parsedAt;
+                    }
+
+                    $claims[$claimKey] = [$claimOwner ?? '', $claimAt];
+                }
+
+                ksort($claims);
+            }
+
             $owner = $holder;
             /** @var mixed $stored */
             $stored = $stored['time'];
@@ -657,7 +1025,15 @@ final class Checkpoint
             throw new RuntimeException($this->unexpectedTaskPayload($taskId));
         }
 
-        return [$time, $status, $owner, $at];
+        if ([] === $claims) {
+            if (TaskStatus::Claimed === $status && null !== $owner) {
+                $claims[$time->format('U.u')] = [$owner, $at ?? $time];
+            } elseif (TaskStatus::Released === $status) {
+                $claims[$time->format('U.u')] = ['', $time];
+            }
+        }
+
+        return [$time, $status, $owner, $at, $claims];
     }
 
     private function unexpectedTaskPayload(string $taskId): string

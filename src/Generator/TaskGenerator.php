@@ -14,6 +14,7 @@ use Yiisoft\Scheduler\TaskStatus;
 
 use function array_map;
 use function count;
+use function end;
 
 /**
  * Computes which tasks of a schedule are due, in run order.
@@ -59,10 +60,10 @@ final class TaskGenerator
         try {
             $heap = $this->heap();
 
+            /** @var array{DateTimeImmutable, int, RecurringTask, bool} $entry */
             while (!$heap->isEmpty() && $heap->top()[0] <= $now) {
-                /** @var array{DateTimeImmutable, int, RecurringTask} $entry */
                 $entry = $heap->extract();
-                [$time, $index, $task] = $entry;
+                [$time, $index, $task, $advance] = $entry;
 
                 $yield = true;
                 $nextTime = $task->getTrigger()->getNextRunDate($time);
@@ -72,12 +73,16 @@ final class TaskGenerator
                         throw new LogicException('A trigger must return a date strictly after the given one.');
                     }
 
-                    $heap->insert([$nextTime, $index, $task]);
+                    if ($advance) {
+                        $heap->insert([$nextTime, $index, $task, true]);
+                    }
 
                     if ($nextTime <= $now && $this->schedule->shouldProcessOnlyLastMissedRun()) {
                         // A newer missed run exists; only the latest one fires.
                         $yield = false;
                     }
+                } elseif (!$advance && !$heap->isEmpty() && $heap->top()[0] <= $now && $heap->top()[2] === $task && $this->schedule->shouldProcessOnlyLastMissedRun()) {
+                    $yield = false;
                 }
 
                 if (!$yield) {
@@ -121,17 +126,23 @@ final class TaskGenerator
 
         try {
             $heap = $this->heap();
+            $next = $heap->isEmpty() ? null : $heap->top()[0];
+            $reclaim = $this->checkpoint->nextReclaimDate($this->clock->now(), $this->schedule->getReclaimAfter());
 
-            return $heap->isEmpty() ? null : $heap->top()[0];
+            if (null === $reclaim) {
+                return $next;
+            }
+
+            return null === $next || $reclaim < $next ? $reclaim : $next;
         } finally {
             $this->checkpoint->release();
         }
     }
 
     /** Records what became of a claimed run, once the consumer knows. */
-    public function resolve(TaskContext $context, TaskStatus $status): void
+    public function resolve(TaskContext $context, TaskStatus $status, ?int $childPid = null): void
     {
-        $this->checkpoint->resolve($context->taskId, $context->triggeredAt, $status);
+        $this->checkpoint->resolve($context->taskId, $context->triggeredAt, $status, $childPid);
     }
 
     /**
@@ -143,6 +154,14 @@ final class TaskGenerator
     public function markStarted(TaskContext $context): bool
     {
         return $this->checkpoint->markStarted($context->taskId, $context->triggeredAt, $this->clock->now());
+    }
+
+    /**
+     * Hands the claim of a forked run over to the child process that is executing it.
+     */
+    public function assignChildOwner(TaskContext $context, int $pid): void
+    {
+        $this->checkpoint->assignChildOwner($context->taskId, $context->triggeredAt, $pid);
     }
 
     /**
@@ -165,6 +184,10 @@ final class TaskGenerator
      */
     private function taskIds(): array
     {
+        if (!$this->schedule->isStateful()) {
+            return [];
+        }
+
         return array_map(static fn(RecurringTask $task): string => $task->getId(), $this->schedule->tasks());
     }
 
@@ -198,13 +221,26 @@ final class TaskGenerator
 
         foreach ($this->schedule->tasks() as $task) {
             $index = $this->indices[$task->getId()] ??= count($this->indices);
+            $pendingRuns = $this->checkpoint->pendingRuns($task->getId(), $now, $reclaimAfter);
+
+            foreach ($pendingRuns as $pendingTime) {
+                $this->heap->insert([$pendingTime, $index, $task, false]);
+            }
 
             // No record yet — newly added, or added while the schedule was down — means the
             // position of the schedule.
             $seedTime = $this->checkpoint->resumePoint($task->getId(), $now, $reclaimAfter) ?? $position;
 
+            if ([] !== $pendingRuns) {
+                $lastPending = end($pendingRuns);
+
+                if ($lastPending > $seedTime) {
+                    $seedTime = $lastPending;
+                }
+            }
+
             if (null !== ($nextTime = $task->getTrigger()->getNextRunDate($seedTime))) {
-                $this->heap->insert([$nextTime, $index, $task]);
+                $this->heap->insert([$nextTime, $index, $task, true]);
             }
         }
 
