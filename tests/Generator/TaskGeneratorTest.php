@@ -913,22 +913,20 @@ final class TaskGeneratorTest extends TestCase
             );
 
         $handler = new CallableTaskHandler();
-        $owner = new Scheduler([$schedule], $handler, $clock);
-        $other = new Scheduler([$schedule], $handler, $clock);
-
-        $owner->tick();
+        (new Scheduler([$schedule], $handler, $clock))->tick();
         $clock->advance('+1 minute');
-        $owner->tick(true);
+
+        $generator = new TaskGenerator($schedule, $clock);
+        foreach ($generator->getTasks() as $_) {
+            break;
+        }
 
         $clock->advance('+1 second');
 
+        $other = new Scheduler([$schedule], $handler, $clock);
+
         $this->assertSame('00:01:00.000000', $other->nextRunDate()?->format('H:i:s.u'));
         $this->assertSame(1, $other->tick());
-
-        while ($owner->hasRunningChildren()) {
-            $owner->reapChildren();
-            usleep(10_000);
-        }
     }
 
     public function testNextRunDateWakesAtTheEarliestClaimExpiry(): void
@@ -941,23 +939,21 @@ final class TaskGeneratorTest extends TestCase
             ->task(RecurringTask::every(3600, static fn() => null)->withId('hour'));
 
         $handler = new CallableTaskHandler();
-        $owner = new Scheduler([$schedule], $handler, $clock);
-        $other = new Scheduler([$schedule], $handler, $clock);
-
-        $owner->tick();
+        (new Scheduler([$schedule], $handler, $clock))->tick();
         $clock->advance('+1 hour');
-        $owner->tick(true);
+
+        $generator = new TaskGenerator($schedule, $clock);
+        foreach ($generator->getTasks() as $_) {
+            break;
+        }
+
+        $other = new Scheduler([$schedule], $handler, $clock);
 
         $this->assertSame('01:00:01', $other->nextRunDate()?->format('H:i:s'));
 
         $clock->advance('+1 second');
 
         $this->assertSame('01:00:00', $other->nextRunDate()?->format('H:i:s'));
-
-        while ($owner->hasRunningChildren()) {
-            $owner->reapChildren();
-            usleep(10_000);
-        }
     }
 
     /**
