@@ -9,6 +9,7 @@ use Yiisoft\Db\Sqlite\Connection;
 use Yiisoft\Db\Sqlite\Driver;
 use Yiisoft\Scheduler\Ledger\DbLedger;
 use Yiisoft\Scheduler\Ledger\ExecutionIdentity;
+use Yiisoft\Scheduler\Ledger\ExecutionOutcome;
 use Yiisoft\Scheduler\Ledger\LaunchFact;
 use Yiisoft\Scheduler\Ledger\LedgerCommandInterface;
 use Yiisoft\Scheduler\Ledger\LedgerQueryInterface;
@@ -16,6 +17,7 @@ use Yiisoft\Scheduler\Ledger\ProcessObservation;
 use Yiisoft\Scheduler\Ledger\TransitionStatus;
 
 use function str_repeat;
+use function str_replace;
 use function sys_get_temp_dir;
 use function tempnam;
 use function unlink;
@@ -172,6 +174,62 @@ final class DbLedgerTest extends LedgerContractTestCase
 
         $this->open()->createTable();
         $this->expectNotToPerformAssertions();
+    }
+
+    public function testAFinishedExecutionKeepsItsPlaceUntilTheProcessIsGivenUp(): void
+    {
+        // Whether a record is still open is a column now, so every transition that changes the
+        // answer has to write it: an outcome does not close a record that still holds the
+        // process that ran it, and giving that process up closes one whose outcome is in.
+        $ledger = $this->ledger();
+        $identity = $this->identity();
+
+        $record = $ledger->admit($identity, 'rev-1', $this->at(), $this->at('+1 hour'));
+        $ledger->claim($identity, $record->authority, $this->at());
+        $ledger->recordLaunch($identity, $record->authority, LaunchFact::Started, $this->process(), $this->at());
+        $ledger->recordOutcome($identity, $record->authority, ExecutionOutcome::Done, $this->at('+1 minute'));
+
+        $this->assertCount(1, $ledger->unresolved($identity->source, 10));
+
+        $ledger->releaseProcess($identity, $record->authority, new ProcessObservation(0), $this->at('+2 minutes'));
+
+        $this->assertSame([], $ledger->unresolved($identity->source, 10));
+        $this->assertSame([], $ledger->holdingProcess($identity->source, 10));
+    }
+
+    public function testAnExecutionThatNeverHeldAProcessLeavesTheBacklogWithItsOutcome(): void
+    {
+        // The other half of the same column: an outcome on a record holding nothing is the end
+        // of it, and a record left open here would be recovered forever.
+        $ledger = $this->ledger();
+        $identity = $this->identity();
+
+        $record = $ledger->admit($identity, 'rev-1', $this->at(), $this->at('+1 hour'));
+        $ledger->claim($identity, $record->authority, $this->at());
+        $ledger->recordLaunch($identity, $record->authority, LaunchFact::ProvenNotStarted, null, $this->at());
+        $ledger->recordOutcome($identity, $record->authority, ExecutionOutcome::Failed, $this->at('+1 minute'));
+
+        $this->assertSame([], $ledger->unresolved($identity->source, 10));
+    }
+
+    public function testTheBacklogIndexLeadsWithWhatTheBacklogQueriesAskFor(): void
+    {
+        // The reason the column is stored rather than worked out in the `WHERE`: this is the
+        // index both queries are read from, and a database can seek by a column it has indexed
+        // where it cannot by a phase being anything other than one value.
+        $this->ledger();
+
+        $sql = $this->connection()
+            ->createCommand(
+                "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_scheduler_execution_backlog'",
+            )
+            ->queryScalar();
+
+        $this->assertIsString($sql);
+        $this->assertStringContainsString(
+            '(source_key, unresolved, occurrence, identity_key)',
+            str_replace('"', '', $sql),
+        );
     }
 
     protected function ledger(): LedgerCommandInterface&LedgerQueryInterface

@@ -89,6 +89,11 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
                 'process_pid' => ColumnBuilder::integer(),
                 'process_boot_id' => ColumnBuilder::string(255),
                 'process_started_at' => ColumnBuilder::string(255),
+                // What `unresolved()` asks for, kept beside the two columns it is read from. A
+                // backlog is the few rows still open in a table that only grows, and a database
+                // can seek to them by a column it has indexed, but not by `phase` being anything
+                // other than one value or `process_host` being set.
+                'unresolved' => ColumnBuilder::boolean()->notNull(),
                 'outcome' => ColumnBuilder::string(16),
                 // Whether a release was explained at all, separately from what it said. An
                 // observation carrying neither an exit code nor a signal is an honest one, so
@@ -103,10 +108,16 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
                 'may_have_run_before' => ColumnBuilder::boolean()->notNull(),
             ])->execute();
 
-            // The order every query of this ledger reads in, so that a recovery pass walking a
-            // year of executions in pages reads an index rather than the table.
+            // What every query of this ledger reads: one source's backlog, in the order it
+            // happened. Whether a row is still open comes before that order, so a recovery pass
+            // walking a year of executions in pages reads the rows it wants rather than the
+            // whole history of the source to find them.
             $this->db->createCommand()
-                ->createIndex($this->table, $this->indexName(), ['source_key', 'occurrence', 'identity_key'])
+                ->createIndex(
+                    $this->table,
+                    $this->indexName(),
+                    ['source_key', 'unresolved', 'occurrence', 'identity_key'],
+                )
                 ->execute();
         } catch (Throwable $error) {
             // Two workers setting the ledger up at once both get past the check above, and the
@@ -144,6 +155,7 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
                 'process_pid' => null,
                 'process_boot_id' => null,
                 'process_started_at' => null,
+                'unresolved' => true,
                 'outcome' => null,
                 'observation' => false,
                 'observation_exit_code' => null,
@@ -232,6 +244,12 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
     ): TransitionResult {
         return $this->transition($identity, $authority, true, null, [
             'phase' => ExecutionPhase::Terminal->value,
+            // An outcome does not end the backlog while the process is still held. Read from
+            // `process_host`, which this statement does not write, so the order a driver works
+            // through the assignments in cannot change the answer.
+            'unresolved' => new Expression(
+                $this->db->getQuoter()->quoteColumnName('process_host') . ' IS NOT NULL',
+            ),
             'outcome' => $outcome->value,
             'resolved_at' => self::writeDate($at),
         ]);
@@ -252,6 +270,12 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
             'process_pid' => null,
             'process_boot_id' => null,
             'process_started_at' => null,
+            // Giving up the process ends the backlog only once the outcome is in. Read from
+            // `phase`, which this statement does not write.
+            'unresolved' => new Expression(
+                $this->db->getQuoter()->quoteColumnName('phase') . ' <> :terminal',
+                [':terminal' => ExecutionPhase::Terminal->value],
+            ),
             'observation' => null !== $observation,
             'observation_exit_code' => $observation?->exitCode,
             'observation_signal' => $observation?->signal,
@@ -309,16 +333,18 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
 
     public function unresolved(string $source, int $limit, ?ExecutionIdentity $after = null): array
     {
-        return $this->page($source, $limit, $after, [
-            'or',
-            ['<>', 'phase', ExecutionPhase::Terminal->value],
-            ['not', ['process_host' => null]],
-        ]);
+        return $this->page($source, $limit, $after, ['unresolved' => true]);
     }
 
     public function holdingProcess(string $source, int $limit, ?ExecutionIdentity $after = null): array
     {
-        return $this->page($source, $limit, $after, ['not', ['process_host' => null]]);
+        // Every execution still holding a process is unresolved, so naming that first costs
+        // nothing and lets the same index skip the source's finished history.
+        return $this->page($source, $limit, $after, [
+            'and',
+            ['unresolved' => true],
+            ['not', ['process_host' => null]],
+        ]);
     }
 
     /**
