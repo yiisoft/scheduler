@@ -13,7 +13,7 @@ use SplHeap;
  *
  * @internal
  *
- * @extends SplHeap<array{DateTimeImmutable, int, \Yiisoft\Scheduler\RecurringTask}>
+ * @extends SplHeap<array{DateTimeImmutable, int, \Yiisoft\Scheduler\RecurringTask, bool}>
  */
 final class TriggerHeap extends SplHeap
 {

@@ -13,7 +13,7 @@ return (new Configuration())
     ->addPathToScan(__DIR__ . '/tests', isDev: true)
     // Optional integrations, guarded at runtime and listed in "suggest".
     ->ignoreErrorsOnPackages(
-        ['yiisoft/db', 'yiisoft/mutex', 'yiisoft/queue'],
+        ['symfony/console', 'yiisoft/db', 'yiisoft/mutex', 'yiisoft/queue'],
         [ErrorType::DEV_DEPENDENCY_IN_PROD],
     )
     ->ignoreErrorsOnExtensions(['ext-pcntl', 'ext-posix'], [ErrorType::SHADOW_DEPENDENCY]);
