@@ -324,7 +324,7 @@ final class CronBuilder implements Stringable
      * a callable, or a queue message object. The identifier is the one the same expression
      * written by hand would produce.
      *
-     * @param callable|object|string $task A callable to invoke, a console command name, or a queue message object.
+     * @param callable|object|string $task A command of one of the kinds in {@see Executor}, a callable to invoke, a console command name, or a queue message object.
      */
     public function run(callable|object|string $task): RecurringTask
     {

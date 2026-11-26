@@ -21,7 +21,7 @@ use Yiisoft\Queue\MessageStatus;
 use Yiisoft\Queue\QueueProducerInterface;
 use Yiisoft\Scheduler\Exception\LogicException;
 use Yiisoft\Scheduler\Handler\CallableTaskHandler;
-use Yiisoft\Scheduler\Handler\QueueTaskHandler;
+use Yiisoft\Scheduler\Handler\CommandTaskHandler;
 use Yiisoft\Scheduler\Handler\TaskHandlerInterface;
 use Yiisoft\Scheduler\RecurringTask;
 use Yiisoft\Scheduler\Scheduler;
@@ -159,7 +159,7 @@ final class ConfigTest extends TestCase
     {
         $handler = $this->handlerFactory()(new StubContainer());
 
-        $this->assertInstanceOf(CallableTaskHandler::class, $handler);
+        $this->assertInstanceOf(CommandTaskHandler::class, $handler);
 
         $this->expectException(LogicException::class);
         $this->expectExceptionMessage('a string task is the name of a console command');
@@ -213,7 +213,7 @@ final class ConfigTest extends TestCase
 
         $handler = $this->handlerFactory()($container);
 
-        $this->assertInstanceOf(QueueTaskHandler::class, $handler);
+        $this->assertInstanceOf(CommandTaskHandler::class, $handler);
 
         $handler->handle('report:daily', $this->context());
         $handler->handle(GenericMessage::fromPayload('metrics.collect', []), $this->context());
