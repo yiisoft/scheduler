@@ -100,6 +100,14 @@ final class InMemoryLedger implements LedgerCommandInterface, LedgerQueryInterfa
         ?LaunchDescription $process,
         DateTimeImmutable $at,
     ): TransitionResult {
+        if (LaunchFact::None === $launch) {
+            throw new LogicException(
+                'A launch is reported as started, as proven not to have started, or as unknown.'
+                . ' None of those is "none", which is where an execution begins and says that'
+                . ' nothing has been attempted: reporting it would unsay the attempt.',
+            );
+        }
+
         if ((LaunchFact::Started === $launch) !== (null !== $process)) {
             throw new LogicException(
                 'A started launch is described by its process and any other launch by nothing:'
@@ -165,7 +173,11 @@ final class InMemoryLedger implements LedgerCommandInterface, LedgerQueryInterfa
                 $record,
                 process: null,
                 clearProcess: true,
+                // Written as given, null included: an attempt that released a process nobody
+                // waited on explains nothing, and the observation of the attempt before it
+                // explains a process that is not this one.
                 processObservation: $observation,
+                clearProcessObservation: true,
             ),
         );
     }
@@ -341,6 +353,7 @@ final class InMemoryLedger implements LedgerCommandInterface, LedgerQueryInterfa
         ?int $attempt = null,
         bool $clearProcess = false,
         ?ProcessObservation $processObservation = null,
+        bool $clearProcessObservation = false,
         ?ExecutionOutcome $outcome = null,
         ?DateTimeImmutable $claimedAt = null,
         bool $clearClaimedAt = false,
@@ -358,7 +371,9 @@ final class InMemoryLedger implements LedgerCommandInterface, LedgerQueryInterfa
             outcome: $outcome ?? $record->outcome,
             admittedAt: $record->admittedAt,
             recoveryDeadline: $record->recoveryDeadline,
-            processObservation: $processObservation ?? $record->processObservation,
+            processObservation: $clearProcessObservation
+                ? $processObservation
+                : ($processObservation ?? $record->processObservation),
             claimedAt: $clearClaimedAt ? null : ($claimedAt ?? $record->claimedAt),
             resolvedAt: $resolvedAt ?? $record->resolvedAt,
             mayHaveRunBefore: $mayHaveRunBefore ?? $record->mayHaveRunBefore,

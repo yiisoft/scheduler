@@ -47,10 +47,16 @@ final class ExecutionIdentity
      * the application calls them and either may hold the separator: joined on a colon alone,
      * `a:b` with task `c` and `a` with task `b:c` are one string, and two executions that have
      * nothing to do with each other would share a record.
+     *
+     * 128 bits rather than 64, because this is the key of a table that only grows and a
+     * collision in it is the quietest failure the ledger has: `admit()` would answer with
+     * another occurrence's record, the planner would take it for its own, and the run it was
+     * admitting would be dropped without anything to show for it. Sixty-four bits reach a
+     * percent of that over a decade of a hundred tasks due every minute.
      */
     public function key(): string
     {
-        return hash('xxh3', sprintf(
+        return hash('xxh128', sprintf(
             '%d:%s:%d:%s:%s',
             strlen($this->source),
             $this->source,

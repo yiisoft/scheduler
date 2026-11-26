@@ -6,6 +6,7 @@ namespace Yiisoft\Scheduler\Tests\Ledger;
 
 use DateTimeImmutable;
 use PHPUnit\Framework\TestCase;
+use Yiisoft\Scheduler\Exception\LogicException;
 use Yiisoft\Scheduler\Ledger\ExecutionAuthority;
 use Yiisoft\Scheduler\Ledger\ExecutionIdentity;
 use Yiisoft\Scheduler\Ledger\ExecutionOutcome;
@@ -382,6 +383,46 @@ abstract class LedgerContractTestCase extends TestCase
         $this->assertSame(137, $after?->processObservation?->exitCode);
         $this->assertSame(9, $after?->processObservation?->signal);
         $this->assertNull($after->outcome, 'an exit status is not what the work achieved');
+    }
+
+    public function testAReleaseThatExplainsNothingSaysNothingOfTheProcessBeforeIt(): void
+    {
+        $ledger = $this->ledger();
+        $identity = $this->identity();
+
+        $record = $ledger->admit($identity, 'rev-1', $this->at(), $this->at('+1 hour'));
+        $ledger->claim($identity, $record->authority, $this->at());
+        $ledger->recordLaunch($identity, $record->authority, LaunchFact::Started, $this->process(), $this->at());
+        $ledger->releaseProcess($identity, $record->authority, new ProcessObservation(137, 9), $this->at('+1 minute'));
+
+        $second = $ledger->reauthorize($identity, $record->authority, $this->at('+2 minutes'))->record?->authority;
+
+        $this->assertNotNull($second);
+
+        $ledger->claim($identity, $second, $this->at('+3 minutes'));
+        $ledger->recordLaunch($identity, $second, LaunchFact::Started, $this->process(5151), $this->at('+3 minutes'));
+
+        // Nobody waited on this one, so there is nothing to say about how it ended.
+        $released = $ledger->releaseProcess($identity, $second, null, $this->at('+4 minutes'));
+
+        $this->assertTrue($released->isAccepted());
+        $this->assertNull(
+            $ledger->find($identity)?->processObservation,
+            'the exit status of the attempt before explains a process that is not this one',
+        );
+    }
+
+    public function testNothingAttemptedIsNotALaunchToReport(): void
+    {
+        $ledger = $this->ledger();
+        $identity = $this->identity();
+
+        $record = $ledger->admit($identity, 'rev-1', $this->at(), $this->at('+1 hour'));
+        $ledger->claim($identity, $record->authority, $this->at());
+
+        $this->expectException(LogicException::class);
+
+        $ledger->recordLaunch($identity, $record->authority, LaunchFact::None, null, $this->at());
     }
 
     public function testAnExecutionIsNotLaunchedWithoutTheRightToLaunchIt(): void

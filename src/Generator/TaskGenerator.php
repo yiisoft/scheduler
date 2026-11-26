@@ -60,13 +60,6 @@ final class TaskGenerator
     private ?TriggerHeap $heap = null;
     private int $heapRevision = -1;
     private readonly Checkpoint $checkpoint;
-    /**
-     * The revision of the configuration this schedule was built from: every task's identifier
-     * and the definition behind it. Adding, removing or reordering a task changes it, and so
-     * does redefining one, as far as a task can say that it was redefined. An execution
-     * admitted under one revision keeps saying so.
-     */
-    private readonly string $sourceRevision;
     /** @var array<string, int> Task id to insertion index, ordering the runs of a shared due time. */
     private array $indices = [];
 
@@ -75,7 +68,6 @@ final class TaskGenerator
         private readonly ClockInterface $clock,
     ) {
         $this->checkpoint = new Checkpoint($schedule->getName(), $schedule->getState(), $schedule->getLock());
-        $this->sourceRevision = self::revisionOf($schedule->tasks());
     }
 
     public function getSchedule(): Schedule
@@ -100,6 +92,11 @@ final class TaskGenerator
             $heap = $this->heap();
             /** @var array<string, int> $walked How far this tick has gone into each backlog. */
             $walked = [];
+            // Read here rather than in the constructor: a scheduler builds its generators when
+            // it is built, and a task added to the schedule afterwards is still emitted by this
+            // tick. An occurrence admitted under a revision that does not describe its own task
+            // would send recovery back to the wrong configuration.
+            $revision = self::revisionOf($this->schedule->tasks());
 
             /** @var array{DateTimeImmutable, int, RecurringTask, bool} $entry */
             while (!$heap->isEmpty() && $heap->top()[0] <= $now) {
@@ -138,7 +135,7 @@ final class TaskGenerator
                 // past it: nothing may acknowledge scheduling progress past an occurrence whose
                 // record is not durable yet. A ledger that cannot write throws, the checkpoint
                 // is not reached, and the occurrence stays due for the next process.
-                $this->admit($task->getId(), $time, $now);
+                $this->admit($task->getId(), $time, $now, $revision);
 
                 $context = new TaskContext($this->schedule->getName(), $task->getId(), $task->getTrigger(), $time, $nextTime);
 
@@ -250,8 +247,12 @@ final class TaskGenerator
      * Idempotent by identity, so a process that died between this and the checkpoint below it
      * admits the same occurrence again on the next pass and finds what it already wrote.
      */
-    private function admit(string $taskId, DateTimeImmutable $occurrence, DateTimeImmutable $now): void
-    {
+    private function admit(
+        string $taskId,
+        DateTimeImmutable $occurrence,
+        DateTimeImmutable $now,
+        string $sourceRevision,
+    ): void {
         $ledger = $this->schedule->getLedger();
 
         if (null === $ledger) {
@@ -260,7 +261,7 @@ final class TaskGenerator
 
         $ledger->admit(
             new ExecutionIdentity($this->schedule->getName(), $taskId, $occurrence),
-            $this->sourceRevision,
+            $sourceRevision,
             $now,
             $now->add(new DateInterval(self::RECOVERY_WINDOW)),
         );

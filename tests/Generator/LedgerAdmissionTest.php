@@ -136,6 +136,44 @@ final class LedgerAdmissionTest extends TestCase
         );
     }
 
+    public function testATaskAddedAfterTheSchedulerWasBuiltIsAdmittedUnderARevisionThatDescribesIt(): void
+    {
+        $ledger = new InMemoryLedger();
+        $clock = new TestClock();
+        $cache = new InMemoryCache();
+        $schedule = $this->schedule($cache, $ledger, RecurringTask::every(60, [self::class, 'reportDaily'])->withId('daily'));
+
+        // Built before the schedule is finished, which is what a container does: a scheduler
+        // makes a generator per schedule as it is constructed.
+        $scheduler = new Scheduler([$schedule], new CallableTaskHandler(), $clock);
+
+        $schedule->task(RecurringTask::every(60, [self::class, 'reportWeekly'])->withId('weekly'));
+
+        // The first tick records where the schedule starts; the second has runs behind it.
+        $scheduler->tick();
+        $clock->advance('+10 minutes');
+        $scheduler->tick();
+
+        $admitted = $ledger->unresolved('default', 10);
+        $revisions = [];
+
+        foreach ($admitted as $record) {
+            $revisions[$record->identity->taskId] = $record->sourceRevision;
+        }
+
+        $this->assertArrayHasKey('weekly', $revisions, 'a task added before the tick is still emitted');
+        $this->assertSame(
+            $revisions['daily'],
+            $revisions['weekly'],
+            'one tick admits under one revision, and it is the schedule as the tick found it',
+        );
+        $this->assertNotSame(
+            $this->revisionOf(RecurringTask::every(60, [self::class, 'reportDaily'])->withId('daily')),
+            $revisions['daily'],
+            'the revision describes both tasks, not the one the scheduler was built with',
+        );
+    }
+
     /** Two named pieces of work, which is all the revision reads of them. */
     public static function reportDaily(): void {}
 

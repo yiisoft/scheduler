@@ -69,7 +69,7 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
 
         try {
             $this->db->createCommand()->createTable($this->table, [
-                'identity_key' => ColumnBuilder::string(16)->notNull()->primaryKey(),
+                'identity_key' => ColumnBuilder::string(32)->notNull()->primaryKey(),
                 // The name the application gave, beside the key every query of it is made by.
                 // A source, a task id and a revision are whatever the application calls them,
                 // so none of them has a length to declare here, and comparing the name itself
@@ -77,7 +77,7 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
                 // the database: under a case-insensitive one, which is the default on MySQL,
                 // two schedules named apart would read each other's backlog.
                 'source' => ColumnBuilder::text()->notNull(),
-                'source_key' => ColumnBuilder::string(16)->notNull(),
+                'source_key' => ColumnBuilder::string(32)->notNull(),
                 'task_id' => ColumnBuilder::text()->notNull(),
                 'occurrence' => ColumnBuilder::string(26)->notNull(),
                 'source_revision' => ColumnBuilder::text()->notNull(),
@@ -207,6 +207,14 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
         ?LaunchDescription $process,
         DateTimeImmutable $at,
     ): TransitionResult {
+        if (LaunchFact::None === $launch) {
+            throw new LogicException(
+                'A launch is reported as started, as proven not to have started, or as unknown.'
+                . ' None of those is "none", which is where an execution begins and says that'
+                . ' nothing has been attempted: reporting it would unsay the attempt.',
+            );
+        }
+
         if ((LaunchFact::Started === $launch) !== (null !== $process)) {
             throw new LogicException(
                 'A started launch is described by its process and any other launch by nothing:'
@@ -365,8 +373,9 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
      * allowed at all, beyond not being finished with. It goes in the same `WHERE`, so the
      * database decides it rather than a read taken a moment earlier.
      * @param array<string, mixed>|callable(array<string, mixed>): array<string, mixed> $columns
-     * What to write, or how to work it out from the row as it stands. A callable is read in the
-     * transaction that writes it, and the `WHERE` below still decides whether the write lands.
+     * What to write, or how to work it out from the row as it stands. A callable is given the
+     * row as a read before the write found it, and the `WHERE` below still decides whether the
+     * write lands.
      */
     private function transition(
         ExecutionIdentity $identity,
@@ -388,13 +397,21 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
             $condition[] = $allows;
         }
 
+        if (is_callable($columns)) {
+            // Read before the transaction below rather than inside it. Under REPEATABLE READ,
+            // which is what MySQL gives by default, the first plain `SELECT` of a transaction
+            // fixes what every later read in it sees: the `UPDATE` would match the row as
+            // another connection has just left it while the re-read answered with the row as
+            // it was, and the loser of two concurrent calls would be handed a record still
+            // showing its own authority and told its phase was wrong rather than that it had
+            // been replaced. What is read here only works out the columns; the `WHERE` below
+            // is still what decides, so a row that moved in between matches nothing.
+            $current = $this->row($identity);
+            $columns = null === $current ? [] : $columns($current);
+        }
+
         /** @var TransitionResult */
         return $this->db->transaction(function () use ($identity, $authority, $refuseTerminal, $columns, $condition) {
-            if (is_callable($columns)) {
-                $current = $this->row($identity);
-                $columns = null === $current ? [] : $columns($current);
-            }
-
             $changed = [] === $columns
                 ? 0
                 : $this->db->createCommand()->update($this->table, $columns, $condition)->execute();
@@ -518,7 +535,7 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
      */
     private static function sourceKey(string $source): string
     {
-        return hash('xxh3', $source);
+        return hash('xxh128', $source);
     }
 
     /**

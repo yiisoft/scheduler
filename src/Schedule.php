@@ -216,6 +216,9 @@ final class Schedule
         return $this->ledger;
     }
 
+    /**
+     * @internal
+     */
     public function getState(): ?CacheInterface
     {
         return $this->state;
