@@ -267,13 +267,31 @@ and nothing remembers; the next pass admits the same occurrence again and finds 
 because admission is idempotent. A missed run the schedule is configured to skip is never
 executed, so it is never admitted either.
 
-`InMemoryLedger` implements both interfaces and survives nothing, which makes it the right
-choice for a single process and the wrong one for the recovery a ledger exists for. An
-application keeping executions in its own tables implements `LedgerCommandInterface` and
-`LedgerQueryInterface` itself. Whatever implements them has to pass `LedgerContractTestCase`,
-which is the cases the planner relies on: idempotent admission, an authority that fences the
-attempt it replaced, a first outcome that later observations cannot overwrite, and backlog
-queries bounded and scoped to one source.
+`DbLedger` is the ledger to give it. It keeps the records in a database through
+[yiisoft/db](https://github.com/yiisoft/db), and SQLite is the default because it gives
+transactions without a server to operate:
+
+```shell
+composer require yiisoft/db-sqlite
+```
+
+```php
+use Yiisoft\Db\Sqlite\Connection;
+use Yiisoft\Db\Sqlite\Driver;
+use Yiisoft\Scheduler\Ledger\DbLedger;
+
+$ledger = new DbLedger(new Connection(new Driver('sqlite:' . __DIR__ . '/runtime/schedule.sq3')));
+$ledger->createTable(); // once; an application with migrations writes the table in one instead
+```
+
+Any other driver that package has works the same way. `InMemoryLedger` implements the same two
+interfaces and survives nothing, which makes it the right choice for a single process and the
+wrong one for the recovery a ledger exists for, and an application keeping executions in its own
+tables implements `LedgerCommandInterface` and `LedgerQueryInterface` itself and installs
+neither package. Whatever implements them has to pass `LedgerContractTestCase`, which is the
+cases the planner relies on: idempotent admission, an authority that fences the attempt it
+replaced, a first outcome that later observations cannot overwrite, and backlog queries bounded
+and scoped to one source.
 
 ## Documentation
 

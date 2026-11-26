@@ -2,6 +2,7 @@
 
 ## 1.0.0 under development
 
+- New #29: Add `DbLedger`, the execution ledger kept in a database through `yiisoft/db`, with SQLite as the default store an application gets without operating a database server; every transition is one conditional `UPDATE`, so two planners reaching one execution cannot both change it, and `DbLedgerTest` holds the adapter to the same `LedgerContractTestCase` as every other store (@KalimeroMK)
 - New #20: Add `Schedule::ledger()`: a schedule given one writes the record of an occurrence before it emits it, and its checkpoint moves past an occurrence only once that record is written, so a process that dies between the two leaves work the ledger knows about instead of work the checkpoint has counted and nothing remembers (@KalimeroMK)
 - New #20: Add `RecurringTask::getDefinition()`, what a task's trigger says of itself and the work behind it, so that the revision an occurrence is admitted under changes when a task given an identifier of its own is redefined under it (@KalimeroMK)
 - New #20: Add the execution ledger: `LedgerCommandInterface` and `LedgerQueryInterface` keep a durable record of every admitted occurrence, with the revision it was admitted under, the authority of the attempt holding it, what became of the launch, and the outcome of the work, so that a planner restarting can tell a launch that never began from a worker still running from work that is finished; `InMemoryLedger` implements both and `LedgerContractTestCase` is the contract every other store is held to (@KalimeroMK)

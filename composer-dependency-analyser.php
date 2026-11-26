@@ -12,5 +12,8 @@ return (new Configuration())
     ->addPathToScan(__DIR__ . '/src', isDev: false)
     ->addPathToScan(__DIR__ . '/tests', isDev: true)
     // Optional integrations, guarded at runtime and listed in "suggest".
-    ->ignoreErrorsOnPackages(['yiisoft/mutex', 'yiisoft/queue'], [ErrorType::DEV_DEPENDENCY_IN_PROD])
+    ->ignoreErrorsOnPackages(
+        ['yiisoft/db', 'yiisoft/mutex', 'yiisoft/queue'],
+        [ErrorType::DEV_DEPENDENCY_IN_PROD],
+    )
     ->ignoreErrorsOnExtensions(['ext-pcntl', 'ext-posix'], [ErrorType::SHADOW_DEPENDENCY]);
