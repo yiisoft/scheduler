@@ -224,7 +224,7 @@ final class CronBuilderTest extends TestCase
 
         $next = $task->getTrigger()->getNextRunDate(new DateTimeImmutable('2026-01-01 00:00:00+00:00'));
 
-        $this->assertSame('cron(0 9 * * *)', (string) $task->getTrigger());
+        $this->assertSame('cron(0 9 * * *, Europe/Skopje)', (string) $task->getTrigger());
         $this->assertNotNull($next);
         $this->assertSame('09:00', $next->setTimezone(new DateTimeZone('Europe/Skopje'))->format('H:i'));
     }

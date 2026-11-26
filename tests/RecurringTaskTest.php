@@ -4,11 +4,20 @@ declare(strict_types=1);
 
 namespace Yiisoft\Scheduler\Tests;
 
+use DateInterval;
+use DateTimeImmutable;
+use DateTimeZone;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use stdClass;
 use Yiisoft\Queue\Message\GenericMessage;
 use Yiisoft\Scheduler\Exception\LogicException;
 use Yiisoft\Scheduler\RecurringTask;
 use Yiisoft\Scheduler\Schedule;
+use Yiisoft\Scheduler\Trigger\CronExpressionTrigger;
+use Yiisoft\Scheduler\Trigger\PeriodicTrigger;
+
+use function ini_get;
 
 final class RecurringTaskTest extends TestCase
 {
@@ -54,6 +63,225 @@ final class RecurringTaskTest extends TestCase
         $cache = RecurringTask::cron('*/5 * * * *', GenericMessage::fromPayload('cache.warm', []));
 
         $this->assertNotSame($metrics->getId(), $cache->getId());
+    }
+
+    public function testOneExpressionReadInTwoTimezonesProducesTwoIds(): void
+    {
+        // Nine in the morning in Sydney is not nine in the morning in Skopje, so a schedule
+        // holding both reports is holding two tasks.
+        $sydney = RecurringTask::cron('0 9 * * *', 'report:daily', 'Australia/Sydney');
+        $skopje = RecurringTask::cron('0 9 * * *', 'report:daily', 'Europe/Skopje');
+
+        $this->assertNotSame($sydney->getId(), $skopje->getId());
+        $this->assertCount(2, (new Schedule())->task($sydney, $skopje)->tasks());
+    }
+
+    public function testAnExpressionLeftToTheDefaultTimezoneKeepsOneId(): void
+    {
+        $first = RecurringTask::cron('0 9 * * *', 'report:daily');
+        $second = RecurringTask::cron('0 9 * * *', 'report:daily', null);
+        $third = RecurringTask::cron('0 9 * * *', 'report:daily', '');
+
+        $this->assertSame($first->getId(), $second->getId());
+        $this->assertSame($first->getId(), $third->getId());
+    }
+
+    /**
+     * The identifiers a stateful schedule already holds, written down. A task whose identifier
+     * changes reads as one the checkpoint has never seen and starts from the position of the
+     * schedule, so every value here is a migration for everyone running the package: it is
+     * changed deliberately, with a line in UPGRADE.md, or not at all.
+     */
+    #[DataProvider('identifiersThatMustNotChange')]
+    public function testIdentifiersThatMustNotChange(string $expected, RecurringTask $task): void
+    {
+        $this->assertSame($expected, $task->getId());
+    }
+
+    public static function identifiersThatMustNotChange(): iterable
+    {
+        yield 'cron, default timezone' => ['f3645913a0aa7449', RecurringTask::cron('0 9 * * *', 'report:daily')];
+        yield 'cron, built a field at a time' => ['5ab39a1ccc97d6e9', RecurringTask::daily()->at('05:00')->run('report:daily')];
+        yield 'interval in seconds' => ['831e6f675fcb6d43', RecurringTask::every(60, 'app:task')];
+        yield 'interval as a string' => ['dfbcbdc6b2ba3a64', RecurringTask::every('5 minutes', 'app:task')];
+        yield 'cron trigger passed by hand' => [
+            '954fd553f8cad86c',
+            RecurringTask::trigger(new CronExpressionTrigger('0 9 * * *'), 'report:daily'),
+        ];
+        yield 'periodic trigger passed by hand' => [
+            '3b428e56bb5a116e',
+            RecurringTask::trigger(new PeriodicTrigger(60), 'app:task'),
+        ];
+    }
+
+    public function testAFloatInAPayloadIsWrittenTheSameWayAtAnyPrecisionSetting(): void
+    {
+        // var_export() writes a float at the precision of this setting, which would give one
+        // payload two identifiers on two hosts, and at six digits would write 0.3 and 0.1 + 0.2
+        // as one value.
+        $precision = ini_get('serialize_precision');
+
+        try {
+            $payload = ['a' => 0.3, 'b' => 0.1 + 0.2];
+
+            ini_set('serialize_precision', '-1');
+            $full = RecurringTask::cron('* * * * *', GenericMessage::fromPayload('t', $payload))->getId();
+
+            ini_set('serialize_precision', '6');
+            $short = RecurringTask::cron('* * * * *', GenericMessage::fromPayload('t', $payload))->getId();
+
+            $this->assertSame($full, $short);
+
+            $three = RecurringTask::cron('* * * * *', GenericMessage::fromPayload('t', ['a' => 0.3]))->getId();
+            $sum = RecurringTask::cron('* * * * *', GenericMessage::fromPayload('t', ['a' => 0.1 + 0.2]))->getId();
+
+            $this->assertNotSame($three, $sum);
+        } finally {
+            ini_set('serialize_precision', false === $precision ? '-1' : $precision);
+        }
+    }
+
+    public function testAFloatIsNotTheIntegerOfTheSameValue(): void
+    {
+        $float = RecurringTask::cron('* * * * *', GenericMessage::fromPayload('t', ['a' => 1.0]));
+        $integer = RecurringTask::cron('* * * * *', GenericMessage::fromPayload('t', ['a' => 1]));
+
+        $this->assertNotSame($float->getId(), $integer->getId());
+    }
+
+    public function testAPayloadThatIsNotAnArrayTellsTwoTasksApart(): void
+    {
+        $scalar = RecurringTask::cron('* * * * *', GenericMessage::fromPayload('t', 'a'));
+        $other = RecurringTask::cron('* * * * *', GenericMessage::fromPayload('t', 'b'));
+        $nothing = RecurringTask::cron('* * * * *', GenericMessage::fromPayload('t', null));
+
+        $this->assertNotSame($scalar->getId(), $other->getId());
+        $this->assertNotSame($scalar->getId(), $nothing->getId());
+    }
+
+    public function testAnObjectInAPayloadIsRejectedWhereItSits(): void
+    {
+        // What an object is cannot be written the same way twice, so it cannot stand in an
+        // identifier. Before, it reached var_export() and the task could not be built at all.
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage("the value at ['o']['deep'] is of type \"stdClass\"");
+
+        RecurringTask::cron('* * * * *', GenericMessage::fromPayload('t', ['o' => ['deep' => new stdClass()]]));
+    }
+
+    public function testIntervalsCountedFromDifferentAnchorsProduceDifferentIds(): void
+    {
+        $january = new PeriodicTrigger(3600, new DateTimeImmutable('2026-01-01 00:00:00'));
+        $june = new PeriodicTrigger(3600, new DateTimeImmutable('2026-06-01 00:00:00'));
+
+        $this->assertNotSame(
+            RecurringTask::trigger($january, 'app:task')->getId(),
+            RecurringTask::trigger($june, 'app:task')->getId(),
+        );
+    }
+
+    public function testAnIntervalThatStopsIsNotTheOneThatNeverStops(): void
+    {
+        $bounded = new PeriodicTrigger(3600, null, new DateTimeImmutable('2026-06-01 00:00:00'));
+        $endless = new PeriodicTrigger(3600);
+
+        $this->assertNotSame(
+            RecurringTask::trigger($bounded, 'app:task')->getId(),
+            RecurringTask::trigger($endless, 'app:task')->getId(),
+        );
+    }
+
+    public function testOneAnchorInTwoTimezonesProducesTwoIds(): void
+    {
+        // The same instant, but a calendar interval follows the calendar of its anchor: after
+        // the March change the two fall due an hour apart.
+        $named = new PeriodicTrigger(new DateInterval('P1D'), new DateTimeImmutable('2026-01-01 00:00:00', new DateTimeZone('Europe/Skopje')));
+        $offset = new PeriodicTrigger(new DateInterval('P1D'), new DateTimeImmutable('2026-01-01 00:00:00', new DateTimeZone('+01:00')));
+
+        $after = new DateTimeImmutable('2026-03-31 12:00:00', new DateTimeZone('UTC'));
+
+        $this->assertNotEquals($named->getNextRunDate($after), $offset->getNextRunDate($after));
+        $this->assertNotSame(
+            RecurringTask::trigger($named, 'app:task')->getId(),
+            RecurringTask::trigger($offset, 'app:task')->getId(),
+        );
+    }
+
+    public function testAnAnchorAndAnEndDateBothReachTheId(): void
+    {
+        $until = new DateTimeImmutable('2026-06-01 00:00:00');
+
+        $both = new PeriodicTrigger(3600, new DateTimeImmutable('2026-01-01 00:00:00'), $until);
+        $endOnly = new PeriodicTrigger(3600, null, $until);
+
+        $this->assertNotSame(
+            RecurringTask::trigger($both, 'app:task')->getId(),
+            RecurringTask::trigger($endOnly, 'app:task')->getId(),
+        );
+    }
+
+    public function testAPayloadKeyCannotReadAsTheEndOfItsOwnEntry(): void
+    {
+        // Were the key not written out the way a value is, "a=1,b" holding 2 would describe
+        // exactly as "a" holding 1 next to "b" holding 2.
+        $two = RecurringTask::cron('* * * * *', GenericMessage::fromPayload('t', ['a' => 1, 'b' => 2]));
+        $one = RecurringTask::cron('* * * * *', GenericMessage::fromPayload('t', ['a=1,b' => 2]));
+
+        $this->assertNotSame($two->getId(), $one->getId());
+    }
+
+    public function testPayloadKeysThatPhpWouldCompareEqualAreStillOrderedTheSameWay(): void
+    {
+        // "01" and 1 compare equal the way PHP sorts by default, which would leave each payload
+        // in the order it happened to be written in.
+        $first = RecurringTask::cron('* * * * *', GenericMessage::fromPayload('t', ['01' => 'x', 1 => 'y']));
+        $second = RecurringTask::cron('* * * * *', GenericMessage::fromPayload('t', [1 => 'y', '01' => 'x']));
+
+        $this->assertSame($first->getId(), $second->getId());
+    }
+
+    public function testMessagesOfOneTypeCarryingDifferentPayloadsProduceDifferentIds(): void
+    {
+        $first = RecurringTask::cron('*/5 * * * *', GenericMessage::fromPayload('report.send', ['to' => 'a@example.com']));
+        $second = RecurringTask::cron('*/5 * * * *', GenericMessage::fromPayload('report.send', ['to' => 'b@example.com']));
+
+        $this->assertNotSame($first->getId(), $second->getId());
+    }
+
+    public function testOnePayloadWrittenInTwoOrdersProducesOneId(): void
+    {
+        $first = RecurringTask::cron('*/5 * * * *', GenericMessage::fromPayload('report.send', ['x' => 1, 'y' => [2, 3]]));
+        $second = RecurringTask::cron('*/5 * * * *', GenericMessage::fromPayload('report.send', ['y' => [2, 3], 'x' => 1]));
+
+        $this->assertSame($first->getId(), $second->getId());
+    }
+
+    public function testAKeyAndItsValueCannotRunTogetherIntoOneDescription(): void
+    {
+        // Without something between the key and the value, "a1" holding 2 and "a" holding 12
+        // would be written the same way and the two tasks would be one.
+        $first = RecurringTask::cron('*/5 * * * *', GenericMessage::fromPayload('report.send', ['a1' => 2]));
+        $second = RecurringTask::cron('*/5 * * * *', GenericMessage::fromPayload('report.send', ['a' => 12]));
+
+        $this->assertNotSame($first->getId(), $second->getId());
+    }
+
+    public function testPayloadsCarryingOneValueUnderDifferentKeysProduceDifferentIds(): void
+    {
+        $region = RecurringTask::cron('*/5 * * * *', GenericMessage::fromPayload('report.send', ['region' => 1]));
+        $tenant = RecurringTask::cron('*/5 * * * *', GenericMessage::fromPayload('report.send', ['tenant' => 1]));
+
+        $this->assertNotSame($region->getId(), $tenant->getId());
+    }
+
+    public function testPayloadsThatDifferOnlyInWhereTheirNestingStartsProduceDifferentIds(): void
+    {
+        // Without the brackets around a nested payload, both of these would be written as one
+        // flat run of keys and values.
+        $outside = RecurringTask::cron('*/5 * * * *', GenericMessage::fromPayload('report.send', ['a' => ['b' => 1], 'c' => 2]));
+        $inside = RecurringTask::cron('*/5 * * * *', GenericMessage::fromPayload('report.send', ['a' => ['b' => 1, 'c' => 2]]));
+
+        $this->assertNotSame($outside->getId(), $inside->getId());
     }
 
     public function testWithIdReplacesTheGeneratedId(): void
