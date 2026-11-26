@@ -12,8 +12,10 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Throwable;
 use Yiisoft\Scheduler\Scheduler;
+use Yiisoft\Scheduler\TaskContext;
 
 use function extension_loaded;
+use function getmypid;
 use function get_debug_type;
 use function is_numeric;
 use function is_scalar;
@@ -36,6 +38,22 @@ final class WorkCommand extends Command implements SignalableCommandInterface
      * An error caught in the signal handler, rethrown once the loop has finished.
      */
     private ?Throwable $failure = null;
+
+    /**
+     * What the terminal is told the daemon is doing. Built once the output is known, and
+     * kept because the signal handler refreshes it between ticks. Null until the command
+     * runs, because a signal can reach the handler of a command that never started.
+     */
+    private ?ProgramStatus $status = null;
+
+    /**
+     * Whether the daemon is on its way out. A child ending during the shutdown must not put
+     * the record back to the work the daemon is no longer taking on.
+     */
+    private bool $stopping = false;
+
+    /** The process the record belongs to: a forked task is not it. */
+    private int|false $owner = false;
 
     public function __construct(
         private readonly Scheduler $scheduler,
@@ -64,6 +82,12 @@ final class WorkCommand extends Command implements SignalableCommandInterface
             InputOption::VALUE_REQUIRED,
             'The most task processes to run at once. Unlimited by default.',
         );
+        $this->addOption(
+            'no-program-status',
+            null,
+            InputOption::VALUE_NONE,
+            'Do not tell the terminal what the scheduler is doing.',
+        );
     }
 
     public function getSubscribedSignals(): array
@@ -86,9 +110,14 @@ final class WorkCommand extends Command implements SignalableCommandInterface
                 $this->scheduler->stop();
             }
 
+            // A task that failed does not end the daemon, and must not report it as stopped.
+            $this->refresh($this->doing());
+
             return false;
         }
 
+        $this->status?->working('Stopping, waiting for the running tasks.');
+        $this->stopping = true;
         $this->scheduler->stop();
 
         return false;
@@ -96,16 +125,22 @@ final class WorkCommand extends Command implements SignalableCommandInterface
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
+        $this->status = ProgramStatus::of($output, !$input->getOption('no-program-status'));
+        $this->owner = getmypid();
+
         /** @var mixed $sleep */
         $sleep = $input->getOption('sleep');
 
         // A non-numeric or non-positive value would silently cast to zero and spin the loop
         // at full speed instead of sleeping between ticks.
         if (!is_numeric($sleep) || (float) $sleep <= 0) {
-            $output->writeln(sprintf(
-                '<error>The --sleep option must be a number greater than zero, "%s" given.</error>',
+            $message = sprintf(
+                'The --sleep option must be a number greater than zero, "%s" given.',
                 is_scalar($sleep) ? (string) $sleep : get_debug_type($sleep),
-            ));
+            );
+
+            $output->writeln(sprintf('<error>%s</error>', $message));
+            $this->status->error($message);
 
             return Command::INVALID;
         }
@@ -116,28 +151,98 @@ final class WorkCommand extends Command implements SignalableCommandInterface
         // A fractional or non-positive limit would round down to a count no task fits in,
         // leaving the loop waiting for a slot that never frees.
         if (null !== $maxProcesses && (!is_numeric($maxProcesses) || (float) $maxProcesses < 1 || (float) (int) $maxProcesses !== (float) $maxProcesses)) {
-            $output->writeln(sprintf(
-                '<error>The --max-processes option must be a whole number greater than zero, "%s" given.</error>',
+            $message = sprintf(
+                'The --max-processes option must be a whole number greater than zero, "%s" given.',
                 is_scalar($maxProcesses) ? (string) $maxProcesses : get_debug_type($maxProcesses),
-            ));
+            );
+
+            $output->writeln(sprintf('<error>%s</error>', $message));
+            $this->status->error($message);
 
             return Command::INVALID;
         }
 
         $output->writeln('<info>Scheduler started.</info>');
 
-        $this->scheduler->run(
-            (float) $sleep,
-            !(bool) $input->getOption('sequential'),
-            null === $maxProcesses ? null : (int) $maxProcesses,
-        );
+        $this->reportWork();
+
+        // A daemon between runs looks exactly like a dead one from the outside, which is the
+        // state worth reporting: the terminal drops a working record when the process ends.
+        $this->status->working($this->doing());
+
+        try {
+            $this->scheduler->run(
+                (float) $sleep,
+                !(bool) $input->getOption('sequential'),
+                null === $maxProcesses ? null : (int) $maxProcesses,
+            );
+        } catch (Throwable $error) {
+            $this->status->error($error->getMessage());
+
+            throw $error;
+        }
 
         if (null !== $this->failure) {
+            $this->status->error($this->failure->getMessage());
+
             throw $this->failure;
         }
 
         $output->writeln('<info>Scheduler stopped.</info>');
+        $this->status->done('Scheduler stopped.');
 
         return Command::SUCCESS;
+    }
+
+    /**
+     * Follows the record of what the daemon is doing through the work of a tick, which the
+     * loop itself does not report: the listeners of a schedule are the one point inside it
+     * this command has. A listener added here lives as long as the process does, which is
+     * the whole of this command.
+     */
+    private function reportWork(): void
+    {
+        foreach ($this->scheduler->getSchedules() as $schedule) {
+            $schedule
+                ->before(function (TaskContext $context): void {
+                    $this->refresh(sprintf('Running task %s.', $context->taskId));
+                })
+                ->after(function (): void {
+                    $this->refresh($this->doing());
+                })
+                ->onFailure(function (): void {
+                    $this->refresh($this->doing());
+                });
+        }
+    }
+
+    /**
+     * Brings the record up to date, where it is still this process's to report.
+     *
+     * A forked task runs the listeners of its schedule as well, and the daemon is not its to
+     * describe; a shutdown has already said what it is doing and is not taking work on.
+     */
+    private function refresh(string $message): void
+    {
+        if ($this->stopping || getmypid() !== $this->owner) {
+            return;
+        }
+
+        $this->status?->working($message);
+    }
+
+    /**
+     * What the daemon is doing, as far as it can say between two ticks.
+     *
+     * Only what is already in hand: the time of the next run would have to be read from the
+     * checkpoint, which takes the schedule lock and can fail, and this is called from a
+     * signal handler. A date written once would also go stale where nothing refreshes it,
+     * which is a daemon running its tasks one after another, or any host without ext-pcntl:
+     * there is no child to end and no signal to refresh on. A time in the past reads exactly
+     * like the dead scheduler this is here to tell apart from a live one.
+     */
+    private function doing(): string
+    {
+        return $this->scheduler->hasRunningChildren() ? 'Running a task.' : 'Waiting for the next run.';
     }
 }

@@ -41,6 +41,7 @@ final class OptionalDependenciesTest extends TestCase
                 // where the package is absent.
                 'config/di.php',
                 'src/Command/ListCommand.php',
+                'src/Command/ProgramStatus.php',
                 'src/Command/RunCommand.php',
                 'src/Command/WorkCommand.php',
                 'src/Handler/ConsoleTaskHandler.php',
