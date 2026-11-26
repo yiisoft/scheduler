@@ -8,7 +8,7 @@ use DateInterval;
 use DateTimeImmutable;
 use Psr\SimpleCache\CacheInterface;
 use Throwable;
-use Yiisoft\Mutex\MutexInterface;
+use Yiisoft\Scheduler\Lock\LockInterface;
 use Yiisoft\Scheduler\Exception\LockTimeoutException;
 use Yiisoft\Scheduler\Exception\RuntimeException;
 use Yiisoft\Scheduler\TaskStatus;
@@ -84,11 +84,11 @@ final class Checkpoint
     public function __construct(
         private readonly string $scheduleName,
         private readonly ?CacheInterface $cache = null,
-        private readonly ?MutexInterface $mutex = null,
+        private readonly ?LockInterface $lock = null,
     ) {}
 
     /**
-     * Acquires the schedule mutex, if any. Returns false when another process holds it. The state
+     * Acquires the schedule lock, if any. Returns false when another process holds it. The state
      * is re-read each time: another process may have advanced it while this one stood by.
      *
      * @param list<string> $taskIds Ids of the tasks of the schedule as it stands now, so a task
@@ -96,16 +96,16 @@ final class Checkpoint
      */
     public function acquire(array $taskIds): bool
     {
-        if (null !== $this->mutex && !$this->mutex->acquire(0)) {
+        if (null !== $this->lock && !$this->lock->acquire(0)) {
             return false;
         }
 
         $this->taskIds = $taskIds;
 
-        $this->locked = null !== $this->mutex;
+        $this->locked = null !== $this->lock;
 
         // The caller only releases what it was told it acquired, so state that cannot be read
-        // must not leave the mutex behind.
+        // must not leave the lock behind.
         try {
             $this->load();
         } catch (Throwable $error) {
@@ -123,11 +123,11 @@ final class Checkpoint
         return $this->revision;
     }
 
-    /** Releases the mutex, if held. The checkpoint itself is persisted as it is recorded. */
+    /** Releases the lock, if held. The checkpoint itself is persisted as it is recorded. */
     public function release(): void
     {
         if ($this->locked) {
-            $this->mutex?->release();
+            $this->lock?->release();
             $this->locked = false;
         }
     }
@@ -436,7 +436,7 @@ final class Checkpoint
      *
      * A tick holds the lock from the moment it starts generating, and a sequential run is
      * resolved inside that, so the lock is taken here only when this process is not already
-     * holding it: a mutex is not reentrant and taking it twice would wait on this process.
+     * holding it: a lock is not reentrant and taking it twice would wait on this process.
      *
      * @template T
      *
@@ -446,14 +446,14 @@ final class Checkpoint
      */
     private function exclusively(callable $operation): mixed
     {
-        if ($this->locked || null === $this->mutex) {
+        if ($this->locked || null === $this->lock) {
             return $operation();
         }
 
         // Waiting, unlike the tick, which moves on to let another process run the schedule: what
         // became of a run that already happened has to be recorded, and whoever holds the lock
         // holds it for a read and a write.
-        if (!$this->mutex->acquire(self::WRITE_LOCK_TIMEOUT_SECONDS)) {
+        if (!$this->lock->acquire(self::WRITE_LOCK_TIMEOUT_SECONDS)) {
             throw new LockTimeoutException(sprintf(
                 'Unable to record the outcome of a run of schedule "%s": the schedule lock was held'
                 . ' for longer than %d seconds.',
@@ -468,7 +468,7 @@ final class Checkpoint
             return $operation();
         } finally {
             $this->locked = false;
-            $this->mutex->release();
+            $this->lock->release();
         }
     }
 

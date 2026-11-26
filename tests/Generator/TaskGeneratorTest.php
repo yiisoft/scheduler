@@ -9,11 +9,12 @@ use DateTimeImmutable;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\RequiresPhpExtension;
 use PHPUnit\Framework\TestCase;
-use Yiisoft\Mutex\MutexInterface;
 use Yiisoft\Scheduler\Exception\LockTimeoutException;
 use Yiisoft\Scheduler\Exception\RuntimeException;
 use Yiisoft\Scheduler\Generator\TaskGenerator;
 use Yiisoft\Scheduler\Handler\CallableTaskHandler;
+use Yiisoft\Scheduler\Lock\LockInterface;
+use Yiisoft\Scheduler\Lock\MutexLock;
 use Yiisoft\Scheduler\RecurringTask;
 use Yiisoft\Scheduler\Schedule;
 use Yiisoft\Scheduler\Scheduler;
@@ -769,7 +770,7 @@ final class TaskGeneratorTest extends TestCase
         // Rereading the record is not enough on its own: between that read and the write,
         // another scheduler can finish a later run of the same task, and the write would then
         // put the record back where that run started.
-        $mutex = new class implements MutexInterface {
+        $lock = new class implements LockInterface {
             public int $acquired = 0;
             public int $released = 0;
             private bool $held = false;
@@ -795,7 +796,7 @@ final class TaskGeneratorTest extends TestCase
         $cache = new InMemoryCache();
         $clock = new TestClock();
         $task = static fn() => null;
-        $schedule = $this->schedule($cache, [$task])->lock($mutex);
+        $schedule = $this->schedule($cache, [$task])->lock($lock);
 
         $generator = new TaskGenerator($schedule, $clock);
         $this->assertNotNull($generator->getNextRunDate());
@@ -810,14 +811,14 @@ final class TaskGeneratorTest extends TestCase
         $this->assertNotNull($claimed);
 
         // The tick took the lock and gave it back; each of these takes it again on its own.
-        $taken = $mutex->acquired;
+        $taken = $lock->acquired;
 
         $generator->markStarted($claimed);
-        $this->assertSame($taken + 1, $mutex->acquired);
+        $this->assertSame($taken + 1, $lock->acquired);
 
         $generator->resolve($claimed, TaskStatus::Done);
-        $this->assertSame($taken + 2, $mutex->acquired);
-        $this->assertSame($mutex->acquired, $mutex->released, 'the lock is given back every time');
+        $this->assertSame($taken + 2, $lock->acquired);
+        $this->assertSame($lock->acquired, $lock->released, 'the lock is given back every time');
     }
 
     public function testAnOutcomeIsNotRecordedWhileAnotherProcessHoldsTheLock(): void
@@ -826,7 +827,7 @@ final class TaskGeneratorTest extends TestCase
         $cache = new InMemoryCache();
         $clock = new TestClock();
         $task = static fn() => null;
-        $schedule = $this->schedule($cache, [$task])->lock($mutex);
+        $schedule = $this->schedule($cache, [$task])->lock(new MutexLock($mutex));
 
         $generator = new TaskGenerator($schedule, $clock);
         $this->assertNotNull($generator->getNextRunDate());

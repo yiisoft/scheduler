@@ -36,7 +36,7 @@ final class TaskGenerator
         private readonly Schedule $schedule,
         private readonly ClockInterface $clock,
     ) {
-        $this->checkpoint = new Checkpoint($schedule->getName(), $schedule->getState(), $schedule->getMutex());
+        $this->checkpoint = new Checkpoint($schedule->getName(), $schedule->getState(), $schedule->getLock());
     }
 
     public function getSchedule(): Schedule
@@ -115,7 +115,7 @@ final class TaskGenerator
      * The soonest pending run of the schedule, if any.
      *
      * The daemon loop sleeps until this date instead of polling on a fixed interval. When the
-     * schedule mutex is held by another process, null is returned: that process is the one
+     * schedule lock is held by another process, null is returned: that process is the one
      * driving the schedule, so there is nothing here to wake up for.
      */
     public function getNextRunDate(): ?DateTimeImmutable
