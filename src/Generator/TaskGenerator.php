@@ -86,7 +86,7 @@ final class TaskGenerator
                     }
 
                     if ($advance) {
-                        if ($walked[$task->getId()] < $limit) {
+                        if ($walked[$task->getId()] < $limit || $this->isNewestDue($task, $nextTime, $now)) {
                             $heap->insert([$nextTime, $index, $task, true]);
                         } else {
                             // The task is left with a backlog, while the runs held here are the
@@ -100,6 +100,7 @@ final class TaskGenerator
                             $this->heap = null;
                         }
                     }
+
 
                     // A run of this task is due after this one, so this one was missed: the
                     // scheduler reached it only once the next had already come round.
@@ -221,6 +222,25 @@ final class TaskGenerator
         }
 
         return array_map(static fn(RecurringTask $task): string => $task->getId(), $this->schedule->tasks());
+    }
+
+    /**
+     * Whether this run is the newest one due of the task: the one the scheduler would be making
+     * had it been there, rather than one of the runs it was away for.
+     *
+     * The bound counts the runs a task missed, and the newest run due is not one of them. A
+     * tick stopping at its bound therefore still makes it, so that a task with a small bound
+     * catches up to now in the tick that reaches now rather than one tick later.
+     */
+    private function isNewestDue(RecurringTask $task, DateTimeImmutable $time, DateTimeImmutable $now): bool
+    {
+        if ($time > $now) {
+            return false;
+        }
+
+        $next = $task->getTrigger()->getNextRunDate($time);
+
+        return null === $next || $next > $now;
     }
 
     private function heap(): TriggerHeap

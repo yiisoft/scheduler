@@ -1008,8 +1008,9 @@ final class TaskGeneratorTest extends TestCase
         $scheduler->tick();
         $ran = 0;
 
-        // One second past the bound, so one run of the backlog is left over.
-        $clock->advance('+10001 seconds');
+        // Two seconds past the bound: one missed run is left over, and the run due now behind
+        // it, which the bound does not hold back and which this tick cannot reach either way.
+        $clock->advance('+10002 seconds');
         $scheduler->tick();
 
         $this->assertSame(10_000, $ran, 'a tick stops at the bound');
@@ -1017,7 +1018,7 @@ final class TaskGeneratorTest extends TestCase
         // The same scheduler, with nothing else writing: the remainder is its own to pick up.
         $scheduler->tick();
 
-        $this->assertSame(10_001, $ran, 'the tick after it carries on from the checkpoint');
+        $this->assertSame(10_002, $ran, 'the tick after it carries on from the checkpoint');
     }
 
     /**

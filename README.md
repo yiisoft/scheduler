@@ -390,7 +390,7 @@ use Yiisoft\Scheduler\MissedRuns;
 $schedule
     // The default. Every missed run runs, oldest first, at most 10,000 of them in one tick.
     ->task(RecurringTask::everyFiveMinutes()->run($reconcile)->withMissedRuns(MissedRuns::All))
-    // The same, bounded to what one tick should spend on this task.
+    // The same, bounded to a hundred missed runs for one tick to replay.
     ->task(RecurringTask::everyMinute()->run($collect)->withMissedRuns(MissedRuns::All, 100))
     // Only the newest run due. Worth doing once, however long it was not done.
     ->task(RecurringTask::everyFiveMinutes()->run($refresh)->withMissedRuns(MissedRuns::Last))
@@ -412,6 +412,12 @@ What holds for all three:
   the schedule starts and emits nothing before it, however old the clock is;
 - what a bounded tick does not reach stays behind the checkpoint, and the next tick carries on
   from there — in the same process or in another one;
+- a bound counts the runs a task missed, and the run due now is not one of them: a tick that
+  reaches it makes it even though the bound was already reached, so a task given a small bound
+  catches up to now in the tick that gets there rather than one tick later;
+- a task answering `Last` or `Skip` still walks the backlog it is not running, because walking
+  it is what moves the checkpoint past it. A long outage is therefore walked a bound at a time,
+  and the newest run due arrives once the walk reaches it;
 - the answer covers runs nobody has taken yet. A run claimed by a process that went away before
   saying what became of it is handed back once its reclaim window runs out, whatever the answer
   was: it was admitted, so what is left of it belongs to recovery rather than to catching up;

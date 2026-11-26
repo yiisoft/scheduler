@@ -124,14 +124,15 @@ final class MissedRunsTest extends TestCase
 
         $this->assertCount(2, $ran, 'a tick stops at its limit');
 
-        // Nothing is lost: the next tick seeds from the checkpoint and carries on.
+        // Nothing is lost: the next tick seeds from the checkpoint and carries on. It reaches
+        // the run due now, which the limit does not hold back, so the backlog is drained here.
         $scheduler->tick();
 
-        $this->assertCount(4, $ran);
+        $this->assertCount(5, $ran, 'two more missed runs, and the run due now behind them');
 
         $scheduler->tick();
 
-        $this->assertCount(5, $ran, 'the backlog is drained, and the newest run is the last of it');
+        $this->assertCount(5, $ran, 'nothing is due that was not already made');
     }
 
     public function testTheRemainderOfAReplayOutlivesTheProcessThatDidNotReachIt(): void
@@ -156,7 +157,7 @@ final class MissedRunsTest extends TestCase
         // Another process entirely, reading the same checkpoint.
         $build()->tick();
 
-        $this->assertSame(4, $ran);
+        $this->assertSame(5, $ran);
     }
 
     public function testAScheduleWithNoCheckpointDoesNotReplayAHistoryItWasNotThereFor(): void
@@ -274,6 +275,27 @@ final class MissedRunsTest extends TestCase
             $ran,
             'the claimed run is admitted work and comes back; the runs missed behind it are the answer\'s to drop',
         );
+    }
+
+    public function testTheRunDueNowIsNotHeldBackByTheLimit(): void
+    {
+        $clock = new TestClock();
+        $cache = new InMemoryCache();
+        $ran = 0;
+
+        // Two runs are missed and a third is due now, against a limit of two: the limit counts
+        // the runs the task missed, and the one due now is not one of them.
+        $task = RecurringTask::cron('* * * * *', static function () use (&$ran): void {
+            ++$ran;
+        })->withMissedRuns(MissedRuns::All, 2);
+
+        $scheduler = new Scheduler([(new Schedule())->stateful($cache)->task($task)], new CallableTaskHandler(), $clock);
+
+        $scheduler->tick();
+        $clock->advance('+3 minutes');
+        $scheduler->tick();
+
+        $this->assertSame(3, $ran, 'the two missed runs, and the run due now behind them');
     }
 
     /**
