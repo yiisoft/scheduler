@@ -7,6 +7,7 @@ namespace Yiisoft\Scheduler\Tests;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Yiisoft\Scheduler\Exception\LogicException;
+use Yiisoft\Scheduler\Generator\TaskGenerator;
 use Yiisoft\Scheduler\Handler\CallableTaskHandler;
 use Yiisoft\Scheduler\MissedRuns;
 use Yiisoft\Scheduler\RecurringTask;
@@ -237,6 +238,42 @@ final class MissedRunsTest extends TestCase
         $this->expectExceptionMessage('must be positive');
 
         (new Schedule())->missedRuns(MissedRuns::All, 0);
+    }
+
+    public function testARunAlreadyClaimedIsHandedOutAgainWhateverTheAnswerWas(): void
+    {
+        $clock = new TestClock();
+        $cache = new InMemoryCache();
+        $ran = 0;
+
+        $task = RecurringTask::every(60, static function () use (&$ran): void {
+            ++$ran;
+        })->withId('minute')->withMissedRuns(MissedRuns::Skip);
+
+        $schedule = (new Schedule())->stateful($cache)->reclaimAfter(1)->task($task);
+        $handler = new CallableTaskHandler();
+
+        (new Scheduler([$schedule], $handler, $clock))->tick();
+        $clock->advance('+1 minute');
+
+        // A process takes the run that is due and ends without saying what became of it.
+        $generator = new TaskGenerator($schedule, $clock);
+
+        foreach ($generator->getTasks() as $_) {
+            break;
+        }
+
+        unset($generator);
+        $this->assertSame(0, $ran, 'the run was claimed by the process that went away');
+
+        $clock->advance('+3 minutes');
+        (new Scheduler([$schedule], $handler, $clock))->tick();
+
+        $this->assertSame(
+            1,
+            $ran,
+            'the claimed run is admitted work and comes back; the runs missed behind it are the answer\'s to drop',
+        );
     }
 
     /**

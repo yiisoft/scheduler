@@ -412,6 +412,9 @@ What holds for all three:
   the schedule starts and emits nothing before it, however old the clock is;
 - what a bounded tick does not reach stays behind the checkpoint, and the next tick carries on
   from there — in the same process or in another one;
+- the answer covers runs nobody has taken yet. A run claimed by a process that went away before
+  saying what became of it is handed back once its reclaim window runs out, whatever the answer
+  was: it was admitted, so what is left of it belongs to recovery rather than to catching up;
 - the answer is not part of the task's identifier, so changing it leaves the runs already
   recorded where they are rather than behind a task nobody owns.
 

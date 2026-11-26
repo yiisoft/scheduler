@@ -70,6 +70,11 @@ final class TaskGenerator
                 $entry = $heap->extract();
                 [$time, $index, $task, $advance] = $entry;
 
+                // An entry the generator walked to from the checkpoint is a run nobody has
+                // taken yet, and what becomes of it is the task's answer to make. One that is
+                // not ($advance is false) is a run claimed by a process that did not resolve
+                // it: already admitted work, which belongs to recovery rather than to catch-up,
+                // so it is handed out whatever the answer was.
                 $yield = true;
                 $nextTime = $task->getTrigger()->getNextRunDate($time);
                 $walked[$task->getId()] = ($walked[$task->getId()] ?? 0) + 1;
@@ -98,18 +103,15 @@ final class TaskGenerator
 
                     // A run of this task is due after this one, so this one was missed: the
                     // scheduler reached it only once the next had already come round.
-                    if ($nextTime <= $now) {
+                    if ($advance && $nextTime <= $now) {
                         $behind[$task->getId()] = true;
                         $yield = MissedRuns::All === $missedRuns;
                     }
-                } elseif (!$advance && !$heap->isEmpty() && $heap->top()[0] <= $now && $heap->top()[2] === $task) {
-                    $behind[$task->getId()] = true;
-                    $yield = MissedRuns::All === $missedRuns;
                 }
 
                 // The newest run due of a task that fell behind. Skip says the task does not
                 // catch up at all, so this one goes the way of the runs before it.
-                if ($yield && MissedRuns::Skip === $missedRuns && isset($behind[$task->getId()])) {
+                if ($yield && $advance && MissedRuns::Skip === $missedRuns && isset($behind[$task->getId()])) {
                     $yield = false;
                 }
 
