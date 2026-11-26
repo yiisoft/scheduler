@@ -5,6 +5,11 @@ application when you upgrade the package from one version to another.
 
 ## 1.0.0
 
+- `Schedule::shouldProcessOnlyLastMissedRun()` is replaced by `Schedule::missedRunsOf()`, which
+  answers for one task rather than for the schedule. Both are `@internal` and read by the
+  generator. `processOnlyLastMissedRun()` itself is unchanged and still sets the answer every
+  task that has not chosen one follows.
+
 - `Schedule::lock()` takes a `Yiisoft\Scheduler\Lock\LockInterface` rather than a
   `Yiisoft\Mutex\MutexInterface`, so a schedule can be locked without installing yiisoft/mutex.
   Wrap an existing mutex: `->lock(new MutexLock($mutex))`. `Schedule::getMutex()` is renamed to

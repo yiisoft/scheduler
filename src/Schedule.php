@@ -26,7 +26,8 @@ final class Schedule
     private array $tasks = [];
     private ?LockInterface $lock = null;
     private ?CacheInterface $state = null;
-    private bool $onlyLastMissedRun = false;
+    private MissedRuns $missedRuns = MissedRuns::All;
+    private int $missedRunLimit = RecurringTask::DEFAULT_MISSED_RUN_LIMIT;
     private ?DateInterval $reclaimAfter = null;
     /** @var list<callable(TaskContext, RecurringTask): void> */
     private array $beforeListeners = [];
@@ -145,13 +146,43 @@ final class Schedule
     }
 
     /**
+     * What becomes of the runs missed while nothing was there to run them, for every task that
+     * has not answered for itself with {@see RecurringTask::withMissedRuns()}.
+     *
+     * @param int|null $limit How many missed runs of one task a tick replays, for
+     * {@see MissedRuns::All} alone. Must be positive. Left out,
+     * {@see RecurringTask::DEFAULT_MISSED_RUN_LIMIT} applies.
+     */
+    public function missedRuns(MissedRuns $missedRuns, ?int $limit = null): static
+    {
+        if (null !== $limit && $limit < 1) {
+            throw new Exception\LogicException(
+                'The number of missed runs to replay in one tick must be positive: a tick'
+                . ' replaying none of them is MissedRuns::Skip, which says so.',
+            );
+        }
+
+        if (null !== $limit && MissedRuns::All !== $missedRuns) {
+            throw new Exception\LogicException(
+                'Only MissedRuns::All replays missed runs, so only it is bounded by a limit.',
+            );
+        }
+
+        $this->missedRuns = $missedRuns;
+        $this->missedRunLimit = $limit ?? RecurringTask::DEFAULT_MISSED_RUN_LIMIT;
+
+        return $this;
+    }
+
+    /**
      * When the process was down and several runs were missed, runs only the latest one.
+     *
+     * The same as `missedRuns(MissedRuns::Last)`, and `missedRuns(MissedRuns::All)` when told
+     * not to.
      */
     public function processOnlyLastMissedRun(bool $onlyLast = true): static
     {
-        $this->onlyLastMissedRun = $onlyLast;
-
-        return $this;
+        return $this->missedRuns($onlyLast ? MissedRuns::Last : MissedRuns::All);
     }
 
     /**
@@ -201,11 +232,21 @@ final class Schedule
     }
 
     /**
+     * What becomes of the missed runs of the given task: its own answer where it has one, and
+     * the schedule's where it has not.
+     *
      * @internal
+     *
+     * @return array{MissedRuns, int} The answer and, for {@see MissedRuns::All}, how many runs
+     * one tick replays.
      */
-    public function shouldProcessOnlyLastMissedRun(): bool
+    public function missedRunsOf(RecurringTask $task): array
     {
-        return $this->onlyLastMissedRun;
+        $missedRuns = $task->getMissedRuns();
+
+        return null === $missedRuns
+            ? [$this->missedRuns, $this->missedRunLimit]
+            : [$missedRuns, $task->getMissedRunLimit()];
     }
 
     /**
