@@ -208,6 +208,33 @@ $schedule = (new Schedule())
     ->task(...);
 ```
 
+## What became of a run
+
+A run is claimed in the checkpoint as it is handed out and recorded as `done`, `failed`,
+`skipped` or `cancelled` — the cases of `TaskStatus` — once its outcome is known. A run the
+scheduler never gets to, because it is shutting down, is given back to the schedule and stays
+due rather than passing for a run that happened.
+
+A claim is left behind when the process holding it dies. Every claim is taken back after a
+window, set with `reclaimAfter()` and a day by default:
+
+```php
+$schedule->reclaimAfter(900); // or a DateInterval
+```
+
+The window has to outlast a run, counted from the moment it starts: the window is restarted
+when the run begins, so the wait for a free slot under `--max-processes` does not eat into it.
+A claim can still be taken back during that wait, and the scheduler that was holding it then
+finds it gone and leaves the run to whoever took it over rather than making it twice. Taking a
+run back while its process is actually making it does run the task a second time.
+
+A claim made by a process of this host is taken back sooner than that, as soon as the process
+is gone, which needs `ext-posix`. Asking about the process only brings the window forward and
+never puts it off, so a claim whose process is still there is taken back once the window runs
+out as well. A process being alive is no promise that the run is: a pid is given to something
+else once the process it belonged to is gone, and a claim waiting on one of those would stand
+forever.
+
 ## Task identifiers
 
 Every task gets an identifier generated from the cron expression or the interval of its
@@ -243,8 +270,15 @@ to be shared between the servers:
 
 The bundled configuration wires the checkpoint cache automatically as soon as the application
 has a PSR-16 cache; the mutex is opt-in — add `->lock($mutex)` as shown above. With both in
-place, a task is still executed exactly once no matter how many servers the schedule runs on,
-and no single server going down stops the schedule.
+place a due run is handed out to one server only, and no single server going down stops the
+schedule.
+
+That holds while a run finishes inside its reclaim window, a day by default. A run still going
+when the window runs out is handed out again and the task runs a second time, whether or not
+the process that holds it is alive, so set `reclaimAfter()` longer than the slowest task. The
+other end of the same rule: a claim made on another server is only ever taken back by the
+window, because a process of another host cannot be asked about, so a server that dies mid-run
+leaves its run waiting the whole window rather than being picked up at once.
 
 ## Documentation
 

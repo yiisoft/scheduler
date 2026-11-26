@@ -7,6 +7,7 @@ namespace Yiisoft\Scheduler\Tests\Support;
 use DateInterval;
 use Psr\SimpleCache\CacheInterface;
 
+use function array_key_exists;
 use function sprintf;
 use function strlen;
 
@@ -19,6 +20,8 @@ final class InMemoryCache implements CacheInterface
     private bool $writesFail = false;
     private int $writes = 0;
     private ?int $maximumKeyLength = null;
+    /** @var array<string, mixed> */
+    private array $replaceOnRead = [];
 
     /**
      * Makes every subsequent write report a failure, as a full or unavailable cache would.
@@ -37,9 +40,26 @@ final class InMemoryCache implements CacheInterface
         $this->maximumKeyLength = $maximum;
     }
 
+    /**
+     * Hands the next read of this one key a value somebody else wrote, the way another process
+     * writing between two reads of it would. Reads through getMultiple() are left alone, so a
+     * checkpoint can be loaded without springing it.
+     */
+    public function replaceOnRead(string $key, mixed $value): void
+    {
+        $this->replaceOnRead[$key] = $value;
+    }
+
     public function get(string $key, mixed $default = null): mixed
     {
         $this->checkKey($key);
+
+        if (array_key_exists($key, $this->replaceOnRead)) {
+            /** @var mixed $replacement */
+            $replacement = $this->replaceOnRead[$key];
+            unset($this->replaceOnRead[$key]);
+            $this->values[$key] = $replacement;
+        }
 
         return $this->values[$key] ?? $default;
     }
@@ -85,7 +105,9 @@ final class InMemoryCache implements CacheInterface
     public function getMultiple(iterable $keys, mixed $default = null): iterable
     {
         foreach ($keys as $key) {
-            yield $key => $this->get($key, $default);
+            $this->checkKey($key);
+
+            yield $key => $this->values[$key] ?? $default;
         }
     }
 

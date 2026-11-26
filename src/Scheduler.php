@@ -13,6 +13,7 @@ use Throwable;
 use Yiisoft\Scheduler\Event\FailureEvent;
 use Yiisoft\Scheduler\Event\PostRunEvent;
 use Yiisoft\Scheduler\Event\PreRunEvent;
+use Yiisoft\Scheduler\Exception\LockTimeoutException;
 use Yiisoft\Scheduler\Exception\LogicException;
 use Yiisoft\Scheduler\Exception\RuntimeException;
 use Yiisoft\Scheduler\Generator\TaskGenerator;
@@ -20,6 +21,7 @@ use Yiisoft\Scheduler\Handler\TaskHandlerInterface;
 
 use function array_key_exists;
 use function array_keys;
+use function array_slice;
 use function array_map;
 use function cli_set_process_title;
 use function count;
@@ -148,7 +150,16 @@ final class Scheduler
                         ++$count;
 
                         try {
-                            $this->runTask($task, $context);
+                            $status = $this->runTask($task, $context);
+                        } catch (Throwable $error) {
+                            $status = TaskStatus::Failed;
+                            $failure = $this->firstFailure($failure, $error);
+                        }
+
+                        // Recorded after the run, so a checkpoint that cannot be written is
+                        // reported behind the task's own failure rather than instead of it.
+                        try {
+                            $this->resolve($context, $status);
                         } catch (Throwable $error) {
                             $failure = $this->firstFailure($failure, $error);
                         }
@@ -182,21 +193,45 @@ final class Scheduler
             }
         }
 
-        // Draining the generators above already moved every checkpoint past these runs, so a
-        // task that fails to start must not abort the ones queued behind it: they would never
-        // be emitted again. Collect the first failure and report it once the batch is started.
+        // Draining the generators claimed every one of these runs, so a task that fails to start
+        // must not abort the ones behind it: their claims would be left with nobody to resolve
+        // them. A stop is different — there the runs nobody got to are given back above.
         foreach ($due as $index => [$task, $context]) {
             try {
-                if (!$this->awaitFreeSlot($maxProcesses)) {
+                if (!$this->awaitFreeSlot($maxProcesses, $failure)) {
+                    $pending = array_slice($due, $index);
+
                     $this->logger->warning(
-                        'Stopping, {count} due task(s) of this tick are not started.',
-                        ['count' => count($due) - $index],
+                        'Stopping, {count} due task(s) of this tick are given back to the schedule.',
+                        ['count' => count($pending)],
                     );
+
+                    foreach ($pending as [, $unstarted]) {
+                        try {
+                            $this->release($unstarted);
+                        } catch (Throwable $error) {
+                            $failure = $this->firstFailure($failure, $error);
+                        }
+                    }
 
                     break;
                 }
 
-                $this->forkTask($task, $context);
+                // The claim was made as the generator was drained; the wait above must not
+                // count against the window that decides when another process may take the run.
+                // A wait that outlasted the claim is also how the run stops being this
+                // process's to start, and starting it then would be the second time it ran.
+                if (!$this->markStarted($context)) {
+                    $this->logger->warning(
+                        'Task {task} of schedule {schedule} was taken over while it waited for a'
+                        . ' process slot, so it is not started here.',
+                        ['task' => $context->taskId, 'schedule' => $context->scheduleName],
+                    );
+
+                    continue;
+                }
+
+                $this->forkTask($task, $context, $failure);
             } catch (Throwable $error) {
                 $failure = $this->firstFailure($failure, $error);
             }
@@ -253,6 +288,7 @@ final class Scheduler
     {
         $concurrent = $concurrent && self::supportsForking();
         $this->looping = true;
+        $failure = null;
 
         try {
             while (!$this->shouldStop) {
@@ -270,15 +306,25 @@ final class Scheduler
 
                 $this->reapChildren();
             }
+        } catch (Throwable $error) {
+            // Held rather than thrown: the children are stopped first, and a failure of that
+            // must not take the place of this one.
+            $failure = $error;
         } finally {
             try {
                 $this->terminateChildren();
+            } catch (Throwable $error) {
+                $failure = $this->firstFailure($failure, $error);
             } finally {
                 // The stop request ends this run only; left in place it would keep every later
                 // run() from entering the loop at all. Cleared last, so a second request
                 // arriving while the children are being stopped is spent on this run too.
                 $this->shouldStop = false;
             }
+        }
+
+        if (null !== $failure) {
+            throw $failure;
         }
     }
 
@@ -325,7 +371,7 @@ final class Scheduler
             unset($this->children[$pid]);
 
             try {
-                $this->handleChildOutcome($task, $context, $status);
+                $this->handleChildOutcome($task, $context, $status, $pid);
             } catch (Throwable $error) {
                 $failure = $this->firstFailure($failure, $error);
             }
@@ -427,6 +473,11 @@ final class Scheduler
      * Keeps the first failure of a batch as the one to throw once it is through. A later one
      * cannot be thrown along with it, so it is logged: dropped, it would reach nobody but the
      * failure listeners, and an error of a schedule itself would not even reach them.
+     *
+     * A logger that fails at that is swallowed rather than thrown. This is called from the
+     * loops that stop and collect the children, and a throw here would end one of them with
+     * a child still running and nobody to reap it - and would report the destination of the
+     * log in place of the failure being kept, which is the one worth reporting.
      */
     private function firstFailure(?Throwable $first, Throwable $error): Throwable
     {
@@ -434,21 +485,109 @@ final class Scheduler
             return $error;
         }
 
-        $this->logger->error(
-            'A failure is not rethrown because an earlier one is: {error}',
-            ['error' => $error->getMessage(), 'exception' => $error],
-        );
+        try {
+            $this->logger->error(
+                'A failure is not rethrown because an earlier one is: {error}',
+                ['error' => $error->getMessage(), 'exception' => $error],
+            );
+        } catch (Throwable) {
+            // Nowhere left to say so: the log is where a failure goes once it cannot be thrown.
+        }
 
         return $first;
     }
 
-    private function runTask(RecurringTask $task, TaskContext $context): void
+    /** Runs the task and reports what became of it, leaving the caller to record it. */
+    private function runTask(RecurringTask $task, TaskContext $context): TaskStatus
     {
         if (!$this->beforeRun($task, $context)) {
-            return;
+            return TaskStatus::Cancelled;
         }
 
-        $this->executeTask($task, $context);
+        return $this->executeTask($task, $context);
+    }
+
+    /** Records what became of a claimed run with the schedule it belongs to. */
+    private function resolve(TaskContext $context, TaskStatus $status, ?int $childPid = null): void
+    {
+        $this->record(
+            fn() => $this->generators[$context->scheduleName]->resolve($context, $status, $childPid),
+            $context,
+            'record what became of',
+        );
+    }
+
+    /** Gives a claimed run that was never started back to the schedule, leaving it due. */
+    private function release(TaskContext $context): void
+    {
+        $this->record(
+            fn() => $this->generators[$context->scheduleName]->release($context),
+            $context,
+            'give back',
+        );
+    }
+
+    /** Whether the run is still this process's to start. */
+    private function markStarted(TaskContext $context): bool
+    {
+        // Null where the lock could not be taken: nothing durable says the run is still this
+        // process's, so it is not started here.
+        return true === $this->record(
+            fn(): bool => $this->generators[$context->scheduleName]->markStarted($context),
+            $context,
+            'start',
+        );
+    }
+
+    /** Hands the claim of a forked run over to the child process that is executing it. */
+    private function assignChildOwner(TaskContext $context, int $pid): void
+    {
+        $this->record(
+            fn() => $this->generators[$context->scheduleName]->assignChildOwner($context, $pid),
+            $context,
+            'assign the child owner of',
+        );
+    }
+
+    /**
+     * Writes something about a run to the checkpoint, and keeps a daemon running when the
+     * schedule lock cannot be taken in time to do it.
+     *
+     * Another process holding the lock is ordinary on a shared schedule, and on the sequential
+     * path it holds it for as long as its slowest task takes. Letting that end the loop would
+     * stop a whole schedule over a run of a task somewhere else, so the write is dropped and
+     * the run stays claimed, to be picked up by whoever reaches it once the lock is free or its
+     * window runs out. A single `tick()` has no loop to keep alive and the failure goes to its
+     * caller.
+     *
+     * @template T
+     *
+     * @param callable(): T $write
+     *
+     * @return T|null
+     */
+    private function record(callable $write, TaskContext $context, string $what): mixed
+    {
+        try {
+            return $write();
+        } catch (LockTimeoutException $exception) {
+            if (!$this->looping) {
+                throw $exception;
+            }
+
+            $this->logger->error(
+                'Unable to {what} the run of task {task} of schedule {schedule}: {message} The run'
+                . ' stays claimed until the lock is free or its reclaim window runs out.',
+                [
+                    'what' => $what,
+                    'task' => $context->taskId,
+                    'schedule' => $context->scheduleName,
+                    'message' => $exception->getMessage(),
+                ],
+            );
+
+            return null;
+        }
     }
 
     /**
@@ -477,7 +616,7 @@ final class Scheduler
         return true;
     }
 
-    private function executeTask(RecurringTask $task, TaskContext $context): void
+    private function executeTask(RecurringTask $task, TaskContext $context): TaskStatus
     {
         $schedule = $this->generators[$context->scheduleName]->getSchedule();
 
@@ -499,13 +638,15 @@ final class Scheduler
                 ['id' => $context->taskId, 'schedule' => $context->scheduleName, 'error' => $error->getMessage()],
             );
 
-            return;
+            return TaskStatus::Failed;
         }
 
         $this->dispatcher?->dispatch(new PostRunEvent($context, $task, $result));
         foreach ($schedule->getAfterListeners() as $listener) {
             $listener($context, $task, $result);
         }
+
+        return TaskStatus::Done;
     }
 
     /**
@@ -513,7 +654,7 @@ final class Scheduler
      * the parent, so cancellation never pays for a fork; the post-run and failure events are
      * dispatched back in the parent when the child is reaped.
      */
-    private function forkTask(RecurringTask $task, TaskContext $context): void
+    private function forkTask(RecurringTask $task, TaskContext $context, ?Throwable &$failure): void
     {
         // One process per task at a time: a task that takes longer than its own interval
         // would otherwise pile up a process per due time and never catch up.
@@ -523,10 +664,14 @@ final class Scheduler
                 ['id' => $context->taskId, 'schedule' => $context->scheduleName],
             );
 
+            $this->resolve($context, TaskStatus::Skipped);
+
             return;
         }
 
         if (!$this->beforeRun($task, $context)) {
+            $this->resolve($context, TaskStatus::Cancelled);
+
             return;
         }
 
@@ -545,12 +690,29 @@ final class Scheduler
             self::unblockChildSignal($blocked);
 
             // Forking is refused (e.g. resource limits): run inline rather than drop the run.
-            $this->executeTask($task, $context);
+            try {
+                $status = $this->executeTask($task, $context);
+            } catch (Throwable $error) {
+                $status = TaskStatus::Failed;
+                $failure = $this->firstFailure($failure, $error);
+            }
+
+            try {
+                $this->resolve($context, $status);
+            } catch (Throwable $error) {
+                $failure = $this->firstFailure($failure, $error);
+            }
 
             return;
         }
 
         $this->children[$pid] = [$task, $context];
+
+        try {
+            $this->assignChildOwner($context, $pid);
+        } catch (Throwable $error) {
+            $failure = $this->firstFailure($failure, $error);
+        }
 
         self::unblockChildSignal($blocked);
     }
@@ -563,7 +725,7 @@ final class Scheduler
      *
      * @psalm-suppress RedundantCondition The flag is flipped by stop() from a signal handler.
      */
-    private function awaitFreeSlot(?int $maxProcesses): bool
+    private function awaitFreeSlot(?int $maxProcesses, ?Throwable &$failure): bool
     {
         if (null === $maxProcesses || $maxProcesses < 1) {
             return true;
@@ -574,7 +736,11 @@ final class Scheduler
                 return false;
             }
 
-            $this->reapChildren();
+            try {
+                $this->reapChildren();
+            } catch (Throwable $error) {
+                $failure = $this->firstFailure($failure, $error);
+            }
 
             if (count($this->children) >= $maxProcesses) {
                 usleep(10_000);
@@ -682,18 +848,39 @@ final class Scheduler
     /**
      * Turns a child's exit status into the same events an inline run would have produced.
      */
-    private function handleChildOutcome(RecurringTask $task, TaskContext $context, int $status): void
+    private function handleChildOutcome(RecurringTask $task, TaskContext $context, int $status, int $pid): void
     {
         $schedule = $this->generators[$context->scheduleName]->getSchedule();
+        $failure = null;
 
         if (pcntl_wifexited($status) && 0 === pcntl_wexitstatus($status)) {
-            // The result cannot cross the process boundary, so listeners see null here.
-            $this->dispatcher?->dispatch(new PostRunEvent($context, $task, null));
-            foreach ($schedule->getAfterListeners() as $listener) {
-                $listener($context, $task, null);
+            try {
+                $this->resolve($context, TaskStatus::Done, $pid);
+            } catch (Throwable $error) {
+                $failure = $this->firstFailure($failure, $error);
+            }
+
+            try {
+                // The result cannot cross the process boundary, so listeners see null here.
+                $this->dispatcher?->dispatch(new PostRunEvent($context, $task, null));
+                foreach ($schedule->getAfterListeners() as $listener) {
+                    $listener($context, $task, null);
+                }
+            } catch (Throwable $error) {
+                $failure = $this->firstFailure($failure, $error);
+            }
+
+            if (null !== $failure) {
+                throw $failure;
             }
 
             return;
+        }
+
+        try {
+            $this->resolve($context, TaskStatus::Failed, $pid);
+        } catch (Throwable $error) {
+            $failure = $error;
         }
 
         $error = new RuntimeException(
@@ -709,6 +896,10 @@ final class Scheduler
         }
 
         if (!$failureEvent->isIgnored() && !$this->looping) {
+            if (null !== $failure) {
+                $this->firstFailure($error, $failure);
+            }
+
             throw $error;
         }
 
@@ -716,6 +907,10 @@ final class Scheduler
             'Task {id} of schedule {schedule} failed: {error}',
             ['id' => $context->taskId, 'schedule' => $context->scheduleName, 'error' => $error->getMessage()],
         );
+
+        if (null !== $failure) {
+            throw $failure;
+        }
     }
 
     /**
@@ -745,6 +940,43 @@ final class Scheduler
     }
 
     /**
+     * Records what became of a child collected during shutdown, and forgets it.
+     *
+     * A claim outlives the process that holds it, so a child left claimed here is handed out
+     * again by the next scheduler and its task runs a second time — including one that had
+     * finished its work and was only signalled on the way out. No event is dispatched: a
+     * shutdown is not a task failure, which is what the caller's documentation says. A status
+     * that could not be collected leaves the run claimed, because nothing was learned about it.
+     *
+     * A failure to record is handed back rather than thrown: every other child still has to be
+     * stopped and collected, and one that cannot be written about would otherwise leave the
+     * ones behind it running with nobody to reap them. The run it belongs to stays claimed
+     * until its reclaim window runs out, which is what an unrecorded outcome always means.
+     *
+     * @param Throwable|null $failure The failure of an earlier child, if any.
+     *
+     * @return Throwable|null The one to report once the shutdown is through.
+     */
+    private function resolveStoppedChild(int $pid, TaskContext $context, ?int $status, ?Throwable $failure): ?Throwable
+    {
+        if (null === $status) {
+            return $failure;
+        }
+
+        try {
+            $this->resolve(
+                $context,
+                pcntl_wifexited($status) && 0 === pcntl_wexitstatus($status) ? TaskStatus::Done : TaskStatus::Failed,
+                $pid,
+            );
+        } catch (Throwable $error) {
+            return $this->firstFailure($failure, $error);
+        }
+
+        return $failure;
+    }
+
+    /**
      * The shutdown itself: SIGTERM, a grace period, then SIGKILL for whatever is left.
      */
     private function stopChildren(): void
@@ -768,13 +1000,22 @@ final class Scheduler
 
         $deadline = hrtime(true) + self::TERMINATION_TIMEOUT_SECONDS * 1_000_000_000;
         $pending = array_keys($this->children);
+        /** @var list<array{int, TaskContext, int|null}> $collected */
+        $collected = [];
 
         while (true) {
             foreach ($pending as $index => $pid) {
                 // Anything but "still running" ends the wait for this one, a vanished child
                 // (-1) included - there is nothing left to collect from it.
-                if (0 !== pcntl_waitpid($pid, $status, WNOHANG)) {
+                $reaped = pcntl_waitpid($pid, $status, WNOHANG);
+
+                if (0 !== $reaped) {
+                    $child = $this->children[$pid] ?? null;
                     unset($this->children[$pid], $pending[$index]);
+
+                    if (null !== $child) {
+                        $collected[] = [$pid, $child[1], $pid === $reaped ? $status : null];
+                    }
                 }
             }
 
@@ -787,14 +1028,31 @@ final class Scheduler
                     posix_kill($pid, SIGKILL);
                     // Just killed, so this returns at once; a signal interrupting it (-1)
                     // still ends the wait rather than looping on a process that is gone.
-                    pcntl_waitpid($pid, $status);
+                    $reaped = pcntl_waitpid($pid, $status);
+                    $child = $this->children[$pid] ?? null;
                     unset($this->children[$pid]);
+
+                    if (null !== $child) {
+                        $collected[] = [$pid, $child[1], $pid === $reaped ? $status : null];
+                    }
                 }
 
                 break;
             }
 
             usleep(10_000);
+        }
+
+        // Every child is stopped and collected before any outcome is written, so a slow or
+        // contested schedule lock cannot eat into the SIGTERM grace window or delay SIGKILL.
+        $failure = null;
+
+        foreach ($collected as [$pid, $context, $status]) {
+            $failure = $this->resolveStoppedChild($pid, $context, $status, $failure);
+        }
+
+        if (null !== $failure) {
+            throw $failure;
         }
     }
 
