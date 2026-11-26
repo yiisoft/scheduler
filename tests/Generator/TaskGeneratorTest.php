@@ -958,6 +958,41 @@ final class TaskGeneratorTest extends TestCase
     }
 
     /**
+     * Emits the due runs one by one and stops before starting the third, the way a process killed
+     * mid-tick leaves the two runs before it recorded, the one in hand claimed with nobody left to
+     * resolve it, and the ones behind it untouched.
+     *
+     * @param list<callable> $tasks
+     */
+    public function testALongBacklogIsWalkedOverSeveralTicksRatherThanOne(): void
+    {
+        // A trigger that implements TriggerInterface alone can only be walked a date at a time,
+        // so a tick that drains a year of a minute task is a year of dates before the first run
+        // is emitted. The walk is bounded and the rest waits for the next tick.
+        $runs = 0;
+        $task = static function () use (&$runs): void {
+            ++$runs;
+        };
+
+        $cache = new InMemoryCache();
+        $clock = new TestClock();
+        $schedule = static fn(): Schedule => (new Schedule())
+            ->stateful($cache)
+            ->task(RecurringTask::every(1, $task));
+
+        (new Scheduler([$schedule()], new CallableTaskHandler(), $clock))->tick();
+        $clock->advance('+12000 seconds');
+
+        (new Scheduler([$schedule()], new CallableTaskHandler(), $clock))->tick();
+        $afterOneTick = $runs;
+
+        (new Scheduler([$schedule()], new CallableTaskHandler(), $clock))->tick();
+
+        $this->assertSame(10_000, $afterOneTick, 'one tick walks no more than the bound');
+        $this->assertSame(12_000, $runs, 'and the next one carries on where it stopped');
+    }
+
+    /**
      * Claims the three runs a task missed while the schedule was down, without resolving any.
      *
      * @return list<TaskContext>
@@ -987,13 +1022,6 @@ final class TaskGeneratorTest extends TestCase
         return $claimed;
     }
 
-    /**
-     * Emits the due runs one by one and stops before starting the third, the way a process killed
-     * mid-tick leaves the two runs before it recorded, the one in hand claimed with nobody left to
-     * resolve it, and the ones behind it untouched.
-     *
-     * @param list<callable> $tasks
-     */
     private function crashAfterTwoRuns(InMemoryCache $cache, TestClock $clock, array $tasks): void
     {
         $schedule = $this->schedule($cache, $tasks);
