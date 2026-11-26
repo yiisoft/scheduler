@@ -76,6 +76,7 @@ final class TaskGenerator
             $heap = $this->heap();
             /** @var array<string, int> $walked How far this tick has gone into each backlog. */
             $walked = [];
+            $bounded = false;
 
             /** @var array{DateTimeImmutable, int, RecurringTask, bool} $entry */
             while (!$heap->isEmpty() && $heap->top()[0] <= $now) {
@@ -91,8 +92,12 @@ final class TaskGenerator
                         throw new LogicException('A trigger must return a date strictly after the given one.');
                     }
 
-                    if ($advance && $walked[$task->getId()] < self::MAX_MISSED_RUNS_PER_TICK) {
-                        $heap->insert([$nextTime, $index, $task, true]);
+                    if ($advance) {
+                        if ($walked[$task->getId()] < self::MAX_MISSED_RUNS_PER_TICK) {
+                            $heap->insert([$nextTime, $index, $task, true]);
+                        } else {
+                            $bounded = true;
+                        }
                     }
 
                     if ($nextTime <= $now && $this->schedule->shouldProcessOnlyLastMissedRun()) {
@@ -126,6 +131,15 @@ final class TaskGenerator
             // too, in the sense that matters here: it put nothing back, and what it did not
             // reach is still behind its own checkpoint for the next tick to find.
             $this->checkpoint->markTick($now);
+
+            // The pending runs held here are what this tick emitted and nothing more, while the
+            // task left at its bound still has a backlog. Only a write by another process moves
+            // the revision these are kept against, so without this a long-lived scheduler would
+            // hold an empty heap over a backlog nobody else is going to touch, and the rest of
+            // the replay would wait for the process to be restarted.
+            if ($bounded) {
+                $this->heap = null;
+            }
         } finally {
             $this->checkpoint->release();
         }
