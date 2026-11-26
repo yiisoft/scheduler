@@ -5,10 +5,15 @@ declare(strict_types=1);
 namespace Yiisoft\Scheduler;
 
 use Psr\SimpleCache\CacheInterface;
-use Yiisoft\Mutex\MutexInterface;
+use DateInterval;
+use DateTimeImmutable;
+use Yiisoft\Scheduler\Lock\LockInterface;
+use Yiisoft\Scheduler\Lock\MutexLock;
 use Throwable;
 
 use function array_key_exists;
+use function is_int;
+use function max;
 use function array_values;
 use function sprintf;
 
@@ -19,9 +24,10 @@ final class Schedule
 {
     /** @var array<string, RecurringTask> */
     private array $tasks = [];
-    private ?MutexInterface $mutex = null;
+    private ?LockInterface $lock = null;
     private ?CacheInterface $state = null;
     private bool $onlyLastMissedRun = false;
+    private ?DateInterval $reclaimAfter = null;
     /** @var list<callable(TaskContext, RecurringTask): void> */
     private array $beforeListeners = [];
     /** @var list<callable(TaskContext, RecurringTask, mixed): void> */
@@ -70,11 +76,14 @@ final class Schedule
 
     /**
      * Prevents overlapping runs of this schedule across processes; the first process
-     * acquiring the mutex runs the tasks, the others skip the tick silently.
+     * acquiring the lock runs the tasks, the others skip the tick silently.
+     *
+     * {@see MutexLock} wraps a yiisoft/mutex implementation; anything else that can be held by
+     * one process at a time implements {@see LockInterface} itself.
      */
-    public function lock(MutexInterface $mutex): static
+    public function lock(LockInterface $lock): static
     {
-        $this->mutex = $mutex;
+        $this->lock = $lock;
 
         return $this;
     }
@@ -87,6 +96,41 @@ final class Schedule
         $this->state = $cache;
 
         return $this;
+    }
+
+    /**
+     * Sets how long a claimed run is left to its process before the schedule takes it back.
+     * Every claim is taken back once the window runs out, including one whose process is still
+     * there; a gone process of this host is noticed before that with ext-posix.
+     *
+     * It has to outlast the work itself. The window starts when the run starts rather than when
+     * it was claimed, so the wait for a free slot under `--max-processes` is not charged against
+     * it. Taking a run back while its process still means to make it runs the task twice.
+     *
+     * @param DateInterval|int $after The window, as a date interval or a number of seconds.
+     */
+    public function reclaimAfter(DateInterval|int $after): static
+    {
+        if (is_int($after)) {
+            $after = new DateInterval(sprintf('PT%dS', max(0, $after)));
+        }
+
+        // A window of nothing would make every claim abandoned the moment it is read back, which
+        // is the double run it is there to prevent.
+        $epoch = new DateTimeImmutable('@0');
+
+        if ($epoch->add($after) <= $epoch) {
+            throw new Exception\LogicException('The reclaim window must be greater than zero.');
+        }
+
+        $this->reclaimAfter = $after;
+
+        return $this;
+    }
+
+    public function getReclaimAfter(): DateInterval
+    {
+        return $this->reclaimAfter ??= new DateInterval('P1D');
     }
 
     /**
@@ -143,9 +187,9 @@ final class Schedule
     /**
      * @internal
      */
-    public function getMutex(): ?MutexInterface
+    public function getLock(): ?LockInterface
     {
-        return $this->mutex;
+        return $this->lock;
     }
 
     /**

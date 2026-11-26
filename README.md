@@ -23,13 +23,20 @@ catch-up, overlap prevention and failure handling included.
   by hand or built a field at a time (`RecurringTask::daily()->at('05:00')`)
 - Tasks as callables, console commands, or queue messages (via [yiisoft/queue](https://github.com/yiisoft/queue))
 - Catch-up of missed runs and crash-resume through persisted checkpoints (any PSR-16 cache)
-- Overlap prevention across processes through [yiisoft/mutex](https://github.com/yiisoft/mutex)
+- Overlap prevention across processes through any lock, with an adapter for [yiisoft/mutex](https://github.com/yiisoft/mutex)
 - PSR-14 events and per-schedule listeners (before / after / onFailure)
 - `schedule:run` (single tick, for system cron), `schedule:work` (daemon), `schedule:list` commands
 
 ## Requirements
 
 - PHP 8.1 - 8.5.
+
+The core depends on PSR interfaces and a cron expression parser, and nothing else. A console
+command task needs [symfony/console](https://github.com/symfony/console), which also brings the
+three bundled commands; a queue message task needs
+[yiisoft/queue](https://github.com/yiisoft/queue); locking a schedule across processes needs a lock, for which
+[yiisoft/mutex](https://github.com/yiisoft/mutex) has an adapter. Install the ones the schedule
+uses.
 
 ## Installation
 
@@ -38,6 +45,12 @@ composer require yiisoft/scheduler
 ```
 
 ## General usage
+
+The bundled configuration — `config/params.php` and `config/di.php` of this package — is the
+Yii integration: it reads the tasks from the application parameters, builds the handler chain
+from what the container has, and registers the three commands with yiisoft/yii-console. An
+application on another framework, or on none, builds the same objects itself — see
+[Without a framework](#without-a-framework).
 
 Declare tasks in the configuration:
 
@@ -67,6 +80,13 @@ A task is one of:
   is better off as a console command;
 - a queue message, pushed to the queue when the container has a
   [yiisoft/queue](https://github.com/yiisoft/queue) producer (`QueueProducerInterface`).
+
+Each kind is handled by a handler of its own, and each passes on what it does not recognise:
+`CallableTaskHandler` runs a callable and depends on nothing outside this package,
+`ConsoleTaskHandler` runs a command name and needs
+[symfony/console](https://github.com/symfony/console), `QueueTaskHandler` pushes a message and
+needs yiisoft/queue. The bundled configuration builds the chain from whatever is installed and
+registered, so a schedule of callables runs with neither package present.
 
 ## Building the expression
 
@@ -191,6 +211,13 @@ The bundled configuration makes the schedule stateful automatically when the app
 PSR-16 cache. `schedule:work` keeps the position in memory and works either way, though a
 checkpoint also lets it compensate the runs missed while it was down.
 
+Both commands tell the terminal what they are doing, as the program status of
+[OSC 7501](https://www.superlogical.com/rex/docs/build/program-status): `schedule:run`
+reports the due batch and how it went, and `schedule:work` reports what it is waiting for, so
+a live daemon between runs can be told from a dead one. A terminal that does not know the
+sequence ignores it, and nothing is written at all when the output is redirected or piped,
+in quiet mode, or with `--no-ansi`. Pass `--no-program-status` to turn it off everywhere else.
+
 An interval is counted from a fixed point in time rather than from the moment the scheduler
 was started, so `every('10 minutes')` runs at :00, :10, :20 and so on, `every('1 day')` at
 midnight and `every('1 week')` on Mondays. To count from another moment, pass a
@@ -205,17 +232,114 @@ are refused when the trigger is asked for a date: one that parses but names no f
 time, such as `'next tuesday'`, and one that would not move a date forward, such as `'-1 hour'`.
 Neither has a next run to compute; use a cron expression for a schedule of that shape.
 
-When building a schedule by hand, persist its checkpoint, and add a mutex to prevent
+When building a schedule by hand, persist its checkpoint, and add a lock to prevent
 overlapping runs across processes:
 
 ```php
+use Yiisoft\Scheduler\Lock\MutexLock;
 use Yiisoft\Scheduler\Schedule;
 
 $schedule = (new Schedule())
     ->stateful($cache) // any PSR-16 implementation
-    ->lock($mutex)     // any yiisoft/mutex implementation
+    ->lock(new MutexLock($mutex)) // or any LockInterface of your own
     ->task(...);
 ```
+
+## What became of a run
+
+A run is claimed in the checkpoint as it is handed out and recorded as `done`, `failed`,
+`skipped` or `cancelled` — the cases of `TaskStatus` — once its outcome is known. A run the
+scheduler never gets to, because it is shutting down, is given back to the schedule and stays
+due rather than passing for a run that happened.
+
+A claim is left behind when the process holding it dies. Every claim is taken back after a
+window, set with `reclaimAfter()` and a day by default:
+
+```php
+$schedule->reclaimAfter(900); // or a DateInterval
+```
+
+The window has to outlast a run, counted from the moment it starts: the window is restarted
+when the run begins, so the wait for a free slot under `--max-processes` does not eat into it.
+A claim can still be taken back during that wait, and the scheduler that was holding it then
+finds it gone and leaves the run to whoever took it over rather than making it twice. Taking a
+run back while its process is actually making it does run the task a second time.
+
+A claim made by a process of this host is taken back sooner than that, as soon as the process
+is gone, which needs `ext-posix`. Asking about the process only brings the window forward and
+never puts it off, so a claim whose process is still there is taken back once the window runs
+out as well. A process being alive is no promise that the run is: a pid is given to something
+else once the process it belonged to is gone, and a claim waiting on one of those would stand
+forever.
+
+## Without a framework
+
+The core is a few objects with explicit dependencies, so an application that has no container,
+no console and no framework builds them itself:
+
+```php
+use Yiisoft\Scheduler\Clock\SystemClock;
+use Yiisoft\Scheduler\Handler\CallableTaskHandler;
+use Yiisoft\Scheduler\RecurringTask;
+use Yiisoft\Scheduler\Schedule;
+use Yiisoft\Scheduler\Scheduler;
+
+$schedule = (new Schedule())
+    ->stateful($cache) // any PSR-16 implementation
+    ->task(
+        RecurringTask::everyFiveMinutes()->run(static fn() => $reports->collect())->withId('metrics'),
+        RecurringTask::daily()->at('05:00')->run(static fn() => $reports->daily())->withId('daily-report'),
+    );
+
+$scheduler = new Scheduler([$schedule], new CallableTaskHandler(), new SystemClock());
+
+// One tick per cron entry, or $scheduler->run() to stay up and tick until stopped.
+$scheduler->tick();
+```
+
+That needs `psr/clock`, `psr/simple-cache`, `psr/log`, `psr/event-dispatcher` and a cron
+expression parser, and nothing else. Add
+`symfony/console` and a `ConsoleTaskHandler` to run tasks named as commands, `yiisoft/queue` and
+a `QueueTaskHandler` to push them, a `LockInterface` to keep two processes off one schedule, and
+a PSR-14 dispatcher or the `before`, `after` and `onFailure` listeners of the schedule to watch
+what happens.
+
+That is the core: the schedule, the clock, the checkpoint and the lock. How a task is written
+stays with the package that runs it — a string task is the name of a console command and needs
+symfony/console, a message task needs yiisoft/queue — and declaring tasks in `config/params.php`
+is the Yii integration rather than the only way to fill a schedule.
+
+### Starting the same core from a host
+
+A framework builds the same three objects from whatever it already has, and nothing about the
+scheduler changes with the host. The bundled Yii wiring in `config/di.php` is this, written as
+container definitions; another host writes it in its own:
+
+```php
+// In the service definitions of the host, whatever shape those take.
+$handler = new CallableTaskHandler();
+
+if ($container->has(Application::class)) {
+    $handler = new ConsoleTaskHandler($container->get(Application::class), $handler);
+}
+
+if ($container->has(QueueProducerInterface::class)) {
+    $handler = new QueueTaskHandler($container->get(QueueProducerInterface::class), $handler);
+}
+
+$scheduler = new Scheduler(
+    [$container->get(Schedule::class)], // however the host declares its tasks
+    $handler,
+    $container->get(ClockInterface::class),
+    $container->get(LoggerInterface::class),
+    $container->get(EventDispatcherInterface::class),
+);
+```
+
+A command of the host then calls `tick()` or `run()` on that service, as the bundled
+`schedule:run` and `schedule:work` do. The handlers compose in that order because each passes
+on what it does not recognise, so a host that has no console or no queue simply builds a
+shorter chain, and a handler of the application goes at the back of it.
 
 ## Asking a trigger for more than the next run
 
@@ -285,7 +409,7 @@ The same setup scales horizontally without a single point of failure: put the `s
 cron entry (or the `schedule:work` daemon) on every application server. Two things then need
 to be shared between the servers:
 
-- the mutex needs a shared driver — [yiisoft/mutex-redis](https://github.com/yiisoft/mutex-redis),
+- the lock needs a shared driver — [yiisoft/mutex-redis](https://github.com/yiisoft/mutex-redis),
   [yiisoft/mutex-pdo-mysql](https://github.com/yiisoft/mutex-pdo-mysql) or
   [yiisoft/mutex-pdo-pgsql](https://github.com/yiisoft/mutex-pdo-pgsql) — so that the first
   server acquiring it runs the due tasks while the others skip the tick silently;
@@ -295,9 +419,16 @@ to be shared between the servers:
   nobody covered instead of re-running them.
 
 The bundled configuration wires the checkpoint cache automatically as soon as the application
-has a PSR-16 cache; the mutex is opt-in — add `->lock($mutex)` as shown above. With both in
-place, a task is still executed exactly once no matter how many servers the schedule runs on,
-and no single server going down stops the schedule.
+has a PSR-16 cache; the lock is opt-in — add `->lock(new MutexLock($mutex))` as shown
+above. With both in place a due run is handed out to one server only, and no single server
+going down stops the schedule.
+
+That holds while a run finishes inside its reclaim window, a day by default. A run still going
+when the window runs out is handed out again and the task runs a second time, whether or not
+the process that holds it is alive, so set `reclaimAfter()` longer than the slowest task. The
+other end of the same rule: a claim made on another server is only ever taken back by the
+window, because a process of another host cannot be asked about, so a server that dies mid-run
+leaves its run waiting the whole window rather than being picked up at once.
 
 ## Documentation
 
