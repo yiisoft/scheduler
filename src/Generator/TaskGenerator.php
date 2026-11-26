@@ -76,7 +76,6 @@ final class TaskGenerator
             $heap = $this->heap();
             /** @var array<string, int> $walked How far this tick has gone into each backlog. */
             $walked = [];
-            $bounded = false;
 
             /** @var array{DateTimeImmutable, int, RecurringTask, bool} $entry */
             while (!$heap->isEmpty() && $heap->top()[0] <= $now) {
@@ -96,7 +95,15 @@ final class TaskGenerator
                         if ($walked[$task->getId()] < self::MAX_MISSED_RUNS_PER_TICK) {
                             $heap->insert([$nextTime, $index, $task, true]);
                         } else {
-                            $bounded = true;
+                            // The task is left with a backlog, while the runs held here are the
+                            // ones this tick emitted and nothing more. Only a write by another
+                            // process moves the revision they are kept against, so a scheduler
+                            // outliving its ticks would hold an empty heap over work nobody else
+                            // is going to touch, and the rest of the replay would wait for a
+                            // restart. Dropped as the bound is reached rather than once the tick
+                            // is over, which an exception or a caller that stops reading never
+                            // gets to. This tick carries on over the heap it already has.
+                            $this->heap = null;
                         }
                     }
 
@@ -131,15 +138,6 @@ final class TaskGenerator
             // too, in the sense that matters here: it put nothing back, and what it did not
             // reach is still behind its own checkpoint for the next tick to find.
             $this->checkpoint->markTick($now);
-
-            // The pending runs held here are what this tick emitted and nothing more, while the
-            // task left at its bound still has a backlog. Only a write by another process moves
-            // the revision these are kept against, so without this a long-lived scheduler would
-            // hold an empty heap over a backlog nobody else is going to touch, and the rest of
-            // the replay would wait for the process to be restarted.
-            if ($bounded) {
-                $this->heap = null;
-            }
         } finally {
             $this->checkpoint->release();
         }
