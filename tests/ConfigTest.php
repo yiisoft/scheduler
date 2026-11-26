@@ -155,14 +155,14 @@ final class ConfigTest extends TestCase
         $this->assertSame(1, $command->ran);
     }
 
-    public function testHandlerHasNoApplicationWithoutOneInTheContainer(): void
+    public function testACommandTaskIsRefusedWithoutAnApplicationInTheContainer(): void
     {
         $handler = $this->handlerFactory()(new StubContainer());
 
         $this->assertInstanceOf(CallableTaskHandler::class, $handler);
 
         $this->expectException(LogicException::class);
-        $this->expectExceptionMessage('the task handler has no console application');
+        $this->expectExceptionMessage('a string task is the name of a console command');
 
         $handler->handle('report:daily', $this->context());
     }
