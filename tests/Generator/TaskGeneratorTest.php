@@ -992,6 +992,33 @@ final class TaskGeneratorTest extends TestCase
         $this->assertSame(12_000, $runs, 'and the next one carries on where it stopped');
     }
 
+    public function testATickStoppingAtItsBoundLeavesTheRestToTheNextTickOfTheSameProcess(): void
+    {
+        $clock = new TestClock();
+        $cache = new InMemoryCache();
+        $ran = 0;
+
+        $task = RecurringTask::every(1, static function () use (&$ran): void {
+            ++$ran;
+        });
+
+        $scheduler = new Scheduler([(new Schedule())->stateful($cache)->task($task)], new CallableTaskHandler(), $clock);
+
+        $scheduler->tick();
+        $ran = 0;
+
+        // One second past the bound, so one run of the backlog is left over.
+        $clock->advance('+10001 seconds');
+        $scheduler->tick();
+
+        $this->assertSame(10_000, $ran, 'a tick stops at the bound');
+
+        // The same scheduler, with nothing else writing: the remainder is its own to pick up.
+        $scheduler->tick();
+
+        $this->assertSame(10_001, $ran, 'the tick after it carries on from the checkpoint');
+    }
+
     /**
      * Claims the three runs a task missed while the schedule was down, without resolving any.
      *
