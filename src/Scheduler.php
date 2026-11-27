@@ -20,6 +20,7 @@ use Yiisoft\Scheduler\Generator\TaskGenerator;
 use Yiisoft\Scheduler\Handler\TaskHandlerInterface;
 use Yiisoft\Scheduler\Ledger\ExecutionAuthority;
 use Yiisoft\Scheduler\Ledger\ProcessObservation;
+use Yiisoft\Scheduler\Ledger\TransitionStatus;
 
 use function array_key_exists;
 use function array_keys;
@@ -173,6 +174,7 @@ final class Scheduler
                         // Recorded after the run, so a checkpoint that cannot be written is
                         // reported behind the task's own failure rather than instead of it.
                         try {
+                            $this->resolved($context, $status);
                             $this->resolve($context, $status);
                         } catch (Throwable $error) {
                             $failure = $this->firstFailure($failure, $error);
@@ -545,45 +547,73 @@ final class Scheduler
         $authority = null;
         $schedule = $this->generators[$context->scheduleName]->getSchedule();
         $admission = $this->admissions[$context->scheduleName] ??= new Admission($schedule);
+        $ownership = new ExecutionOwnership($schedule);
 
-        if ($async && !$admission->hasRoom(count($this->children))) {
-            $this->logger->info(
-                'Schedule {schedule} has no room for task {task}, which is left due.',
-                ['schedule' => $context->scheduleName, 'task' => $context->taskId],
-            );
+        try {
+            // Before the room: a task that does not overlap itself has decided this occurrence
+            // whether or not there is room for it, and giving it back instead would leave it
+            // due for the next tick to decide all over again.
+            if (
+                Overlap::Skip === $schedule->overlapOf($task)
+                && (
+                    $this->hasRunningChild($context)
+                    || $admission->isTaskRunning($context->taskId, $context->triggeredAt)
+                )
+            ) {
+                $this->logger->warning(
+                    'Task {id} of schedule {schedule} is still running, skipping this run.',
+                    ['id' => $context->taskId, 'schedule' => $context->scheduleName],
+                );
+                $ownership->resolved($context, TaskStatus::Skipped, $this->clock->now());
+                $this->resolve($context, TaskStatus::Skipped);
+
+                return false;
+            }
+
+            if ($async && !$admission->hasRoom($this->runningOf($context->scheduleName))) {
+                $this->logger->info(
+                    'Schedule {schedule} has no room for task {task}, which is left due.',
+                    ['schedule' => $context->scheduleName, 'task' => $context->taskId],
+                );
+                $this->release($context);
+
+                return false;
+            }
+
+            if (!$async) {
+                return true;
+            }
+
+            $claim = $ownership->claim($context, $this->clock->now());
+        } catch (Throwable $error) {
+            // The occurrence was claimed in the checkpoint as the generator was drained, and
+            // nothing has been decided about it here, so it goes back rather than waiting for
+            // its window to run out.
             $this->release($context);
 
-            return false;
+            throw $error;
         }
 
-        if (
-            Overlap::Skip === $schedule->overlapOf($task)
-            && (
-                $this->hasRunningChild($context)
-                || $admission->isTaskHoldingProcess($context->taskId, $context->triggeredAt)
-            )
-        ) {
-            $this->logger->warning(
-                'Task {id} of schedule {schedule} is still running, skipping this run.',
-                ['id' => $context->taskId, 'schedule' => $context->scheduleName],
-            );
-            $this->resolve($context, TaskStatus::Skipped);
-
-            return false;
-        }
-
-        if (!$async) {
+        if (null === $claim) {
+            // No ledger: nothing to hold the run under, and nothing to ask about it later.
             return true;
         }
 
-        $ownership = new ExecutionOwnership($schedule);
-        $authority = $ownership->claim($context, $this->clock->now());
+        if ($claim->isAccepted()) {
+            $authority = $claim->record?->authority;
+            $admission->claimed(ExecutionOwnership::identityOf($context));
 
-        if (null === $authority && null !== $schedule->getLedger()) {
-            // The record says the run is not this planner's to launch: another planner claimed
-            // it, or it is already finished. Either way the ledger accounts for it from here.
+            return true;
+        }
+
+        if (
+            TransitionStatus::AlreadyTerminal === $claim->status
+            || TransitionStatus::PhaseNotAllowed === $claim->status
+        ) {
+            // Another planner holds this occurrence, or it is already finished. The ledger
+            // accounts for it from here, so the schedule moves past it.
             $this->logger->info(
-                'Task {task} of schedule {schedule} is held by another planner, so it is not started here.',
+                'Task {task} of schedule {schedule} is held elsewhere, so it is not started here.',
                 ['task' => $context->taskId, 'schedule' => $context->scheduleName],
             );
             $this->resolve($context, TaskStatus::Skipped);
@@ -591,9 +621,59 @@ final class Scheduler
             return false;
         }
 
-        $admission->starting();
+        // The record is not where a claim can be made from, and nothing says who has it. It
+        // goes back rather than being written off.
+        $this->logger->warning(
+            'Task {task} of schedule {schedule} could not be claimed ({status}), so it is left due.',
+            ['task' => $context->taskId, 'schedule' => $context->scheduleName, 'status' => $claim->status->value],
+        );
+        $this->release($context);
 
-        return true;
+        return false;
+    }
+
+    /**
+     * How many runs of one schedule this process has going.
+     */
+    private function runningOf(string $scheduleName): int
+    {
+        $running = 0;
+
+        foreach ($this->children as [, $context]) {
+            if ($context->scheduleName === $scheduleName) {
+                ++$running;
+            }
+        }
+
+        return $running;
+    }
+
+    /**
+     * Stops counting a run this tick claimed and then did not start, so the room it took is
+     * there for the runs behind it rather than for the tick after this one.
+     */
+    private function gaveUp(TaskContext $context): void
+    {
+        $admission = $this->admissions[$context->scheduleName] ?? null;
+        $admission?->gaveUp(ExecutionOwnership::identityOf($context));
+    }
+
+    /**
+     * Records in the ledger what became of a run that held no process of its own: one made in
+     * the tick itself, which is the tick and not a worker.
+     *
+     * Without it the record stays as admission left it, and a backlog read later would offer
+     * work that was done an hour ago.
+     */
+    private function resolved(TaskContext $context, TaskStatus $status): void
+    {
+        $schedule = $this->generators[$context->scheduleName]->getSchedule();
+
+        if (null === $schedule->getLedger()) {
+            return;
+        }
+
+        (new ExecutionOwnership($schedule))->resolved($context, $status, $this->clock->now());
     }
 
     /**
@@ -790,10 +870,11 @@ final class Scheduler
         ?Throwable &$failure,
     ): void {
         if (!$this->beforeRun($task, $context)) {
-            // Claimed a moment ago and launched after all: the record says so, and the capacity
-            // the claim took comes back with it.
+            // Claimed a moment ago and not launched after all: the record says so, and the room
+            // the claim took comes back with it, in this tick and in the ledger.
             $this->notLaunched($context, $authority);
             $this->finish($context, $authority, TaskStatus::Cancelled, null);
+            $this->gaveUp($context);
             $this->resolve($context, TaskStatus::Cancelled);
 
             return;
@@ -823,6 +904,7 @@ final class Scheduler
 
             try {
                 $this->finish($context, $authority, $status, null);
+                $this->gaveUp($context);
                 $this->resolve($context, $status);
             } catch (Throwable $error) {
                 $failure = $this->firstFailure($failure, $error);
@@ -1111,12 +1193,27 @@ final class Scheduler
             return $failure;
         }
 
+        $taskStatus = pcntl_wifexited($status) && 0 === pcntl_wexitstatus($status)
+            ? TaskStatus::Done
+            : TaskStatus::Failed;
+
         try {
-            $this->resolve(
+            // The process this run held is gone, and a shutdown is not a reason to leave the
+            // ledger holding it: the capacity it took comes back here as it would on any other
+            // collection of a child.
+            $authority = $this->authorities[$pid] ?? null;
+            unset($this->authorities[$pid]);
+
+            $this->finish(
                 $context,
-                pcntl_wifexited($status) && 0 === pcntl_wexitstatus($status) ? TaskStatus::Done : TaskStatus::Failed,
-                $pid,
+                $authority,
+                $taskStatus,
+                new ProcessObservation(
+                    exitCode: pcntl_wifexited($status) ? pcntl_wexitstatus($status) : null,
+                    signal: pcntl_wifsignaled($status) ? pcntl_wtermsig($status) : null,
+                ),
             );
+            $this->resolve($context, $taskStatus, $pid);
         } catch (Throwable $error) {
             return $this->firstFailure($failure, $error);
         }

@@ -11,6 +11,8 @@ use Yiisoft\Scheduler\Ledger\ExecutionOutcome;
 use Yiisoft\Scheduler\Ledger\LaunchDescription;
 use Yiisoft\Scheduler\Ledger\LaunchFact;
 use Yiisoft\Scheduler\Ledger\ProcessObservation;
+use Yiisoft\Scheduler\Ledger\TransitionResult;
+use Yiisoft\Scheduler\Ledger\TransitionStatus;
 
 use function gethostname;
 
@@ -27,13 +29,15 @@ final class ExecutionOwnership
     public function __construct(private readonly Schedule $schedule) {}
 
     /**
-     * Takes the right to launch the run, and returns the authority it was taken under.
+     * Takes the right to launch the run.
      *
-     * Null where there is no ledger to take it from, and where the record says the run is not
-     * this planner's to launch: another planner claimed it first, or it is already finished.
-     * The caller starts nothing in that case.
+     * Null where there is no ledger to take it from; otherwise the ledger's own answer, which
+     * the caller reads to tell a run another planner is making from one it may have another go
+     * at. A claim refused because the authority was not the record's is tried once more under
+     * the authority the refusal came back with: the record is read where executions are read,
+     * which may be a replica that has not caught up with a reauthorized attempt.
      */
-    public function claim(TaskContext $context, DateTimeImmutable $at): ?ExecutionAuthority
+    public function claim(TaskContext $context, DateTimeImmutable $at): ?TransitionResult
     {
         $ledger = $this->schedule->getLedger();
 
@@ -42,10 +46,32 @@ final class ExecutionOwnership
         }
 
         $identity = self::identityOf($context);
-        $authority = $this->authorityOf($identity);
-        $result = $ledger->claim($identity, $authority, $at);
+        $result = $ledger->claim($identity, $this->authorityOf($identity), $at);
 
-        return $result->isAccepted() ? $authority : null;
+        if (TransitionStatus::StaleAuthority === $result->status && null !== $result->record) {
+            $result = $ledger->claim($identity, $result->record->authority, $at);
+        }
+
+        return $result;
+    }
+
+    /**
+     * Records what became of a run that never held a process: one skipped because the task is
+     * already running, or one made in the tick itself.
+     *
+     * Without this the record stays as admission left it, and a backlog read later would offer
+     * work that has already been dealt with.
+     */
+    public function resolved(TaskContext $context, TaskStatus $status, DateTimeImmutable $at): void
+    {
+        $ledger = $this->schedule->getLedger();
+
+        if (null === $ledger) {
+            return;
+        }
+
+        $identity = self::identityOf($context);
+        $ledger->recordOutcome($identity, $this->authorityOf($identity), self::outcomeOf($status), $at);
     }
 
     /**

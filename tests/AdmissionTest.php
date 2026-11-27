@@ -11,6 +11,8 @@ use Yiisoft\Scheduler\Exception\LogicException;
 use Yiisoft\Scheduler\Handler\CallableTaskHandler;
 use Yiisoft\Scheduler\Ledger\ExecutionAuthority;
 use Yiisoft\Scheduler\Ledger\ExecutionIdentity;
+use Yiisoft\Scheduler\Ledger\ExecutionOutcome;
+use Yiisoft\Scheduler\Ledger\ExecutionPhase;
 use Yiisoft\Scheduler\Ledger\InMemoryLedger;
 use Yiisoft\Scheduler\Ledger\LaunchDescription;
 use Yiisoft\Scheduler\Ledger\LaunchFact;
@@ -53,10 +55,22 @@ final class AdmissionTest extends TestCase
         $scheduler->tick();
         $clock->advance('+1 minute');
 
-        $this->hold($ledger, 'report', $clock->now()->modify('-1 hour'));
+        $due = $clock->now();
+        $this->hold($ledger, 'report', $due->modify('-1 hour'));
         $scheduler->tick(true);
 
         $this->assertCount(1, $ledger->holdingProcess('default', 10), 'nothing was started beside the run held');
+
+        // The occurrence was decided rather than left: the ledger says what became of it, and
+        // the tick after this one has nothing of it to offer.
+        $record = $ledger->find(new ExecutionIdentity('default', 'report', $due));
+
+        $this->assertSame(ExecutionOutcome::Skipped, $record?->outcome);
+        $this->assertSame(ExecutionPhase::Terminal, $record?->phase);
+
+        $scheduler->tick(true);
+
+        $this->assertCount(1, $ledger->holdingProcess('default', 10), 'the skipped run is not offered again');
         $this->reap($scheduler);
     }
 
@@ -73,10 +87,17 @@ final class AdmissionTest extends TestCase
         $scheduler->tick();
         $clock->advance('+1 minute');
 
-        $this->hold($ledger, 'report', $clock->now()->modify('-1 hour'));
+        $due = $clock->now();
+        $this->hold($ledger, 'report', $due->modify('-1 hour'));
         $scheduler->tick(true);
 
         $this->assertCount(2, $ledger->holdingProcess('default', 10), 'the run held, and the one just started');
+
+        // What the record says was launched, which outlives the process that was launched.
+        $record = $ledger->find(new ExecutionIdentity('default', 'report', $due));
+
+        $this->assertSame(LaunchFact::Started, $record?->launch);
+        $this->assertNotNull($record?->process);
         $this->reap($scheduler);
     }
 

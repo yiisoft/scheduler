@@ -100,6 +100,11 @@ final class Schedule
      * Separate from the checkpoint, which records how far the schedule got. With a ledger, no
      * occurrence is emitted before its record is written, so a process that dies between the
      * two leaves work the ledger knows about rather than work nothing remembers.
+     *
+     * The executions are read back through the same object where it answers
+     * {@see LedgerQueryInterface}, and through the second one where the two are separate. A
+     * ledger that can only be written to leaves {@see Admission} nothing to read, so overlap
+     * and capacity are then decided from the runs this process started and no others.
      */
     public function ledger(LedgerCommandInterface $ledger, ?LedgerQueryInterface $queries = null): static
     {

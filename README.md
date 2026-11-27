@@ -471,7 +471,18 @@ work its predecessor started, and so does a planner on another host. Capacity co
 the execution gives the process up, and not when a planner stops or a worker is seen to exit.
 
 Without a ledger a schedule can only answer from the runs this process started, which is what
-it has always answered from, and a restart forgets them.
+it has always answered from, and a restart forgets them. The same holds for a ledger given only
+as something to write to: `Schedule::ledger()` reads the executions through the same object when
+it answers `LedgerQueryInterface`, and takes a second one when the two are separate, but a
+ledger that can only be written to leaves admission with nothing to read.
+
+An execution counts from the moment a planner takes the right to launch it rather than from the
+moment its process exists, because the gap between the two is where a planner dies and leaves a
+worker nobody wrote down. It stops counting when the execution gives its process up.
+
+A capacity is how much work a source starts, not a lock. Two planners reading at the same time
+see the same room and may both take it; what the ledger settles is one occurrence at a time,
+which is what keeps two planners off one run.
 
 Capacity and `--max-processes` are different questions. The capacity is of the source: how many
 executions of this schedule may be going at once, wherever they are. `--max-processes` is this
