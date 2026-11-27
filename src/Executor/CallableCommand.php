@@ -93,8 +93,15 @@ final class CallableCommand implements CommandInterface
             return sprintf('%s::__invoke', $callable::class);
         }
 
-        $target = is_object($callable[0]) ? $callable[0]::class : $callable[0];
+        // The same way a task given as an array is described, so that the two forms of writing
+        // down one method read alike.
+        $target = $callable[0] ?? null;
+        $method = $callable[1] ?? null;
 
-        return sprintf('%s::%s', $target, $callable[1]);
+        return sprintf(
+            '%s::%s',
+            is_object($target) ? $target::class : (string) $target,
+            is_string($method) ? $method : 'unknown',
+        );
     }
 }
