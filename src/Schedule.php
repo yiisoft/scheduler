@@ -11,6 +11,7 @@ use Yiisoft\Scheduler\Lock\LockInterface;
 use Yiisoft\Scheduler\Lock\MutexLock;
 use Throwable;
 use Yiisoft\Scheduler\Ledger\LedgerCommandInterface;
+use Yiisoft\Scheduler\Ledger\LedgerQueryInterface;
 
 use function array_key_exists;
 use function is_int;
@@ -28,6 +29,9 @@ final class Schedule
     private ?LockInterface $lock = null;
     private ?CacheInterface $state = null;
     private ?LedgerCommandInterface $ledger = null;
+    private ?LedgerQueryInterface $ledgerQueries = null;
+    private ?Overlap $overlap = null;
+    private ?int $capacity = null;
     private bool $onlyLastMissedRun = false;
     private ?DateInterval $reclaimAfter = null;
     /** @var list<callable(TaskContext, RecurringTask): void> */
@@ -97,9 +101,57 @@ final class Schedule
      * occurrence is emitted before its record is written, so a process that dies between the
      * two leaves work the ledger knows about rather than work nothing remembers.
      */
-    public function ledger(LedgerCommandInterface $ledger): static
+    public function ledger(LedgerCommandInterface $ledger, ?LedgerQueryInterface $queries = null): static
     {
         $this->ledger = $ledger;
+
+        // The two halves are usually one object, and are two parameters because they need not
+        // be: an application writing its executions through one service and reading them from
+        // a replica gives both.
+        $this->ledgerQueries = $queries ?? ($ledger instanceof LedgerQueryInterface ? $ledger : null);
+
+        return $this;
+    }
+
+    /**
+     * Sets what becomes of a run of a task that is due while an earlier one is still going,
+     * for every task of this schedule that does not say for itself.
+     *
+     * Without a ledger the question is answered from the runs this process started, which is
+     * all a schedule remembering nothing can answer from. With one it is answered from the
+     * executions that durably hold a process, so a restart does not let a task overlap itself
+     * and neither does a second planner.
+     */
+    public function overlap(Overlap $overlap): static
+    {
+        $this->overlap = $overlap;
+
+        return $this;
+    }
+
+    /**
+     * Sets how many executions of this schedule may hold a process at once.
+     *
+     * The capacity is of the source rather than of a task: it is the room the application has
+     * for the work of this schedule, which the tasks share. A run due with no room left is
+     * given back rather than recorded, so nothing moves past it and the next tick offers it
+     * again.
+     *
+     * Counted from the ledger where there is one, so an execution holding a process survives
+     * the planner that started it: capacity comes back when the execution gives the process up,
+     * and not when a planner stops or a worker is seen to exit.
+     *
+     * @param int $capacity How many at once, at least one.
+     */
+    public function capacity(int $capacity): static
+    {
+        if ($capacity < 1) {
+            throw new Exception\LogicException(
+                sprintf('The capacity of a schedule is at least one execution, %d given.', $capacity),
+            );
+        }
+
+        $this->capacity = $capacity;
 
         return $this;
     }
@@ -214,6 +266,33 @@ final class Schedule
     public function getLedger(): ?LedgerCommandInterface
     {
         return $this->ledger;
+    }
+
+    /**
+     * The ledger to read the executions of this schedule from, where it can be read.
+     */
+    public function getLedgerQueries(): ?LedgerQueryInterface
+    {
+        return $this->ledgerQueries;
+    }
+
+    /**
+     * What this task says about overlapping itself, or what the schedule says for it.
+     *
+     * Skip is the answer where neither says, which is what a schedule has always done.
+     */
+    public function overlapOf(RecurringTask $task): Overlap
+    {
+        return $task->getOverlap() ?? $this->overlap ?? Overlap::Skip;
+    }
+
+    /**
+     * How many executions of this schedule may hold a process at once, or null for no limit of
+     * its own.
+     */
+    public function getCapacity(): ?int
+    {
+        return $this->capacity;
     }
 
     /**

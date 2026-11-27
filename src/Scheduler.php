@@ -18,6 +18,8 @@ use Yiisoft\Scheduler\Exception\LogicException;
 use Yiisoft\Scheduler\Exception\RuntimeException;
 use Yiisoft\Scheduler\Generator\TaskGenerator;
 use Yiisoft\Scheduler\Handler\TaskHandlerInterface;
+use Yiisoft\Scheduler\Ledger\ExecutionAuthority;
+use Yiisoft\Scheduler\Ledger\ProcessObservation;
 
 use function array_key_exists;
 use function array_keys;
@@ -81,6 +83,10 @@ final class Scheduler
     private bool $shouldStop = false;
     /** @var array<int, array{RecurringTask, TaskContext}> Child process id to its task and context. */
     private array $children = [];
+    /** @var array<int, ExecutionAuthority> Child process id to the authority its run is held under. */
+    private array $authorities = [];
+    /** @var array<string, Admission> Schedule name to what it may start, for the tick at hand. */
+    private array $admissions = [];
     private bool $terminating = false;
     /**
      * Whether run() is driving the ticks. A task failure is then only logged, not thrown:
@@ -136,6 +142,10 @@ final class Scheduler
      */
     public function tick(bool $concurrent = false, ?int $maxProcesses = null): int
     {
+        // What the ledger holds is read once per tick and counted up from there, so a tick
+        // starting ten runs does not ask ten times what is already running.
+        $this->admissions = [];
+
         if (!$concurrent || !self::supportsForking()) {
             $count = 0;
             $failure = null;
@@ -147,6 +157,10 @@ final class Scheduler
             foreach ($this->generators as $generator) {
                 try {
                     foreach ($generator->getTasks() as $context => $task) {
+                        if (!$this->admit($task, $context, $authority, async: false)) {
+                            continue;
+                        }
+
                         ++$count;
 
                         try {
@@ -231,7 +245,13 @@ final class Scheduler
                     continue;
                 }
 
-                $this->forkTask($task, $context, $failure);
+                $authority = null;
+
+                if (!$this->admit($task, $context, $authority, async: true)) {
+                    continue;
+                }
+
+                $this->forkTask($task, $context, $authority, $failure);
             } catch (Throwable $error) {
                 $failure = $this->firstFailure($failure, $error);
             }
@@ -497,6 +517,115 @@ final class Scheduler
         return $first;
     }
 
+    /**
+     * Whether this run may be started here and now, and under which authority.
+     *
+     * Three answers, and only the first of them starts anything:
+     *
+     * - there is room and the task is not already running: the run is this planner's, claimed
+     *   in the ledger where there is one;
+     * - the task is already running and says its runs do not overlap: the run is recorded as
+     *   skipped, which is a decision about that occurrence and moves the schedule past it;
+     * - the source has no room, or the ledger says the run is not this planner's: the run is
+     *   given back, so nothing is acknowledged and the next tick finds it due again.
+     *
+     * Capacity and the claim are of a run that is about to hold a worker process of its own.
+     * A run made in this process holds no worker and takes no capacity: it is the tick, and
+     * the tick is one run at a time. It is still asked whether the task is running elsewhere.
+     *
+     * @param ExecutionAuthority|null $authority Set to the authority the run is held under,
+     * which is null for a schedule with no ledger and for a run made in this process.
+     */
+    private function admit(
+        RecurringTask $task,
+        TaskContext $context,
+        ?ExecutionAuthority &$authority,
+        bool $async,
+    ): bool {
+        $authority = null;
+        $schedule = $this->generators[$context->scheduleName]->getSchedule();
+        $admission = $this->admissions[$context->scheduleName] ??= new Admission($schedule);
+
+        if ($async && !$admission->hasRoom(count($this->children))) {
+            $this->logger->info(
+                'Schedule {schedule} has no room for task {task}, which is left due.',
+                ['schedule' => $context->scheduleName, 'task' => $context->taskId],
+            );
+            $this->release($context);
+
+            return false;
+        }
+
+        if (
+            Overlap::Skip === $schedule->overlapOf($task)
+            && (
+                $this->hasRunningChild($context)
+                || $admission->isTaskHoldingProcess($context->taskId, $context->triggeredAt)
+            )
+        ) {
+            $this->logger->warning(
+                'Task {id} of schedule {schedule} is still running, skipping this run.',
+                ['id' => $context->taskId, 'schedule' => $context->scheduleName],
+            );
+            $this->resolve($context, TaskStatus::Skipped);
+
+            return false;
+        }
+
+        if (!$async) {
+            return true;
+        }
+
+        $ownership = new ExecutionOwnership($schedule);
+        $authority = $ownership->claim($context, $this->clock->now());
+
+        if (null === $authority && null !== $schedule->getLedger()) {
+            // The record says the run is not this planner's to launch: another planner claimed
+            // it, or it is already finished. Either way the ledger accounts for it from here.
+            $this->logger->info(
+                'Task {task} of schedule {schedule} is held by another planner, so it is not started here.',
+                ['task' => $context->taskId, 'schedule' => $context->scheduleName],
+            );
+            $this->resolve($context, TaskStatus::Skipped);
+
+            return false;
+        }
+
+        $admission->starting();
+
+        return true;
+    }
+
+    /**
+     * Records that nothing was started for a run this planner had claimed.
+     */
+    private function notLaunched(TaskContext $context, ?ExecutionAuthority $authority): void
+    {
+        if (null === $authority) {
+            return;
+        }
+
+        $schedule = $this->generators[$context->scheduleName]->getSchedule();
+        (new ExecutionOwnership($schedule))->notLaunched($context, $authority, $this->clock->now());
+    }
+
+    /**
+     * Records what the run came to in the ledger, and gives the process it held back.
+     */
+    private function finish(
+        TaskContext $context,
+        ?ExecutionAuthority $authority,
+        TaskStatus $status,
+        ?ProcessObservation $observation,
+    ): void {
+        if (null === $authority) {
+            return;
+        }
+
+        $schedule = $this->generators[$context->scheduleName]->getSchedule();
+        (new ExecutionOwnership($schedule))->finished($context, $authority, $status, $observation, $this->clock->now());
+    }
+
     /** Runs the task and reports what became of it, leaving the caller to record it. */
     private function runTask(RecurringTask $task, TaskContext $context): TaskStatus
     {
@@ -654,22 +783,17 @@ final class Scheduler
      * the parent, so cancellation never pays for a fork; the post-run and failure events are
      * dispatched back in the parent when the child is reaped.
      */
-    private function forkTask(RecurringTask $task, TaskContext $context, ?Throwable &$failure): void
-    {
-        // One process per task at a time: a task that takes longer than its own interval
-        // would otherwise pile up a process per due time and never catch up.
-        if ($this->hasRunningChild($context)) {
-            $this->logger->warning(
-                'Task {id} of schedule {schedule} is still running, skipping this run.',
-                ['id' => $context->taskId, 'schedule' => $context->scheduleName],
-            );
-
-            $this->resolve($context, TaskStatus::Skipped);
-
-            return;
-        }
-
+    private function forkTask(
+        RecurringTask $task,
+        TaskContext $context,
+        ?ExecutionAuthority $authority,
+        ?Throwable &$failure,
+    ): void {
         if (!$this->beforeRun($task, $context)) {
+            // Claimed a moment ago and launched after all: the record says so, and the capacity
+            // the claim took comes back with it.
+            $this->notLaunched($context, $authority);
+            $this->finish($context, $authority, TaskStatus::Cancelled, null);
             $this->resolve($context, TaskStatus::Cancelled);
 
             return;
@@ -698,6 +822,7 @@ final class Scheduler
             }
 
             try {
+                $this->finish($context, $authority, $status, null);
                 $this->resolve($context, $status);
             } catch (Throwable $error) {
                 $failure = $this->firstFailure($failure, $error);
@@ -707,6 +832,17 @@ final class Scheduler
         }
 
         $this->children[$pid] = [$task, $context];
+
+        if (null !== $authority) {
+            $this->authorities[$pid] = $authority;
+
+            try {
+                (new ExecutionOwnership($this->generators[$context->scheduleName]->getSchedule()))
+                    ->launched($context, $authority, $pid, $this->clock->now());
+            } catch (Throwable $error) {
+                $failure = $this->firstFailure($failure, $error);
+            }
+        }
 
         try {
             $this->assignChildOwner($context, $pid);
@@ -778,6 +914,7 @@ final class Scheduler
         // starts, and the inherited SIGTERM handler would swallow the stop request a shutdown
         // sends, leaving SIGKILL as the only way to end this process.
         $this->children = [];
+        $this->authorities = [];
         $this->terminating = false;
         self::restoreDefaultSignalHandlers();
 
@@ -852,9 +989,19 @@ final class Scheduler
     {
         $schedule = $this->generators[$context->scheduleName]->getSchedule();
         $failure = null;
+        $authority = $this->authorities[$pid] ?? null;
+        unset($this->authorities[$pid]);
+
+        // What was seen of the process, which is how a backlog read later says on what evidence
+        // the capacity it held was given back.
+        $observation = new ProcessObservation(
+            exitCode: pcntl_wifexited($status) ? pcntl_wexitstatus($status) : null,
+            signal: pcntl_wifsignaled($status) ? pcntl_wtermsig($status) : null,
+        );
 
         if (pcntl_wifexited($status) && 0 === pcntl_wexitstatus($status)) {
             try {
+                $this->finish($context, $authority, TaskStatus::Done, $observation);
                 $this->resolve($context, TaskStatus::Done, $pid);
             } catch (Throwable $error) {
                 $failure = $this->firstFailure($failure, $error);
@@ -878,6 +1025,7 @@ final class Scheduler
         }
 
         try {
+            $this->finish($context, $authority, TaskStatus::Failed, $observation);
             $this->resolve($context, TaskStatus::Failed, $pid);
         } catch (Throwable $error) {
             $failure = $error;

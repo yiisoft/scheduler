@@ -5,6 +5,12 @@ application when you upgrade the package from one version to another.
 
 ## 1.0.0
 
+- A schedule with a ledger now decides what to start from the executions that ledger holds,
+  rather than only from the child processes this planner started. A task whose earlier run is
+  still held by another planner, or by this one before it was restarted, is skipped instead of
+  being started a second time. Give the task `withOverlap(Overlap::Allow)` to keep the older
+  behaviour for it.
+
 - `Schedule::lock()` takes a `Yiisoft\Scheduler\Lock\LockInterface` rather than a
   `Yiisoft\Mutex\MutexInterface`, so a schedule can be locked without installing yiisoft/mutex.
   Wrap an existing mutex: `->lock(new MutexLock($mutex))`. `Schedule::getMutex()` is renamed to
