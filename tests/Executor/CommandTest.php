@@ -12,6 +12,8 @@ use Yiisoft\Scheduler\Executor\PhpCommand;
 use Yiisoft\Scheduler\Executor\ProcessCommand;
 use Yiisoft\Scheduler\RecurringTask;
 
+use function sprintf;
+
 use const PHP_BINARY;
 
 /**
@@ -39,6 +41,10 @@ final class CommandTest extends TestCase
         yield 'an environment variable with no name' => [
             static fn() => new ProcessCommand('php', [], ['' => 'value']),
             'An environment variable name cannot be empty',
+        ];
+        yield 'an "=" in an environment variable name' => [
+            static fn() => new ProcessCommand('php', [], ['TZ=UTC' => 'Europe/Skopje']),
+            'cannot hold an "="',
         ];
         yield 'an environment value that is not a string' => [
             static fn() => new ProcessCommand('php', [], ['COUNT' => 3]),
@@ -105,13 +111,42 @@ final class CommandTest extends TestCase
 
     public function testACallableCommandSaysWhereItWasDeclared(): void
     {
+        $line = __LINE__ + 1;
         $command = CallableCommand::call(static fn() => null);
 
-        $this->assertStringContainsString('closure@' . __FILE__, (string) $command);
+        $this->assertSame(sprintf('callable(closure@%s:%d)', __FILE__, $line), (string) $command);
     }
 
     public function testACallableCommandSaysWhichServiceItCalls(): void
     {
         $this->assertSame('callable(App\\Report::send)', (string) CallableCommand::of('App\\Report', 'send'));
+    }
+
+    public function testTheSameEnvironmentWrittenInAnotherOrderIsOneTask(): void
+    {
+        $this->assertSame(
+            RecurringTask::cron('@daily', new ProcessCommand('/usr/bin/report', [], ['TZ' => 'UTC', 'LANG' => 'C']))->getId(),
+            RecurringTask::cron('@daily', new ProcessCommand('/usr/bin/report', [], ['LANG' => 'C', 'TZ' => 'UTC']))->getId(),
+        );
+    }
+
+    public function testTwoOptionListsThatReadAlikeAreStillTwoTasks(): void
+    {
+        $this->assertNotSame(
+            (string) new PhpCommand('report.php', [], null, ['-d', 'memory_limit=1G']),
+            (string) new PhpCommand('report.php', [], null, ['-d memory_limit=1G']),
+        );
+    }
+
+    public function testTwoClosuresOfOneFileAreTwoTasks(): void
+    {
+        $first = CallableCommand::call(static fn() => null);
+        $second = CallableCommand::call(static fn() => null);
+
+        $this->assertNotSame((string) $first, (string) $second, 'the line they are written on tells them apart');
+        $this->assertNotSame(
+            RecurringTask::cron('@daily', $first)->getId(),
+            RecurringTask::cron('@daily', $second)->getId(),
+        );
     }
 }

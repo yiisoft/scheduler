@@ -7,7 +7,6 @@ namespace Yiisoft\Scheduler\Executor;
 use Yiisoft\Scheduler\Exception\LogicException;
 
 use function array_is_list;
-use function implode;
 use function is_string;
 use function sprintf;
 use function str_contains;
@@ -72,14 +71,15 @@ final class PhpCommand implements CommandInterface
             $description .= sprintf(', binary %s', var_export($this->binary, true));
         }
 
-        if ([] !== $this->options) {
-            /** @var list<string> $options The constructor took nothing else. */
-            $options = $this->options;
-            $description .= sprintf(', options %s', implode(' ', $options));
+        foreach ($this->options as $option) {
+            $description .= sprintf(', option %s', var_export($option, true));
         }
 
-        foreach ($this->environment as $name => $value) {
-            $description .= sprintf(', %s=%s', $name, var_export($value, true));
+        /** @var array<string, string> $environment The constructor took nothing else. */
+        $environment = $this->environment;
+
+        foreach (ProcessCommand::describeEnvironment($environment) as $variable) {
+            $description .= ', ' . $variable;
         }
 
         if (null !== $this->workingDirectory) {
@@ -98,9 +98,12 @@ final class PhpCommand implements CommandInterface
      */
     public function resolve(): ProcessCommand
     {
+        // "-f" names the script however it is written, so a relative path beginning with a "-"
+        // is opened rather than read as an option of PHP's own, and "--" ends PHP's options so
+        // that the arguments after it are the script's whatever they look like.
         return new ProcessCommand(
             $this->binary ?? PHP_BINARY,
-            [...$this->options, $this->script, ...$this->arguments],
+            [...$this->options, '-f', $this->script, '--', ...$this->arguments],
             $this->environment,
             $this->workingDirectory,
         );

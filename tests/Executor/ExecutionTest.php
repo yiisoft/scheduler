@@ -20,6 +20,9 @@ use Yiisoft\Scheduler\Executor\CommandInterface;
 
 use function file_get_contents;
 use function file_put_contents;
+use function glob;
+use function mkdir;
+use function rmdir;
 use function sys_get_temp_dir;
 use function tempnam;
 use function unlink;
@@ -37,13 +40,27 @@ final class ExecutionTest extends TestCase
      */
     private array $files = [];
 
+    /**
+     * @var list<string>
+     */
+    private array $directories = [];
+
     protected function tearDown(): void
     {
         foreach ($this->files as $file) {
             @unlink($file);
         }
 
+        foreach ($this->directories as $directory) {
+            foreach ((array) glob($directory . '/*') as $file) {
+                @unlink((string) $file);
+            }
+
+            @rmdir($directory);
+        }
+
         $this->files = [];
+        $this->directories = [];
 
         parent::tearDown();
     }
@@ -160,10 +177,51 @@ final class ExecutionTest extends TestCase
         $this->assertSame(PHP_BINARY . '|weekly', file_get_contents($output));
     }
 
+    public function testAnEmptyArgumentReachesTheProgram(): void
+    {
+        $file = $this->file();
+
+        $this->execute(new ProcessCommand(PHP_BINARY, ['-r', 'file_put_contents($argv[1], count($argv) . "|" . $argv[2]);', $file, '']));
+
+        $this->assertSame('3|', file_get_contents($file), 'the empty argument is one argument, not none');
+    }
+
+    public function testAScriptNamedLikeAnOptionIsOpenedRatherThanRead(): void
+    {
+        $directory = $this->directory();
+        $output = $this->file();
+        file_put_contents($directory . '/-report.php', '<?php file_put_contents($argv[1], $argv[2]);');
+
+        $this->execute(new PhpCommand('-report.php', [$output, 'ran'], null, [], [], $directory));
+
+        $this->assertSame('ran', file_get_contents($output));
+    }
+
+    public function testAnArgumentNamedLikeAPhpOptionIsTheScriptsOwn(): void
+    {
+        $output = $this->file();
+        $script = $this->file();
+        file_put_contents($script, '<?php file_put_contents($argv[1], $argv[2]);');
+
+        $this->execute(new PhpCommand($script, [$output, '--version']));
+
+        $this->assertSame('--version', file_get_contents($output), 'PHP answered with the script rather than with itself');
+    }
+
     private function execute(object $command): mixed
     {
         /** @var CommandInterface $command */
         return ExecutorMap::standard()->for($command)->execute($command, $this->context());
+    }
+
+    private function directory(): string
+    {
+        $directory = (string) tempnam(sys_get_temp_dir(), 'scheduler-test-');
+        unlink($directory);
+        mkdir($directory);
+        $this->directories[] = $directory;
+
+        return $directory;
     }
 
     private function file(): string

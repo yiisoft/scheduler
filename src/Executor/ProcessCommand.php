@@ -10,9 +10,12 @@ use function array_is_list;
 use function get_debug_type;
 use function implode;
 use function is_string;
+use function ksort;
 use function sprintf;
 use function str_contains;
 use function var_export;
+
+use const SORT_STRING;
 
 /**
  * A program to run in a process of its own, named by its path and its arguments.
@@ -62,7 +65,9 @@ final class ProcessCommand implements CommandInterface
                 );
             }
 
-            self::assertUsable($argument, sprintf('Argument %d', $position));
+            // An empty argument is one a program can be given, and some are: a filter set to
+            // nothing is not the same as no filter at all.
+            self::assertUsable($argument, sprintf('Argument %d', $position), allowEmpty: true);
         }
 
         foreach ($environment as $name => $value) {
@@ -70,7 +75,13 @@ final class ProcessCommand implements CommandInterface
                 throw new LogicException('Environment variables are named by strings and hold strings.');
             }
 
-            self::assertUsable($name, 'An environment variable name', allowEmpty: false);
+            self::assertUsable($name, 'An environment variable name');
+
+            // The name and the value reach the program as one string with an "=" between them,
+            // so a name holding one would arrive as a shorter name and a longer value.
+            if (str_contains($name, '=')) {
+                throw new LogicException(sprintf('The environment variable name "%s" cannot hold an "=".', $name));
+            }
             self::assertUsable($value, sprintf('The value of "%s"', $name), allowEmpty: true);
         }
 
@@ -94,8 +105,8 @@ final class ProcessCommand implements CommandInterface
 
         $description = sprintf('process(%s', implode(' ', $parts));
 
-        foreach ($this->environment as $name => $value) {
-            $description .= sprintf(', %s=%s', $name, var_export($value, true));
+        foreach (self::describeEnvironment($this->environment) as $variable) {
+            $description .= ', ' . $variable;
         }
 
         if (null !== $this->workingDirectory) {
@@ -126,6 +137,30 @@ final class ProcessCommand implements CommandInterface
     public function getWorkingDirectory(): ?string
     {
         return $this->workingDirectory;
+    }
+
+    /**
+     * The variables as a list of "name=value", by name, so that the same environment written in
+     * another order reads the same way here: the program is handed a mapping, and the order the
+     * entries were written in is nothing it can see.
+     *
+     * @param array<string, string> $environment
+     *
+     * @return list<string>
+     */
+    public static function describeEnvironment(array $environment): array
+    {
+        // As strings, for the reason a message payload is sorted that way: comparing the names
+        // as PHP does would read "01" and 1 as one name.
+        ksort($environment, SORT_STRING);
+
+        $described = [];
+
+        foreach ($environment as $name => $value) {
+            $described[] = sprintf('%s=%s', $name, var_export($value, true));
+        }
+
+        return $described;
     }
 
     private static function assertUsable(string $value, string $what, bool $allowEmpty = false): void

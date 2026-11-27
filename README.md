@@ -150,6 +150,11 @@ the same thing with the PHP binary in front of the script: by default the binary
 scheduler, so the script runs under the PHP that planned it rather than whichever `php` a
 `PATH` resolves to.
 
+A program is a process of the operating system's rather than a child the scheduler keeps track
+of. `schedule:work` shutting down signals the task processes it forked, and not the programs
+those started, so a program still running when its task is stopped carries on to its own end.
+Give one to a task when it can be left to finish.
+
 `CallableCommand::of()` names a service and a method instead of holding a callable. It is
 resolved by the container the executor was built with, which is the container of the process
 doing the work: a task declared in a configuration file can then use the services of the

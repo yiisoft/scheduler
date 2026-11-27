@@ -28,8 +28,12 @@ use const DIRECTORY_SEPARATOR;
  * while the program runs. A program exiting with a code other than zero is a failed task,
  * reported the way a console command that exits non-zero is.
  *
- * There is no time limit here. How long a task may run, and what stops it, is the business of
- * the scheduler that starts it rather than of this executor.
+ * There is no time limit here, and the program is the operating system's process rather than a
+ * child the scheduler knows: a daemon shutting down signals the task processes it forked, not
+ * the programs those started, so a program still running when its task is stopped carries on.
+ * How long a task may run and what stops it is the business of the scheduler that starts it
+ * rather than of this executor, and until that is settled a program given to one is a program
+ * that has to be able to finish on its own.
  */
 final class ProcessExecutor implements ExecutorInterface
 {
