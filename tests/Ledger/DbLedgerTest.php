@@ -90,11 +90,11 @@ final class DbLedgerTest extends LedgerContractTestCase
 
         $this->assertTrue($mine->isAccepted());
         $this->assertSame(TransitionStatus::StaleAuthority, $theirs->status);
-        $this->assertSame(2, $this->open()->find($identity)?->attempt);
-        $this->assertSame(
-            $mine->record?->authority->token,
-            $this->open()->find($identity)?->authority->token,
-        );
+        $reread = $this->open()->find($identity);
+
+        $this->assertNotNull($reread);
+        $this->assertSame(2, $reread->attempt);
+        $this->assertSame($mine->record?->authority->token, $reread->authority->token);
     }
 
     public function testAnObservationOfNeitherAnExitCodeNorASignalIsStillAnObservation(): void

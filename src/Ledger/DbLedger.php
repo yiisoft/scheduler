@@ -18,6 +18,8 @@ use function in_array;
 use function is_bool;
 use function is_callable;
 use function is_int;
+use function is_numeric;
+use function is_scalar;
 use function max;
 use function sprintf;
 
@@ -63,7 +65,7 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
      */
     public function createTable(): void
     {
-        if (null !== $this->db->getTableSchema($this->table, true)) {
+        if ($this->tableExists()) {
             return;
         }
 
@@ -123,7 +125,7 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
             // Two workers setting the ledger up at once both get past the check above, and the
             // one that lost is told the table is already there. That is the answer it came for,
             // so it is not a failure to start over. A table that is still missing is.
-            if (null === $this->db->getTableSchema($this->table, true)) {
+            if (!$this->tableExists()) {
                 throw $error;
             }
         }
@@ -304,7 +306,7 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
         // reauthorized in between carries one this caller did not name and the write applies
         // to nothing.
         return $this->transition($identity, $expected, true, null, function (array $row) use ($identity): array {
-            $attempt = (int) $row['attempt'] + 1;
+            $attempt = self::readInt($row['attempt']) + 1;
 
             return [
                 // First, and before `launch` is cleared below, because MySQL works an `UPDATE`
@@ -500,32 +502,44 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
     {
         return new ExecutionRecord(
             identity: new ExecutionIdentity(
-                (string) $row['source'],
-                (string) $row['task_id'],
-                self::readDate((string) $row['occurrence']),
+                self::readText($row['source']),
+                self::readText($row['task_id']),
+                self::readDate(self::readText($row['occurrence'])),
             ),
-            sourceRevision: (string) $row['source_revision'],
-            authority: new ExecutionAuthority((string) $row['authority']),
-            attempt: max(1, (int) $row['attempt']),
-            phase: ExecutionPhase::from((string) $row['phase']),
-            launch: LaunchFact::from((string) $row['launch']),
+            sourceRevision: self::readText($row['source_revision']),
+            authority: new ExecutionAuthority(self::readText($row['authority'])),
+            attempt: max(1, self::readInt($row['attempt'])),
+            phase: ExecutionPhase::from(self::readText($row['phase'])),
+            launch: LaunchFact::from(self::readText($row['launch'])),
             process: null === $row['process_host'] ? null : new LaunchDescription(
-                (string) $row['process_host'],
-                (int) $row['process_pid'],
-                null === $row['process_boot_id'] ? null : (string) $row['process_boot_id'],
-                null === $row['process_started_at'] ? null : (string) $row['process_started_at'],
+                self::readText($row['process_host']),
+                self::readInt($row['process_pid']),
+                null === $row['process_boot_id'] ? null : self::readText($row['process_boot_id']),
+                null === $row['process_started_at'] ? null : self::readText($row['process_started_at']),
             ),
-            outcome: null === $row['outcome'] ? null : ExecutionOutcome::from((string) $row['outcome']),
-            admittedAt: self::readDate((string) $row['admitted_at']),
-            recoveryDeadline: self::readDate((string) $row['recovery_deadline']),
+            outcome: null === $row['outcome'] ? null : ExecutionOutcome::from(self::readText($row['outcome'])),
+            admittedAt: self::readDate(self::readText($row['admitted_at'])),
+            recoveryDeadline: self::readDate(self::readText($row['recovery_deadline'])),
             processObservation: !self::readBool($row['observation']) ? null : new ProcessObservation(
-                null === $row['observation_exit_code'] ? null : (int) $row['observation_exit_code'],
-                null === $row['observation_signal'] ? null : (int) $row['observation_signal'],
+                null === $row['observation_exit_code'] ? null : self::readInt($row['observation_exit_code']),
+                null === $row['observation_signal'] ? null : self::readInt($row['observation_signal']),
             ),
-            claimedAt: null === $row['claimed_at'] ? null : self::readDate((string) $row['claimed_at']),
-            resolvedAt: null === $row['resolved_at'] ? null : self::readDate((string) $row['resolved_at']),
+            claimedAt: null === $row['claimed_at'] ? null : self::readDate(self::readText($row['claimed_at'])),
+            resolvedAt: null === $row['resolved_at'] ? null : self::readDate(self::readText($row['resolved_at'])),
             mayHaveRunBefore: self::readBool($row['may_have_run_before']),
         );
+    }
+
+    /**
+     * Whether the table this ledger reads is there, asked of the database rather than of a
+     * schema cache. Marked impure because it is asked again after a table has been created,
+     * and that is the whole point of asking twice.
+     *
+     * @phpstan-impure
+     */
+    private function tableExists(): bool
+    {
+        return null !== $this->db->getTableSchema($this->table, true);
     }
 
     /**
@@ -547,8 +561,26 @@ final class DbLedger implements LedgerCommandInterface, LedgerQueryInterface
         return match (true) {
             is_bool($value) => $value,
             is_int($value) => 0 !== $value,
-            default => !in_array((string) $value, ['', '0', 'f', 'false'], true),
+            default => !in_array(self::readText($value), ['', '0', 'f', 'false'], true),
         };
+    }
+
+    /**
+     * What a driver returned for a text column. A column of this table holds text or nothing,
+     * and a driver is free to hand back a number for one it stored as digits.
+     */
+    private static function readText(mixed $value): string
+    {
+        return is_scalar($value) ? (string) $value : '';
+    }
+
+    /**
+     * What a driver returned for an integer column, which more than one of them answers with
+     * the digits as a string.
+     */
+    private static function readInt(mixed $value): int
+    {
+        return is_numeric($value) ? (int) $value : 0;
     }
 
     private static function writeDate(DateTimeImmutable $date): string
