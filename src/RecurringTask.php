@@ -237,6 +237,24 @@ final class RecurringTask
     }
 
     /**
+     * What this task is: what its trigger says of itself, and the work behind it. This is what
+     * the generated identifier is derived from.
+     *
+     * As exact as a trigger's own description and no more. A trigger that leaves part of itself
+     * out of that description leaves it out of here, so two tasks are told apart here as well
+     * as their triggers can be told apart: `cron()` renders its expression and not its
+     * timezone, and `every()` its interval and not the date it counts from.
+     *
+     * Not an identifier and no replacement for one. A task given an identifier of its own with
+     * {@see withId()} keeps that identifier when either half of this changes, which is what
+     * this is read for.
+     */
+    public function getDefinition(): string
+    {
+        return $this->trigger . ' ' . self::describeTask($this->task);
+    }
+
+    /**
      * The task to run: a callable, a console command name, or a queue message object.
      */
     public function getTask(): mixed

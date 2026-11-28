@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace Yiisoft\Scheduler\Generator;
 
+use DateInterval;
 use DateTimeImmutable;
 use Psr\Clock\ClockInterface;
 use Yiisoft\Scheduler\Exception\LogicException;
+use Yiisoft\Scheduler\Ledger\ExecutionIdentity;
 use Yiisoft\Scheduler\RecurringTask;
 use Yiisoft\Scheduler\Schedule;
 use Yiisoft\Scheduler\TaskContext;
@@ -15,6 +17,10 @@ use Yiisoft\Scheduler\TaskStatus;
 use function array_map;
 use function count;
 use function end;
+use function hash;
+use function implode;
+use function sprintf;
+use function strlen;
 
 /**
  * Computes which tasks of a schedule are due, in run order.
@@ -26,6 +32,16 @@ use function end;
  */
 final class TaskGenerator
 {
+    /**
+     * How long after it was admitted an occurrence is still worth starting again.
+     *
+     * A constant rather than a setting, because the window belongs to the recovery loop that
+     * reads it and not to the record it bounds. It bounds new attempts only: a process
+     * already owned is still observed afterwards, since an expired deadline says nothing about
+     * whether it stopped.
+     */
+    private const RECOVERY_WINDOW = 'P1D';
+
     /**
      * How many occurrences of one task a single tick walks before it leaves the rest for the
      * next one.
@@ -76,6 +92,11 @@ final class TaskGenerator
             $heap = $this->heap();
             /** @var array<string, int> $walked How far this tick has gone into each backlog. */
             $walked = [];
+            // Read here rather than in the constructor: a scheduler builds its generators when
+            // it is built, and a task added to the schedule afterwards is still emitted by this
+            // tick. An occurrence admitted under a revision that does not describe its own task
+            // would send recovery back to the wrong configuration.
+            $revision = self::revisionOf($this->schedule->tasks());
 
             while (!$heap->isEmpty() && $heap->top()[0] <= $now) {
                 $entry = $heap->extract();
@@ -115,9 +136,17 @@ final class TaskGenerator
                 }
 
                 if (!$yield) {
+                    // Not admitted: a missed run the schedule is configured to skip is never
+                    // executed, so there is no execution to keep a record of.
                     $this->checkpoint->write($task->getId(), $time, TaskStatus::Skipped);
                     continue;
                 }
+
+                // Before the occurrence is emitted, and so before the checkpoint below moves
+                // past it: nothing may acknowledge scheduling progress past an occurrence whose
+                // record is not durable yet. A ledger that cannot write throws, the checkpoint
+                // is not reached, and the occurrence stays due for the next process.
+                $this->admit($task->getId(), $time, $now, $revision);
 
                 $context = new TaskContext($this->schedule->getName(), $task->getId(), $task->getTrigger(), $time, $nextTime);
 
@@ -220,6 +249,65 @@ final class TaskGenerator
         }
 
         return array_map(static fn(RecurringTask $task): string => $task->getId(), $this->schedule->tasks());
+    }
+
+    /**
+     * Writes the record of an occurrence about to be emitted, where there is a ledger to write
+     * it to.
+     *
+     * Idempotent by identity, so a process that died between this and the checkpoint below it
+     * admits the same occurrence again on the next pass and finds what it already wrote.
+     */
+    private function admit(
+        string $taskId,
+        DateTimeImmutable $occurrence,
+        DateTimeImmutable $now,
+        string $sourceRevision,
+    ): void {
+        $ledger = $this->schedule->getLedger();
+
+        if (null === $ledger) {
+            return;
+        }
+
+        $ledger->admit(
+            new ExecutionIdentity($this->schedule->getName(), $taskId, $occurrence),
+            $sourceRevision,
+            $now,
+            $now->add(new DateInterval(self::RECOVERY_WINDOW)),
+        );
+    }
+
+    /**
+     * What a schedule is, as one value: each task's identifier and what that identifier stands
+     * for.
+     *
+     * The identifiers alone would not say it. One generated from the task describes it already,
+     * but a task given an identifier of its own with {@see RecurringTask::withId()} keeps that
+     * identifier when its trigger or its work changes, and a revision read from identifiers
+     * would call the new configuration the old one.
+     *
+     * Each part is written with its length in front of it, so that no two different lists of
+     * identifiers and definitions are written out the same way. Two tasks that describe
+     * themselves alike are still alike here: this is as exact as
+     * {@see RecurringTask::getDefinition()} and no more.
+     *
+     * @param list<RecurringTask> $tasks
+     */
+    private static function revisionOf(array $tasks): string
+    {
+        $described = array_map(
+            static fn(RecurringTask $task): string => sprintf(
+                '%d:%s:%d:%s',
+                strlen($task->getId()),
+                $task->getId(),
+                strlen($task->getDefinition()),
+                $task->getDefinition(),
+            ),
+            $tasks,
+        );
+
+        return hash('xxh3', implode(',', $described));
     }
 
     private function heap(): TriggerHeap

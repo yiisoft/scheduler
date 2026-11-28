@@ -19,9 +19,9 @@ use function strlen;
 use function substr;
 
 /**
- * The package names `symfony/console`, `yiisoft/queue` and `yiisoft/mutex` in its suggestions
- * rather than its dependencies, which only holds while the code that needs each one stays where
- * an application that does not install it never reaches.
+ * The package names `symfony/console`, `yiisoft/queue`, `yiisoft/mutex` and `yiisoft/db` in
+ * its suggestions rather than its dependencies, which only holds while the code that needs
+ * each one stays where an application that does not install it never reaches.
  *
  * These lists are the whole of that claim. A file added to one of them is a decision: the
  * package it names has become necessary for whatever that file is part of. `config/` is read
@@ -75,6 +75,14 @@ final class OptionalDependenciesTest extends TestCase
                 'src/Schedule.php',
             ],
             self::filesNaming('Yiisoft\\Mutex', 'yiisoft/mutex'),
+        );
+    }
+
+    public function testOnlyTheDatabaseLedgerNamesTheDatabase(): void
+    {
+        $this->assertSame(
+            ['src/Ledger/DbLedger.php'],
+            self::filesNaming('Yiisoft\\Db', 'yiisoft/db'),
         );
     }
 

@@ -43,11 +43,15 @@
         "shipmonk/composer-dependency-analyser": "^1.8",
         "spatie/phpunit-watcher": "^1.24.0",
         "symfony/console": "^6.4 || ^7.0 || ^8.0",
+        "yiisoft/db": "^2.0",
+        "yiisoft/db-sqlite": "^2.0",
         "yiisoft/mutex": "^1.1",
         "yiisoft/queue": "dev-master"
     },
     "suggest": {
         "symfony/console": "To run tasks named as console commands, and to use the bundled schedule:run, schedule:work and schedule:list commands.",
+        "yiisoft/db": "To keep the execution ledger in a database with DbLedger.",
+        "yiisoft/db-sqlite": "To keep the execution ledger in a local SQLite file, which needs no database server.",
         "yiisoft/mutex": "To prevent overlapping runs across processes.",
         "yiisoft/queue": "To push due tasks to a queue instead of running them in the scheduler process.",
         "ext-pcntl": "To handle signals and run due tasks in parallel in the schedule:work command.",

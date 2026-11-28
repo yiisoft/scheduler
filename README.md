@@ -430,6 +430,53 @@ other end of the same rule: a claim made on another server is only ever taken ba
 window, because a process of another host cannot be asked about, so a server that dies mid-run
 leaves its run waiting the whole window rather than being picked up at once.
 
+## The execution ledger
+
+The checkpoint records how far the schedule got. The ledger records what became of each
+execution: when it was admitted, which attempt holds it, whether a process was started, and what
+the work came to. It is what a planner reads after a restart to tell a launch that never began
+from a worker still running from work that is already finished.
+
+```php
+$schedule = (new Schedule())
+    ->stateful($cache)
+    ->ledger($ledger)
+    ->task(...);
+```
+
+A schedule with a ledger writes the record of an occurrence before it emits it, and the
+checkpoint only moves past an occurrence whose record is already written. A process that dies
+between the two leaves work the ledger knows about rather than work the checkpoint has counted
+and nothing remembers; the next pass admits the same occurrence again and finds what it wrote,
+because admission is idempotent. A missed run the schedule is configured to skip is never
+executed, so it is never admitted either.
+
+`DbLedger` is the ledger to give it. It keeps the records in a database through
+[yiisoft/db](https://github.com/yiisoft/db), and SQLite is the default because it gives
+transactions without a server to operate:
+
+```shell
+composer require yiisoft/db-sqlite
+```
+
+```php
+use Yiisoft\Db\Sqlite\Connection;
+use Yiisoft\Db\Sqlite\Driver;
+use Yiisoft\Scheduler\Ledger\DbLedger;
+
+$ledger = new DbLedger(new Connection(new Driver('sqlite:' . __DIR__ . '/runtime/schedule.sq3')));
+$ledger->createTable(); // once; an application with migrations writes the table in one instead
+```
+
+Any other driver that package has works the same way. `InMemoryLedger` implements the same two
+interfaces and survives nothing, which makes it the right choice for a single process and the
+wrong one for the recovery a ledger exists for, and an application keeping executions in its own
+tables implements `LedgerCommandInterface` and `LedgerQueryInterface` itself and installs
+neither package. Whatever implements them has to pass `LedgerContractTestCase`, which is the
+cases the planner relies on: idempotent admission, an authority that fences the attempt it
+replaced, a first outcome that later observations cannot overwrite, and backlog queries bounded
+and scoped to one source.
+
 ## Documentation
 
 - [Internals](docs/internals.md)
