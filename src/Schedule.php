@@ -28,6 +28,7 @@ final class Schedule
     private ?CacheInterface $state = null;
     private bool $onlyLastMissedRun = false;
     private ?DateInterval $reclaimAfter = null;
+    private ?DateInterval $replaceOwnerAfter = null;
     /** @var list<callable(TaskContext, RecurringTask): void> */
     private array $beforeListeners = [];
     /** @var list<callable(TaskContext, RecurringTask, mixed): void> */
@@ -131,6 +132,43 @@ final class Schedule
     public function getReclaimAfter(): DateInterval
     {
         return $this->reclaimAfter ??= new DateInterval('P1D');
+    }
+
+    /**
+     * Sets how long a process planning this schedule is left after it was last heard from
+     * before another process may take the schedule over.
+     *
+     * One process plans a schedule at a time. A process that stops hands it back, and one that
+     * is killed on this host is noticed as soon as the next process looks, so this window only
+     * bounds the case neither covers: an owner on another host, or on a host without ext-posix,
+     * that went away without saying so. It has to outlast the longest a tick of this schedule
+     * can take, because a planner still working its way through a tick has not been heard from
+     * either, and replacing it is two processes planning one schedule.
+     *
+     * @param DateInterval|int $after The window, as a date interval or a number of seconds.
+     */
+    public function replaceOwnerAfter(DateInterval|int $after): static
+    {
+        if (is_int($after)) {
+            $after = new DateInterval(sprintf('PT%dS', max(0, $after)));
+        }
+
+        // A window of nothing would hand the schedule to whichever process looked last, which
+        // is the second planner it exists to prevent.
+        $epoch = new DateTimeImmutable('@0');
+
+        if ($epoch->add($after) <= $epoch) {
+            throw new Exception\LogicException('The owner replacement window must be greater than zero.');
+        }
+
+        $this->replaceOwnerAfter = $after;
+
+        return $this;
+    }
+
+    public function getReplaceOwnerAfter(): DateInterval
+    {
+        return $this->replaceOwnerAfter ??= new DateInterval('P1D');
     }
 
     /**

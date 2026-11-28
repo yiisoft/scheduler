@@ -5,6 +5,17 @@ application when you upgrade the package from one version to another.
 
 ## 1.0.0
 
+- A stateful schedule is now planned by one process at a time. Two `schedule:work` daemons over
+  one schedule and one shared state used to take alternate ticks of it; the second one now
+  plans nothing and waits for the first to stop. Nothing changes for `schedule:run` from cron,
+  which hands the schedule back as its tick ends, nor for servers that keep a state of their
+  own, which are each planning a schedule of their own as far as this goes. Where the alternating
+  behaviour was what you wanted, give each process a schedule of its own name.
+
+  A daemon killed on another server holds its schedule until the replacement window runs out,
+  a day by default. Set `Schedule::replaceOwnerAfter()` shorter where a faster takeover is worth
+  more than the certainty that the process is gone, keeping it longer than the slowest tick.
+
 - `Schedule::lock()` takes a `Yiisoft\Scheduler\Lock\LockInterface` rather than a
   `Yiisoft\Mutex\MutexInterface`, so a schedule can be locked without installing yiisoft/mutex.
   Wrap an existing mutex: `->lock(new MutexLock($mutex))`. `Schedule::getMutex()` is renamed to

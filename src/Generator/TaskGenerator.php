@@ -44,6 +44,9 @@ final class TaskGenerator
     private ?TriggerHeap $heap = null;
     private int $heapRevision = -1;
     private readonly Checkpoint $checkpoint;
+    private readonly ScheduleOwnership $ownership;
+    private bool $owned = false;
+    private bool $fenced = false;
     /** @var array<string, int> Task id to insertion index, ordering the runs of a shared due time. */
     private array $indices = [];
 
@@ -52,6 +55,7 @@ final class TaskGenerator
         private readonly ClockInterface $clock,
     ) {
         $this->checkpoint = new Checkpoint($schedule->getName(), $schedule->getState(), $schedule->getLock());
+        $this->ownership = new ScheduleOwnership($schedule->getName(), $schedule->getState(), $schedule->getLock());
     }
 
     public function getSchedule(): Schedule
@@ -68,7 +72,7 @@ final class TaskGenerator
     {
         $now = $this->clock->now();
 
-        if (!$this->checkpoint->acquire($this->taskIds())) {
+        if (!$this->own($now) || !$this->checkpoint->acquire($this->taskIds())) {
             return;
         }
 
@@ -151,7 +155,7 @@ final class TaskGenerator
      */
     public function getNextRunDate(): ?DateTimeImmutable
     {
-        if (!$this->checkpoint->acquire($this->taskIds())) {
+        if (!$this->own($this->clock->now()) || !$this->checkpoint->acquire($this->taskIds())) {
             return null;
         }
 
@@ -208,6 +212,63 @@ final class TaskGenerator
         // just given back in front of this scheduler too, rather than only in front of the next
         // process to read the state.
         $this->heap = null;
+    }
+
+    /**
+     * Hands the schedule back for the next process to plan. Called once this one is done with
+     * it, after whatever it has recorded of the runs it handed out.
+     */
+    public function disown(): void
+    {
+        $this->ownership->release();
+        $this->owned = false;
+    }
+
+    /**
+     * Whether the schedule has changed under this process since it took it on. Nothing more is
+     * planned once it has: what this process worked out came from a schedule the records no
+     * longer belong to.
+     */
+    public function isFenced(): bool
+    {
+        return $this->fenced;
+    }
+
+    /**
+     * Whether this schedule is this process's to plan, taking it on where it is free and
+     * saying so where it is still held.
+     *
+     * Asked before anything is planned, admitted or taken back, so that a second process
+     * started against one schedule plans nothing rather than every other tick of it.
+     */
+    private function own(DateTimeImmutable $now): bool
+    {
+        if ($this->fenced) {
+            return false;
+        }
+
+        $revision = ScheduleOwnership::revisionOf($this->scheduleRevisionIds());
+        $replaceAfter = $this->schedule->getReplaceOwnerAfter();
+
+        $status = $this->owned
+            ? $this->ownership->keep($revision, $now, $replaceAfter)
+            : $this->ownership->acquire($revision, $now, $replaceAfter);
+
+        $this->owned = OwnershipStatus::Held === $status;
+        $this->fenced = OwnershipStatus::Fenced === $status;
+
+        return $this->owned;
+    }
+
+    /**
+     * The tasks the schedule has, in the order they were added. What the owner took the
+     * schedule on with, which is not the per-tick revision the checkpoint counts.
+     *
+     * @return list<string>
+     */
+    private function scheduleRevisionIds(): array
+    {
+        return array_map(static fn(RecurringTask $task): string => $task->getId(), $this->schedule->tasks());
     }
 
     /**
