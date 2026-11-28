@@ -9,7 +9,9 @@ use Psr\Log\LoggerInterface;
 use Psr\SimpleCache\CacheInterface;
 use Symfony\Component\Console\Application;
 use Yiisoft\Scheduler\Clock\SystemClock;
+use Yiisoft\Scheduler\Executor\ExecutorMap;
 use Yiisoft\Scheduler\Handler\CallableTaskHandler;
+use Yiisoft\Scheduler\Handler\CommandTaskHandler;
 use Yiisoft\Scheduler\Handler\ConsoleTaskHandler;
 use Yiisoft\Scheduler\Handler\QueueTaskHandler;
 use Yiisoft\Scheduler\Handler\TaskHandlerInterface;
@@ -52,10 +54,13 @@ return [
             /** @var QueueProducerInterface $producer */
             $producer = $container->get(QueueProducerInterface::class);
 
-            return new QueueTaskHandler($producer, $handler);
+            $handler = new QueueTaskHandler($producer, $handler);
         }
 
-        return $handler;
+        // Commands go in front of all of it. What runs one is the executor registered for its
+        // exact class rather than the first handler of the chain that recognises something
+        // about it, and a task that is not a command carries on down the chain untouched.
+        return new CommandTaskHandler(ExecutorMap::standard($container), $handler);
     },
 
     Scheduler::class => static function (ContainerInterface $container) use ($params): Scheduler {

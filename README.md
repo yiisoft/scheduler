@@ -22,6 +22,8 @@ catch-up, overlap prevention and failure handling included.
 - Cron expressions and fixed intervals through a single `TriggerInterface` contract, written
   by hand or built a field at a time (`RecurringTask::daily()->at('05:00')`)
 - Tasks as callables, console commands, or queue messages (via [yiisoft/queue](https://github.com/yiisoft/queue))
+- Typed task kinds — application callables, programs, PHP scripts — each run by the executor
+  registered for its class, with kinds of your own registered the same way
 - Catch-up of missed runs and crash-resume through persisted checkpoints (any PSR-16 cache)
 - Overlap prevention across processes through any lock, with an adapter for [yiisoft/mutex](https://github.com/yiisoft/mutex)
 - PSR-14 events and per-schedule listeners (before / after / onFailure)
@@ -73,6 +75,8 @@ return [
 
 A task is one of:
 
+- a command: a value saying what runs, and run by the executor registered for its class. See
+  [below](#saying-what-a-task-runs);
 - the name of a console command, with its arguments and options if any;
 - a callable other than a string, since a string is always read as a command. It is called
   with the `TaskContext` of the run, as is: the container does not resolve its arguments, and
@@ -87,6 +91,74 @@ Each kind is handled by a handler of its own, and each passes on what it does no
 [symfony/console](https://github.com/symfony/console), `QueueTaskHandler` pushes a message and
 needs yiisoft/queue. The bundled configuration builds the chain from whatever is installed and
 registered, so a schedule of callables runs with neither package present.
+
+## Saying what a task runs
+
+The three task values above are read by what they happen to be: a string is the name of a
+console command, an object is a queue message if a producer is installed. That is short to
+write, and it leaves an application no way to add a kind of its own without joining in the
+guessing. A command says what it is instead:
+
+```php
+use Yiisoft\Scheduler\Executor\CallableCommand;
+use Yiisoft\Scheduler\Executor\PhpCommand;
+use Yiisoft\Scheduler\Executor\ProcessCommand;
+use Yiisoft\Scheduler\RecurringTask;
+
+// Application code, called in this process.
+RecurringTask::cron('0 5 * * *', CallableCommand::call($reconcile));
+
+// A method of a service, asked of the container of whichever process runs it.
+RecurringTask::cron('0 5 * * *', CallableCommand::of(ReportSender::class, 'sendDaily'));
+
+// A program, in a process of its own.
+RecurringTask::every('10 minutes', new ProcessCommand('/usr/bin/rsync', ['-a', '/data', '/backup']));
+
+// A PHP script, under the PHP running the scheduler.
+RecurringTask::cron('0 5 * * *', new PhpCommand('bin/console', ['app:report', '--since=yesterday']));
+```
+
+What runs a command is decided by one map, by the exact class of the command:
+
+```php
+use Yiisoft\Scheduler\Executor\ExecutorMap;
+use Yiisoft\Scheduler\Handler\CommandTaskHandler;
+
+$handler = new CommandTaskHandler(
+    ExecutorMap::standard($container)->with([HttpCommand::class => new HttpExecutor($client)]),
+);
+```
+
+`ExecutorMap::standard()` registers the three kinds above; `with()` adds the kinds of an
+application, each a class implementing `CommandInterface` and an executor implementing
+`ExecutorInterface`. The bundled configuration builds this handler in front of the older chain,
+so a schedule can hold commands and the older task values at once.
+
+Three things follow from a command being matched by its exact class:
+
+- a subclass is a kind of its own. Nothing inherits an executor, so a command class that was
+  registered and a subclass of it that was not are told apart rather than run alike;
+- a command class nobody registered fails saying so, naming the class and what is registered.
+  It does not fall through to a handler that would read it as something else;
+- what runs a task is in the map rather than spread across the handlers, so reading the map is
+  reading the dispatch.
+
+A `ProcessCommand` is given to the operating system as a program and a list of arguments, with
+no shell between the two. An argument holding a space, a quote, a `$` or a `;` reaches the
+program as one argument with those characters in it, and starts nothing else. A `PhpCommand` is
+the same thing with the PHP binary in front of the script: by default the binary running the
+scheduler, so the script runs under the PHP that planned it rather than whichever `php` a
+`PATH` resolves to.
+
+A program is a process of the operating system's rather than a child the scheduler keeps track
+of. `schedule:work` shutting down signals the task processes it forked, and not the programs
+those started, so a program still running when its task is stopped carries on to its own end.
+Give one to a task when it can be left to finish.
+
+`CallableCommand::of()` names a service and a method instead of holding a callable. It is
+resolved by the container the executor was built with, which is the container of the process
+doing the work: a task declared in a configuration file can then use the services of the
+process that runs it, which a closure written in that file cannot.
 
 ## Building the expression
 

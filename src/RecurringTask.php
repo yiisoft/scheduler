@@ -9,6 +9,7 @@ use DateInterval;
 use ReflectionFunction;
 use Throwable;
 use Yiisoft\Queue\Message\MessageInterface;
+use Yiisoft\Scheduler\Executor\CommandInterface;
 use Yiisoft\Scheduler\Trigger\CronExpressionTrigger;
 use Yiisoft\Scheduler\Trigger\PeriodicTrigger;
 use Yiisoft\Scheduler\Trigger\TriggerInterface;
@@ -34,13 +35,14 @@ use const SORT_STRING;
 /**
  * A task paired with the trigger deciding when it runs.
  *
- * The task itself may be a callable to invoke, the name of a console command to run,
- * or an object to push to the queue (when a queue producer is configured).
+ * The task itself may be a command saying what it runs and leaving the running to the executor
+ * registered for it, a callable to invoke, the name of a console command to run, or an object
+ * to push to the queue (when a queue producer is configured).
  */
 final class RecurringTask
 {
     /**
-     * @param callable|object|string $task A callable to invoke, a console command name, or a queue message object.
+     * @param callable|object|string $task A command of one of the kinds in {@see Executor}, a callable to invoke, a console command name, or a queue message object.
      */
     private function __construct(
         private readonly TriggerInterface $trigger,
@@ -49,7 +51,7 @@ final class RecurringTask
     ) {}
 
     /**
-     * @param callable|object|string $task A callable to invoke, a console command name, or a queue message object.
+     * @param callable|object|string $task A command of one of the kinds in {@see Executor}, a callable to invoke, a console command name, or a queue message object.
      */
     public static function cron(string $expression, callable|object|string $task, ?string $timezone = null): self
     {
@@ -70,7 +72,7 @@ final class RecurringTask
     }
 
     /**
-     * @param callable|object|string $task A callable to invoke, a console command name, or a queue message object.
+     * @param callable|object|string $task A command of one of the kinds in {@see Executor}, a callable to invoke, a console command name, or a queue message object.
      */
     public static function every(int|string|DateInterval $interval, callable|object|string $task): self
     {
@@ -84,7 +86,7 @@ final class RecurringTask
     }
 
     /**
-     * @param callable|object|string $task A callable to invoke, a console command name, or a queue message object.
+     * @param callable|object|string $task A command of one of the kinds in {@see Executor}, a callable to invoke, a console command name, or a queue message object.
      */
     public static function trigger(TriggerInterface $trigger, callable|object|string $task): self
     {
@@ -302,6 +304,13 @@ final class RecurringTask
             $method = $task[1] ?? null;
 
             return sprintf('%s::%s', $target, is_string($method) ? $method : 'unknown');
+        }
+
+        // A command describes itself, and describes itself the same way every time it is built:
+        // what it runs is the whole of what it is, while a callable or a message is read here
+        // for the part of it that says which task it is.
+        if ($task instanceof CommandInterface) {
+            return (string) $task;
         }
 
         // Messages of one class are told apart by their type and their payload: GenericMessage is

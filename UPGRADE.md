@@ -5,6 +5,12 @@ application when you upgrade the package from one version to another.
 
 ## 1.0.0
 
+- The `TaskHandlerInterface` the bundled configuration builds is now a
+  `Yiisoft\Scheduler\Handler\CommandTaskHandler` in front of the chain that was there before,
+  rather than the front of that chain itself. A task that is not a command reaches the same
+  handlers it did, in the same order; an application asserting on the class it gets from the
+  container sees the new one.
+
 - `Schedule::lock()` takes a `Yiisoft\Scheduler\Lock\LockInterface` rather than a
   `Yiisoft\Mutex\MutexInterface`, so a schedule can be locked without installing yiisoft/mutex.
   Wrap an existing mutex: `->lock(new MutexLock($mutex))`. `Schedule::getMutex()` is renamed to
