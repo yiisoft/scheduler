@@ -184,14 +184,15 @@ final class ScheduleOwnership
             return;
         }
 
-        $this->exclusively(function (): null {
+        $this->exclusively(function (): bool {
             $record = $this->read();
+            $mine = null !== $record && $record['owner'] === ProcessOwner::current();
 
-            if (null !== $record && $record['owner'] === ProcessOwner::current()) {
+            if ($mine) {
                 $this->delete();
             }
 
-            return null;
+            return $mine;
         });
     }
 
