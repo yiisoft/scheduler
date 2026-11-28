@@ -40,12 +40,30 @@ use const SORT_STRING;
 final class RecurringTask
 {
     /**
+     * How many missed runs of one task {@see MissedRuns::All} replays in a tick when no limit
+     * is given.
+     *
+     * A trigger implementing `TriggerRangeInterface` can be asked for a bounded part of its
+     * sequence, but one implementing `TriggerInterface` alone can only be walked a date at a
+     * time, and the walk is what a long gap makes expensive: a task due every minute whose last
+     * run was a year ago is a year of `getNextRunDate()` calls before the first run is emitted.
+     * Stopping at a bound makes a tick finish, and nothing is lost: the next tick seeds from the
+     * checkpoint and carries on where this one stopped.
+     *
+     * A week of a task due every minute fits, so an ordinary outage drains in one tick.
+     */
+    public const DEFAULT_MISSED_RUN_LIMIT = 10_000;
+
+    /**
      * @param callable|object|string $task A callable to invoke, a console command name, or a queue message object.
      */
     private function __construct(
         private readonly TriggerInterface $trigger,
         private readonly mixed $task,
         private readonly string $id,
+        /** What becomes of this task's missed runs, or null to follow the schedule. */
+        private readonly ?MissedRuns $missedRuns = null,
+        private readonly int $missedRunLimit = self::DEFAULT_MISSED_RUN_LIMIT,
     ) {}
 
     /**
@@ -228,7 +246,57 @@ final class RecurringTask
             throw new Exception\LogicException('The task id must not be empty.');
         }
 
-        return new self($this->trigger, $this->task, $id);
+        return new self($this->trigger, $this->task, $id, $this->missedRuns, $this->missedRunLimit);
+    }
+
+    /**
+     * Returns the task with its own answer for the runs it missed, instead of the one the
+     * schedule gives every task that has not chosen.
+     *
+     * The answer is not part of the task's identifier. Two tasks alike in everything but this
+     * are one task to a schedule and to a checkpoint, which is what lets the answer be changed
+     * without the runs recorded under the old one being left behind as a task nobody owns.
+     *
+     * @param int|null $limit How many missed runs one tick replays, for {@see MissedRuns::All}
+     * alone. Must be positive. Left out, {@see DEFAULT_MISSED_RUN_LIMIT} applies.
+     */
+    public function withMissedRuns(MissedRuns $missedRuns, ?int $limit = null): self
+    {
+        if (null !== $limit && $limit < 1) {
+            throw new Exception\LogicException(
+                'The number of missed runs to replay in one tick must be positive: a tick'
+                . ' replaying none of them is MissedRuns::Skip, which says so.',
+            );
+        }
+
+        if (null !== $limit && MissedRuns::All !== $missedRuns) {
+            throw new Exception\LogicException(
+                'Only MissedRuns::All replays missed runs, so only it is bounded by a limit.',
+            );
+        }
+
+        return new self(
+            $this->trigger,
+            $this->task,
+            $this->id,
+            $missedRuns,
+            $limit ?? self::DEFAULT_MISSED_RUN_LIMIT,
+        );
+    }
+
+    /**
+     * What becomes of this task's missed runs, or null where the task has not chosen and the
+     * schedule answers for it.
+     */
+    public function getMissedRuns(): ?MissedRuns
+    {
+        return $this->missedRuns;
+    }
+
+    /** How many missed runs one tick replays, for {@see MissedRuns::All}. */
+    public function getMissedRunLimit(): int
+    {
+        return $this->missedRunLimit;
     }
 
     public function getTrigger(): TriggerInterface

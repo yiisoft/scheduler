@@ -22,7 +22,8 @@ catch-up, overlap prevention and failure handling included.
 - Cron expressions and fixed intervals through a single `TriggerInterface` contract, written
   by hand or built a field at a time (`RecurringTask::daily()->at('05:00')`)
 - Tasks as callables, console commands, or queue messages (via [yiisoft/queue](https://github.com/yiisoft/queue))
-- Catch-up of missed runs and crash-resume through persisted checkpoints (any PSR-16 cache)
+- Catch-up of missed runs, per task or for the whole schedule, and crash-resume through
+  persisted checkpoints (any PSR-16 cache)
 - Overlap prevention across processes through any lock, with an adapter for [yiisoft/mutex](https://github.com/yiisoft/mutex)
 - PSR-14 events and per-schedule listeners (before / after / onFailure)
 - `schedule:run` (single tick, for system cron), `schedule:work` (daemon), `schedule:list` commands
@@ -372,9 +373,56 @@ by walking it.
 
 Walking is what a long gap makes expensive, whichever interface a trigger implements: a task due
 every minute whose last run was a year ago is a year of dates before the first one is emitted. A
-tick therefore walks at most ten thousand occurrences of any one task — a week of a minute task,
-so an ordinary outage still drains in one — and leaves the rest to the tick after it. Nothing is
-skipped: each tick seeds from the checkpoint and carries on where the one before stopped.
+tick therefore replays at most ten thousand runs of any one task by default, and leaves the rest
+to the tick after it. That bound is the limit of `MissedRuns::All` below, and can be set per task
+or for the whole schedule.
+
+## Runs missed while nothing was running
+
+A tick finds every run of a task that is due and emits them oldest first. Where it finds more
+than one, all but the newest were missed: the scheduler reached them after the next run of that
+task had already come round. One schedule holds tasks that want different things to happen to
+those, so each task can say:
+
+```php
+use Yiisoft\Scheduler\MissedRuns;
+
+$schedule
+    // The default. Every missed run runs, oldest first, at most 10,000 of them in one tick.
+    ->task(RecurringTask::everyFiveMinutes()->run($reconcile)->withMissedRuns(MissedRuns::All))
+    // The same, bounded to a hundred missed runs for one tick to replay.
+    ->task(RecurringTask::everyMinute()->run($collect)->withMissedRuns(MissedRuns::All, 100))
+    // Only the newest run due. Worth doing once, however long it was not done.
+    ->task(RecurringTask::everyFiveMinutes()->run($refresh)->withMissedRuns(MissedRuns::Last))
+    // Nothing, and not the newest either: the task resumes at its next run.
+    ->task(RecurringTask::daily()->at('05:00')->run($report)->withMissedRuns(MissedRuns::Skip));
+```
+
+`$schedule->missedRuns(MissedRuns::Last)` answers for every task that has not answered for
+itself, and `processOnlyLastMissedRun()` is the same thing under its older name.
+
+What holds for all three:
+
+- a tick that finds a single run due has missed nothing, so that run is emitted whichever answer
+  the task gives. `Skip` means a task that fell behind does not catch up, not that it stops
+  running;
+- a missed run is recorded as skipped rather than dropped. The checkpoint moves past it either
+  way, so the tick after this one starts where this one finished;
+- a schedule with no checkpoint yet has no history to replay. The first tick writes down where
+  the schedule starts and emits nothing before it, however old the clock is;
+- what a bounded tick does not reach stays behind the checkpoint, and the next tick carries on
+  from there — in the same process or in another one;
+- a bound counts the runs a task missed, and the run due now is not one of them: a tick that
+  reaches it makes it even though the bound was already reached, so a task given a small bound
+  catches up to now in the tick that gets there rather than one tick later;
+- a task answering `Last` or `Skip` still walks the backlog it is not running, because walking
+  it is what moves the checkpoint past it. A long outage is therefore walked a bound at a time,
+  and the newest run due arrives once the walk reaches it;
+- the answer covers runs nobody has taken yet. A run claimed by a process that went away before
+  saying what became of it is handed back once its reclaim window runs out, whatever the answer
+  was: it was admitted, so what is left of it belongs to recovery rather than to catching up;
+- the answer is not part of the task's identifier, so changing it leaves the runs already
+  recorded where they are rather than behind a task nobody owns.
 
 ## Task identifiers
 

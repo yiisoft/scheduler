@@ -7,6 +7,7 @@ namespace Yiisoft\Scheduler\Generator;
 use DateTimeImmutable;
 use Psr\Clock\ClockInterface;
 use Yiisoft\Scheduler\Exception\LogicException;
+use Yiisoft\Scheduler\MissedRuns;
 use Yiisoft\Scheduler\RecurringTask;
 use Yiisoft\Scheduler\Schedule;
 use Yiisoft\Scheduler\TaskContext;
@@ -26,21 +27,6 @@ use function end;
  */
 final class TaskGenerator
 {
-    /**
-     * How many occurrences of one task a single tick walks before it leaves the rest for the
-     * next one.
-     *
-     * A trigger that implements `TriggerRangeInterface` can be asked for a bounded part of its
-     * sequence, but one that implements `TriggerInterface` alone can only be walked a date at
-     * a time, and the walk is what a long gap makes expensive: a task due every minute
-     * whose last run was a year ago is a year of `getNextRunDate()` calls before the first one
-     * is emitted. Stopping at a bound makes a tick finish; nothing is lost, because the next
-     * tick seeds from the checkpoint and carries on where this one stopped.
-     *
-     * A week of a minute task fits, so an ordinary outage drains in one tick.
-     */
-    private const MAX_MISSED_RUNS_PER_TICK = 10_000;
-
     private ?TriggerHeap $heap = null;
     private int $heapRevision = -1;
     private readonly Checkpoint $checkpoint;
@@ -76,14 +62,23 @@ final class TaskGenerator
             $heap = $this->heap();
             /** @var array<string, int> $walked How far this tick has gone into each backlog. */
             $walked = [];
+            /** @var array<string, true> $behind Tasks this tick found a missed run of. */
+            $behind = [];
+            $bounded = false;
 
             while (!$heap->isEmpty() && $heap->top()[0] <= $now) {
                 $entry = $heap->extract();
                 [$time, $index, $task, $advance] = $entry;
 
+                // An entry the generator walked to from the checkpoint is a run nobody has
+                // taken yet, and what becomes of it is the task's answer to make. One that is
+                // not ($advance is false) is a run claimed by a process that did not resolve
+                // it: already admitted work, which belongs to recovery rather than to catch-up,
+                // so it is handed out whatever the answer was.
                 $yield = true;
                 $nextTime = $task->getTrigger()->getNextRunDate($time);
                 $walked[$task->getId()] = ($walked[$task->getId()] ?? 0) + 1;
+                [$missedRuns, $limit] = $this->schedule->missedRunsOf($task);
 
                 if (null !== $nextTime) {
                     if ($nextTime <= $time) {
@@ -91,7 +86,7 @@ final class TaskGenerator
                     }
 
                     if ($advance) {
-                        if ($walked[$task->getId()] < self::MAX_MISSED_RUNS_PER_TICK) {
+                        if ($walked[$task->getId()] < $limit || $this->isNewestDue($task, $nextTime, $now)) {
                             $heap->insert([$nextTime, $index, $task, true]);
                         } else {
                             // The task is left with a backlog, while the runs held here are the
@@ -106,11 +101,18 @@ final class TaskGenerator
                         }
                     }
 
-                    if ($nextTime <= $now && $this->schedule->shouldProcessOnlyLastMissedRun()) {
-                        // A newer missed run exists; only the latest one fires.
-                        $yield = false;
+
+                    // A run of this task is due after this one, so this one was missed: the
+                    // scheduler reached it only once the next had already come round.
+                    if ($advance && $nextTime <= $now) {
+                        $behind[$task->getId()] = true;
+                        $yield = MissedRuns::All === $missedRuns;
                     }
-                } elseif (!$advance && !$heap->isEmpty() && $heap->top()[0] <= $now && $heap->top()[2] === $task && $this->schedule->shouldProcessOnlyLastMissedRun()) {
+                }
+
+                // The newest run due of a task that fell behind. Skip says the task does not
+                // catch up at all, so this one goes the way of the runs before it.
+                if ($yield && $advance && MissedRuns::Skip === $missedRuns && isset($behind[$task->getId()])) {
                     $yield = false;
                 }
 
@@ -220,6 +222,25 @@ final class TaskGenerator
         }
 
         return array_map(static fn(RecurringTask $task): string => $task->getId(), $this->schedule->tasks());
+    }
+
+    /**
+     * Whether this run is the newest one due of the task: the one the scheduler would be making
+     * had it been there, rather than one of the runs it was away for.
+     *
+     * The bound counts the runs a task missed, and the newest run due is not one of them. A
+     * tick stopping at its bound therefore still makes it, so that a task with a small bound
+     * catches up to now in the tick that reaches now rather than one tick later.
+     */
+    private function isNewestDue(RecurringTask $task, DateTimeImmutable $time, DateTimeImmutable $now): bool
+    {
+        if ($time > $now) {
+            return false;
+        }
+
+        $next = $task->getTrigger()->getNextRunDate($time);
+
+        return null === $next || $next > $now;
     }
 
     private function heap(): TriggerHeap
