@@ -46,6 +46,7 @@ final class RecurringTask
         private readonly TriggerInterface $trigger,
         private readonly mixed $task,
         private readonly string $id,
+        private readonly ?Overlap $overlap = null,
     ) {}
 
     /**
@@ -228,12 +229,34 @@ final class RecurringTask
             throw new Exception\LogicException('The task id must not be empty.');
         }
 
-        return new self($this->trigger, $this->task, $id);
+        return new self($this->trigger, $this->task, $id, $this->overlap);
     }
 
     public function getTrigger(): TriggerInterface
     {
         return $this->trigger;
+    }
+
+    /**
+     * Returns the task saying what becomes of a run of it that is due while an earlier one is
+     * still going.
+     *
+     * The answer is left out of the generated identifier, so changing it leaves the executions
+     * already recorded under this task where they are. A task that does not answer is answered
+     * for by its schedule.
+     */
+    public function withOverlap(Overlap $overlap): self
+    {
+        return new self($this->trigger, $this->task, $this->id, $overlap);
+    }
+
+    /**
+     * What this task says about a run of it due while an earlier one is still going, or null
+     * where it says nothing and the schedule answers for it.
+     */
+    public function getOverlap(): ?Overlap
+    {
+        return $this->overlap;
     }
 
     /**

@@ -23,6 +23,8 @@ catch-up, overlap prevention and failure handling included.
   by hand or built a field at a time (`RecurringTask::daily()->at('05:00')`)
 - Tasks as callables, console commands, or queue messages (via [yiisoft/queue](https://github.com/yiisoft/queue))
 - Catch-up of missed runs and crash-resume through persisted checkpoints (any PSR-16 cache)
+- Per-task overlap policy and per-source execution capacity, decided from the execution ledger
+  so a restart does not forget what is running
 - Overlap prevention across processes through any lock, with an adapter for [yiisoft/mutex](https://github.com/yiisoft/mutex)
 - PSR-14 events and per-schedule listeners (before / after / onFailure)
 - `schedule:run` (single tick, for system cron), `schedule:work` (daemon), `schedule:list` commands
@@ -198,7 +200,9 @@ A few things to know about the forked mode:
   no destructors, no `register_shutdown_function` callbacks, its own included, so a task that
   needs to clean up after itself should do so before it returns;
 - a task whose previous run is still going is skipped instead of being started a second time,
-  so one that takes longer than its own interval cannot pile up a process per due time.
+  so one that takes longer than its own interval cannot pile up a process per due time. A task
+  that wants the opposite says so, and a schedule with a ledger answers the question across
+  planners and restarts: see [below](#overlapping-runs-and-the-room-to-run-them).
   `--max-processes` caps the total as well: once that many are running, the next due task
   waits for a slot instead of being started alongside them;
 - stopping the daemon asks the running tasks to stop with `SIGTERM` and waits five seconds for
@@ -429,6 +433,62 @@ the process that holds it is alive, so set `reclaimAfter()` longer than the slow
 other end of the same rule: a claim made on another server is only ever taken back by the
 window, because a process of another host cannot be asked about, so a server that dies mid-run
 leaves its run waiting the whole window rather than being picked up at once.
+
+## Overlapping runs and the room to run them
+
+A run due while an earlier run of the same task is still going is skipped, so a task slower
+than its own interval does not pile up a process per due time. A task doing independent work
+wants the opposite, and says so:
+
+```php
+use Yiisoft\Scheduler\Overlap;
+
+$schedule
+    // Two imports of different files have nothing to wait for.
+    ->task(RecurringTask::everyMinute()->run($import)->withOverlap(Overlap::Allow))
+    // A report that takes twenty minutes is made once, however often it is due.
+    ->task(RecurringTask::everyFiveMinutes()->run($report)->withOverlap(Overlap::Skip));
+```
+
+`$schedule->overlap(Overlap::Allow)` answers for every task that has not answered for itself.
+A skipped run is recorded as skipped and the schedule moves past it, because skipping it is a
+decision about that occurrence rather than a failure to reach it.
+
+How many executions of one schedule may hold a process at once is the schedule's own:
+
+```php
+$schedule->capacity(4);
+```
+
+A run due with no room left is given back rather than recorded. Nothing moves past it, and the
+next tick offers it again — which is the difference between the two decisions above: the task's
+answer settles an occurrence, while a full source only delays one.
+
+Both questions are answered from [the ledger](#the-execution-ledger) where there is one, which
+is what makes the answers true beyond this process. An execution that holds a process holds it
+until the ledger is told the process is gone, so a planner that was restarted still sees the
+work its predecessor started, and so does a planner on another host. Capacity comes back when
+the execution gives the process up, and not when a planner stops or a worker is seen to exit.
+
+Without a ledger a schedule can only answer from the runs this process started, which is what
+it has always answered from, and a restart forgets them. The same holds for a ledger given only
+as something to write to: `Schedule::ledger()` reads the executions through the same object when
+it answers `LedgerQueryInterface`, and takes a second one when the two are separate, but a
+ledger that can only be written to leaves admission with nothing to read.
+
+An execution counts from the moment a planner takes the right to launch it rather than from the
+moment its process exists, because the gap between the two is where a planner dies and leaves a
+worker nobody wrote down. It stops counting when the execution gives its process up.
+
+A capacity is how much work a source starts, not a lock. Two planners reading at the same time
+see the same room and may both take it; what the ledger settles is one occurrence at a time,
+which is what keeps two planners off one run.
+
+Capacity and `--max-processes` are different questions. The capacity is of the source: how many
+executions of this schedule may be going at once, wherever they are. `--max-processes` is this
+daemon's own budget: how many task processes it runs at a time, across all of its schedules.
+A run that the budget turns away waits for a slot; a run that the capacity turns away is left
+due.
 
 ## The execution ledger
 

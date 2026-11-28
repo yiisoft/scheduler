@@ -16,6 +16,7 @@ use Yiisoft\Scheduler\Ledger\InMemoryLedger;
 use Yiisoft\Scheduler\Ledger\LaunchDescription;
 use Yiisoft\Scheduler\Ledger\LaunchFact;
 use Yiisoft\Scheduler\Ledger\LedgerCommandInterface;
+use Yiisoft\Scheduler\Ledger\LedgerQueryInterface;
 use Yiisoft\Scheduler\Ledger\ProcessObservation;
 use Yiisoft\Scheduler\Ledger\TransitionResult;
 use Yiisoft\Scheduler\RecurringTask;
@@ -35,7 +36,7 @@ final class LedgerAdmissionTest extends TestCase
 {
     public function testEveryEmittedOccurrenceWasAdmittedFirst(): void
     {
-        $ledger = new InMemoryLedger();
+        $ledger = new AdmittedLedger();
         $cache = new InMemoryCache();
         $clock = new TestClock();
         $task = RecurringTask::every(60, static fn() => null);
@@ -45,7 +46,7 @@ final class LedgerAdmissionTest extends TestCase
         $clock->advance('+3 minutes');
         (new Scheduler([$this->schedule($cache, $ledger, $task)], new CallableTaskHandler(), $clock))->tick();
 
-        $admitted = $ledger->unresolved('default', 10);
+        $admitted = $ledger->admissions();
 
         $this->assertCount(3, $admitted);
         $this->assertSame($task->getId(), $admitted[0]->identity->taskId);
@@ -69,12 +70,12 @@ final class LedgerAdmissionTest extends TestCase
             // The point of the test is what the checkpoint holds afterwards.
         }
 
-        $ledger = new InMemoryLedger();
+        $ledger = new AdmittedLedger();
         (new Scheduler([$this->schedule($cache, $ledger, $task)], new CallableTaskHandler(), $clock))->tick();
 
         $this->assertCount(
             1,
-            $ledger->unresolved('default', 10),
+            $ledger->admissions(),
             'the checkpoint never moved past the occurrence that was not recorded',
         );
     }
@@ -83,7 +84,7 @@ final class LedgerAdmissionTest extends TestCase
     {
         // Only the latest missed run fires, so the ones passed over are never executed and
         // there is no execution to keep a record of.
-        $ledger = new InMemoryLedger();
+        $ledger = new AdmittedLedger();
         $cache = new InMemoryCache();
         $clock = new TestClock();
         $task = RecurringTask::every(60, static fn() => null);
@@ -95,7 +96,7 @@ final class LedgerAdmissionTest extends TestCase
         $schedule = $this->schedule($cache, $ledger, $task)->processOnlyLastMissedRun();
         (new Scheduler([$schedule], new CallableTaskHandler(), $clock))->tick();
 
-        $this->assertCount(1, $ledger->unresolved('default', 10));
+        $this->assertCount(1, $ledger->admissions());
     }
 
     public function testARedefinedTaskIsAdmittedUnderANewRevision(): void
@@ -138,7 +139,7 @@ final class LedgerAdmissionTest extends TestCase
 
     public function testATaskAddedAfterTheSchedulerWasBuiltIsAdmittedUnderARevisionThatDescribesIt(): void
     {
-        $ledger = new InMemoryLedger();
+        $ledger = new AdmittedLedger();
         $clock = new TestClock();
         $cache = new InMemoryCache();
         $schedule = $this->schedule($cache, $ledger, RecurringTask::every(60, [self::class, 'reportDaily'])->withId('daily'));
@@ -154,7 +155,7 @@ final class LedgerAdmissionTest extends TestCase
         $clock->advance('+10 minutes');
         $scheduler->tick();
 
-        $admitted = $ledger->unresolved('default', 10);
+        $admitted = $ledger->admissions();
         $revisions = [];
 
         foreach ($admitted as $record) {
@@ -185,7 +186,7 @@ final class LedgerAdmissionTest extends TestCase
      */
     private function revisionOf(RecurringTask $task): string
     {
-        $ledger = new InMemoryLedger();
+        $ledger = new AdmittedLedger();
         $clock = new TestClock();
         $cache = new InMemoryCache();
 
@@ -193,9 +194,9 @@ final class LedgerAdmissionTest extends TestCase
         $clock->advance('+10 minutes');
         (new Scheduler([$this->schedule($cache, $ledger, $task)], new CallableTaskHandler(), $clock))->tick();
 
-        $admitted = $ledger->unresolved('default', 1);
+        $admitted = $ledger->admissions();
 
-        $this->assertCount(1, $admitted, 'an occurrence has to be admitted for its revision to be read');
+        $this->assertNotEmpty($admitted, 'an occurrence has to be admitted for its revision to be read');
 
         return $admitted[0]->sourceRevision;
     }
@@ -265,5 +266,114 @@ final class UnwritableLedger implements LedgerCommandInterface
         DateTimeImmutable $at,
     ): TransitionResult {
         throw new RuntimeException('The ledger could not be written to.');
+    }
+}
+
+/**
+ * An {@see InMemoryLedger} that also keeps every record as admission left it.
+ *
+ * The tests above are about what is written down before an occurrence is emitted, and what
+ * happens to it afterwards is another ticket's: a run the scheduler makes and resolves is no
+ * longer unresolved, which would make the ledger look empty to a test asking it that way.
+ */
+final class AdmittedLedger implements LedgerCommandInterface, LedgerQueryInterface
+{
+    /**
+     * @var list<ExecutionRecord>
+     */
+    private array $admitted = [];
+
+    private readonly InMemoryLedger $ledger;
+
+    public function __construct()
+    {
+        $this->ledger = new InMemoryLedger();
+    }
+
+    /**
+     * The records of this source as they were admitted, oldest occurrence first.
+     *
+     * @return list<ExecutionRecord>
+     */
+    public function admissions(string $source = 'default'): array
+    {
+        $admitted = [];
+
+        foreach ($this->admitted as $record) {
+            if ($record->identity->source === $source) {
+                $admitted[] = $record;
+            }
+        }
+
+        return $admitted;
+    }
+
+    public function admit(
+        ExecutionIdentity $identity,
+        string $sourceRevision,
+        DateTimeImmutable $at,
+        DateTimeImmutable $recoveryDeadline,
+    ): ExecutionRecord {
+        $known = $this->ledger->find($identity);
+        $record = $this->ledger->admit($identity, $sourceRevision, $at, $recoveryDeadline);
+
+        if (null === $known) {
+            $this->admitted[] = $record;
+        }
+
+        return $record;
+    }
+
+    public function claim(ExecutionIdentity $identity, ExecutionAuthority $authority, DateTimeImmutable $at): TransitionResult
+    {
+        return $this->ledger->claim($identity, $authority, $at);
+    }
+
+    public function recordLaunch(
+        ExecutionIdentity $identity,
+        ExecutionAuthority $authority,
+        LaunchFact $launch,
+        ?LaunchDescription $process,
+        DateTimeImmutable $at,
+    ): TransitionResult {
+        return $this->ledger->recordLaunch($identity, $authority, $launch, $process, $at);
+    }
+
+    public function recordOutcome(
+        ExecutionIdentity $identity,
+        ExecutionAuthority $authority,
+        ExecutionOutcome $outcome,
+        DateTimeImmutable $at,
+    ): TransitionResult {
+        return $this->ledger->recordOutcome($identity, $authority, $outcome, $at);
+    }
+
+    public function releaseProcess(
+        ExecutionIdentity $identity,
+        ExecutionAuthority $authority,
+        ?ProcessObservation $observation,
+        DateTimeImmutable $at,
+    ): TransitionResult {
+        return $this->ledger->releaseProcess($identity, $authority, $observation, $at);
+    }
+
+    public function reauthorize(ExecutionIdentity $identity, ExecutionAuthority $authority, DateTimeImmutable $at): TransitionResult
+    {
+        return $this->ledger->reauthorize($identity, $authority, $at);
+    }
+
+    public function find(ExecutionIdentity $identity): ?ExecutionRecord
+    {
+        return $this->ledger->find($identity);
+    }
+
+    public function unresolved(string $source, int $limit, ?ExecutionIdentity $after = null): array
+    {
+        return $this->ledger->unresolved($source, $limit, $after);
+    }
+
+    public function holdingProcess(string $source, int $limit, ?ExecutionIdentity $after = null): array
+    {
+        return $this->ledger->holdingProcess($source, $limit, $after);
     }
 }
