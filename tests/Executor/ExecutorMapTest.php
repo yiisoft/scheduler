@@ -9,13 +9,13 @@ use Yiisoft\Scheduler\Exception\LogicException;
 use Yiisoft\Scheduler\Executor\CallableCommand;
 use Yiisoft\Scheduler\Executor\CallableExecutor;
 use Yiisoft\Scheduler\Executor\CommandInterface;
-use Yiisoft\Scheduler\Executor\ExecutorInterface;
 use Yiisoft\Scheduler\Executor\ExecutorMap;
 use Yiisoft\Scheduler\Executor\PhpCommand;
 use Yiisoft\Scheduler\Executor\PhpExecutor;
 use Yiisoft\Scheduler\Executor\ProcessCommand;
 use Yiisoft\Scheduler\Executor\ProcessExecutor;
 use Yiisoft\Scheduler\TaskContext;
+use Yiisoft\Scheduler\Tests\Support\CountingExecutor;
 use Yiisoft\Scheduler\Trigger\CronExpressionTrigger;
 use DateTimeImmutable;
 
@@ -98,18 +98,9 @@ final class ExecutorMapTest extends TestCase
         new ExecutorMap([AbstractCommand::class => $this->counting()]);
     }
 
-    private function counting(): ExecutorInterface
+    private function counting(): CountingExecutor
     {
-        return new class implements ExecutorInterface {
-            public int $ran = 0;
-
-            public function execute(CommandInterface $command, TaskContext $context): mixed
-            {
-                ++$this->ran;
-
-                return null;
-            }
-        };
+        return new CountingExecutor();
     }
 
     private function context(): TaskContext

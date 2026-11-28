@@ -8,6 +8,7 @@ use Closure;
 use ReflectionFunction;
 use Yiisoft\Scheduler\Exception\LogicException;
 
+use function is_array;
 use function is_object;
 use function is_string;
 use function sprintf;
@@ -95,13 +96,12 @@ final class CallableCommand implements CommandInterface
 
         // The same way a task given as an array is described, so that the two forms of writing
         // down one method read alike.
-        $target = $callable[0] ?? null;
-        $method = $callable[1] ?? null;
+        if (is_array($callable)) {
+            $target = $callable[0];
 
-        return sprintf(
-            '%s::%s',
-            is_object($target) ? $target::class : (string) $target,
-            is_string($method) ? $method : 'unknown',
-        );
+            return sprintf('%s::%s', is_object($target) ? $target::class : $target, $callable[1]);
+        }
+
+        return 'unknown';
     }
 }
