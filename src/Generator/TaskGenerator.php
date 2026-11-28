@@ -77,7 +77,6 @@ final class TaskGenerator
             /** @var array<string, int> $walked How far this tick has gone into each backlog. */
             $walked = [];
 
-            /** @var array{DateTimeImmutable, int, RecurringTask, bool} $entry */
             while (!$heap->isEmpty() && $heap->top()[0] <= $now) {
                 $entry = $heap->extract();
                 [$time, $index, $task, $advance] = $entry;

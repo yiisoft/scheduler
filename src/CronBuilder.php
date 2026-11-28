@@ -500,10 +500,13 @@ final class CronBuilder implements Stringable
             }
 
             // An hour out of range, a step of zero and a bare number with a step are all refused
-            // by the expression the constructor validated, so only the bounds are read here.
-            $step = '' !== ($matches[4] ?? '') ? (int) $matches[4] : 1;
-            $first = '' !== $matches[1] ? 0 : (int) $matches[2];
-            $last = '' !== $matches[1] ? 23 : (int) ('' !== ($matches[3] ?? '') ? $matches[3] : $matches[2]);
+            // by the expression the constructor validated, so only the bounds are read here. A
+            // group the pattern did not reach is missing rather than empty, hence the padding.
+            [, $wildcard, $from, $to, $stepField] = $matches + ['', '', '', '', ''];
+
+            $step = '' !== $stepField ? (int) $stepField : 1;
+            $first = '' !== $wildcard ? 0 : (int) $from;
+            $last = '' !== $wildcard ? 23 : (int) ('' !== $to ? $to : $from);
 
             if ($first > $last) {
                 throw new LogicException(
