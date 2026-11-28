@@ -98,7 +98,6 @@ final class TaskGenerator
             // would send recovery back to the wrong configuration.
             $revision = self::revisionOf($this->schedule->tasks());
 
-            /** @var array{DateTimeImmutable, int, RecurringTask, bool} $entry */
             while (!$heap->isEmpty() && $heap->top()[0] <= $now) {
                 $entry = $heap->extract();
                 [$time, $index, $task, $advance] = $entry;
@@ -112,8 +111,20 @@ final class TaskGenerator
                         throw new LogicException('A trigger must return a date strictly after the given one.');
                     }
 
-                    if ($advance && $walked[$task->getId()] < self::MAX_MISSED_RUNS_PER_TICK) {
-                        $heap->insert([$nextTime, $index, $task, true]);
+                    if ($advance) {
+                        if ($walked[$task->getId()] < self::MAX_MISSED_RUNS_PER_TICK) {
+                            $heap->insert([$nextTime, $index, $task, true]);
+                        } else {
+                            // The task is left with a backlog, while the runs held here are the
+                            // ones this tick emitted and nothing more. Only a write by another
+                            // process moves the revision they are kept against, so a scheduler
+                            // outliving its ticks would hold an empty heap over work nobody else
+                            // is going to touch, and the rest of the replay would wait for a
+                            // restart. Dropped as the bound is reached rather than once the tick
+                            // is over, which an exception or a caller that stops reading never
+                            // gets to. This tick carries on over the heap it already has.
+                            $this->heap = null;
+                        }
                     }
 
                     if ($nextTime <= $now && $this->schedule->shouldProcessOnlyLastMissedRun()) {

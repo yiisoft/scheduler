@@ -40,7 +40,7 @@ final class TaskGeneratorTest extends TestCase
 {
     public function testRunsEmittedBeforeACrashAreNotRepeated(): void
     {
-        $log = new ArrayObject();
+        $log = self::log();
         $first = static function () use ($log): void {
             $log[] = 'first';
         };
@@ -65,7 +65,7 @@ final class TaskGeneratorTest extends TestCase
 
     public function testRunLeftUnstartedByACrashIsStillDueAfterATaskIsRemoved(): void
     {
-        $log = new ArrayObject();
+        $log = self::log();
         $first = static function () use ($log): void {
             $log[] = 'first';
         };
@@ -90,7 +90,7 @@ final class TaskGeneratorTest extends TestCase
 
     public function testRunsEmittedBeforeACrashAreNotRepeatedAfterATaskIsAdded(): void
     {
-        $log = new ArrayObject();
+        $log = self::log();
         $added = static function () use ($log): void {
             $log[] = 'added';
         };
@@ -118,7 +118,7 @@ final class TaskGeneratorTest extends TestCase
 
     public function testClaimOfAnotherHostIsLeftUntilTheReclaimWindowRunsOut(): void
     {
-        $log = new ArrayObject();
+        $log = self::log();
         $task = static function () use ($log): void {
             $log[] = 'task';
         };
@@ -144,7 +144,7 @@ final class TaskGeneratorTest extends TestCase
 
     public function testResolvingAnEarlierRunDoesNotHandOutTheOnesAfterItAgain(): void
     {
-        $log = new ArrayObject();
+        $log = self::log();
         $task = static function () use ($log): void {
             $log[] = 'task';
         };
@@ -166,7 +166,7 @@ final class TaskGeneratorTest extends TestCase
 
     public function testGivingBackSeveralRunsLeavesACompletedOneAlone(): void
     {
-        $log = new ArrayObject();
+        $log = self::log();
         $task = static function () use ($log): void {
             $log[] = 'task';
         };
@@ -221,7 +221,7 @@ final class TaskGeneratorTest extends TestCase
 
     public function testRunTakenOverWhileItWaitedForASlotIsNotStartedHere(): void
     {
-        $log = new ArrayObject();
+        $log = self::log();
         $task = static function () use ($log): void {
             $log[] = 'task';
         };
@@ -259,7 +259,7 @@ final class TaskGeneratorTest extends TestCase
 
     public function testLateOutcomeDoesNotMoveTheRecordBehindARunAnotherSchedulerFinished(): void
     {
-        $log = new ArrayObject();
+        $log = self::log();
         $task = static function () use ($log): void {
             $log[] = 'task';
         };
@@ -304,7 +304,7 @@ final class TaskGeneratorTest extends TestCase
 
     public function testRunGivenBackIsStillPendingForTheSchedulerThatGaveItBack(): void
     {
-        $log = new ArrayObject();
+        $log = self::log();
         $task = static function () use ($log): void {
             $log[] = 'task';
         };
@@ -335,7 +335,7 @@ final class TaskGeneratorTest extends TestCase
 
     public function testClaimExpiringUnderALongLivedSchedulerIsStillHandedOut(): void
     {
-        $log = new ArrayObject();
+        $log = self::log();
         $task = static function () use ($log): void {
             $log[] = 'task';
         };
@@ -365,7 +365,7 @@ final class TaskGeneratorTest extends TestCase
 
     public function testClaimGivenBackIsDueAgain(): void
     {
-        $log = new ArrayObject();
+        $log = self::log();
         $task = static function () use ($log): void {
             $log[] = 'task';
         };
@@ -398,7 +398,7 @@ final class TaskGeneratorTest extends TestCase
 
     public function testClaimOfAProcessThatIsStillThereIsLeftAlone(): void
     {
-        $log = new ArrayObject();
+        $log = self::log();
         $task = static function () use ($log): void {
             $log[] = 'task';
         };
@@ -427,7 +427,7 @@ final class TaskGeneratorTest extends TestCase
     #[RequiresPhpExtension('posix')]
     public function testClaimOfAProcessThatIsStillThereIsTakenBackOnceTheWindowRunsOut(): void
     {
-        $log = new ArrayObject();
+        $log = self::log();
         $task = static function () use ($log): void {
             $log[] = 'task';
         };
@@ -458,7 +458,7 @@ final class TaskGeneratorTest extends TestCase
 
     public function testRunsAlreadyRecordedAreNotWrittenToTheCheckpointAgain(): void
     {
-        $log = new ArrayObject();
+        $log = self::log();
         $first = static function () use ($log): void {
             $log[] = 'first';
         };
@@ -485,7 +485,7 @@ final class TaskGeneratorTest extends TestCase
 
     public function testCheckpointWrittenBeforeRunsWereRecordedByIdResumesWithoutReplaying(): void
     {
-        $log = new ArrayObject();
+        $log = self::log();
         $task = static function () use ($log): void {
             $log[] = 'task';
         };
@@ -507,7 +507,7 @@ final class TaskGeneratorTest extends TestCase
 
     public function testRecordOfATaskHoldingSomethingOtherThanATimeIsRejected(): void
     {
-        $log = new ArrayObject();
+        $log = self::log();
         $task = static function () use ($log): void {
             $log[] = 'task';
         };
@@ -523,7 +523,7 @@ final class TaskGeneratorTest extends TestCase
 
     public function testEachTaskKeepsARecordOfItsOwn(): void
     {
-        $log = new ArrayObject();
+        $log = self::log();
         $first = static function () use ($log): void {
             $log[] = 'first';
         };
@@ -555,7 +555,7 @@ final class TaskGeneratorTest extends TestCase
 
     public function testRunLeftUnstartedByAnInterruptedFirstTickIsStillDue(): void
     {
-        $log = new ArrayObject();
+        $log = self::log();
         $first = static function () use ($log): void {
             $log[] = 'first';
         };
@@ -604,7 +604,7 @@ final class TaskGeneratorTest extends TestCase
 
     public function testRecordsFitACacheLimitedToTheKeyLengthPsr16Guarantees(): void
     {
-        $log = new ArrayObject();
+        $log = self::log();
         $task = static function () use ($log): void {
             $log[] = 'task';
         };
@@ -642,7 +642,7 @@ final class TaskGeneratorTest extends TestCase
         $cache = new InMemoryCache();
         $cache->set('yii_schedule_checkpoint_default', $state);
 
-        $log = new ArrayObject();
+        $log = self::log();
         $task = static function () use ($log): void {
             $log[] = 'task';
         };
@@ -655,7 +655,7 @@ final class TaskGeneratorTest extends TestCase
 
     public function testWaitingForAProcessSlotIsNotChargedAgainstTheReclaimWindow(): void
     {
-        $log = new ArrayObject();
+        $log = self::log();
         $task = static function () use ($log): void {
             $log[] = 'task';
         };
@@ -690,7 +690,7 @@ final class TaskGeneratorTest extends TestCase
 
     public function testARunHandedOutBehindASlowOneKeepsItsWholeReclaimWindow(): void
     {
-        $log = new ArrayObject();
+        $log = self::log();
         $first = static function () use ($log): void {
             $log[] = 'first';
         };
@@ -731,7 +731,7 @@ final class TaskGeneratorTest extends TestCase
 
     public function testMarkingAResolvedRunAsStartedLeavesItsRecordAlone(): void
     {
-        $log = new ArrayObject();
+        $log = self::log();
         $task = static function () use ($log): void {
             $log[] = 'task';
         };
@@ -762,9 +762,6 @@ final class TaskGeneratorTest extends TestCase
         $this->assertSame('done', $record['status']);
     }
 
-    /**
-     * @param list<callable> $tasks
-     */
     public function testWhatBecameOfARunIsRecordedUnderTheScheduleLock(): void
     {
         // Rereading the record is not enough on its own: between that read and the write,
@@ -950,19 +947,23 @@ final class TaskGeneratorTest extends TestCase
 
         $other = new Scheduler([$schedule], $handler, $clock);
 
-        $this->assertSame('01:00:01', $other->nextRunDate()?->format('H:i:s'));
+        $next = $other->nextRunDate();
+
+        $this->assertNotNull($next);
+        $this->assertSame('01:00:01', $next->format('H:i:s'));
 
         $clock->advance('+1 second');
 
-        $this->assertSame('01:00:00', $other->nextRunDate()?->format('H:i:s'));
+        $next = $other->nextRunDate();
+
+        $this->assertNotNull($next);
+        $this->assertSame('01:00:00', $next->format('H:i:s'));
     }
 
     /**
      * Emits the due runs one by one and stops before starting the third, the way a process killed
      * mid-tick leaves the two runs before it recorded, the one in hand claimed with nobody left to
      * resolve it, and the ones behind it untouched.
-     *
-     * @param list<callable> $tasks
      */
     public function testALongBacklogIsWalkedOverSeveralTicksRatherThanOne(): void
     {
@@ -992,8 +993,42 @@ final class TaskGeneratorTest extends TestCase
         $this->assertSame(12_000, $runs, 'and the next one carries on where it stopped');
     }
 
+    public function testATickStoppingAtItsBoundLeavesTheRestToTheNextTickOfTheSameProcess(): void
+    {
+        $clock = new TestClock();
+        $cache = new InMemoryCache();
+        $ran = 0;
+
+        $task = RecurringTask::every(1, static function () use (&$ran): void {
+            ++$ran;
+        });
+
+        $scheduler = new Scheduler([(new Schedule())->stateful($cache)->task($task)], new CallableTaskHandler(), $clock);
+
+        $scheduler->tick();
+        $ran = 0;
+
+        // One second past the bound, so one run of the backlog is left over.
+        $clock->advance('+10001 seconds');
+        $scheduler->tick();
+
+        $this->assertSame(10_000, $ran, 'a tick stops at the bound');
+
+        // The same scheduler, with nothing else writing: the remainder is its own to pick up.
+        $scheduler->tick();
+
+        $this->assertSame(10_001, $ran, 'the tick after it carries on from the checkpoint');
+    }
+
     /**
      * Claims the three runs a task missed while the schedule was down, without resolving any.
+     *
+     * The three are taken by reference so that a test can name them before they exist, which is
+     * why they arrive nullable and leave filled in.
+     *
+     * @param-out InMemoryCache $cache
+     * @param-out TestClock $clock
+     * @param-out TaskGenerator $generator
      *
      * @return list<TaskContext>
      */
@@ -1022,6 +1057,9 @@ final class TaskGeneratorTest extends TestCase
         return $claimed;
     }
 
+    /**
+     * @param list<callable> $tasks
+     */
     private function crashAfterTwoRuns(InMemoryCache $cache, TestClock $clock, array $tasks): void
     {
         $schedule = $this->schedule($cache, $tasks);
@@ -1085,6 +1123,19 @@ final class TaskGeneratorTest extends TestCase
             . hash('xxh3', RecurringTask::cron('* * * * *', $task)->getId());
     }
 
+    /**
+     * A record of what the tasks of a test did, in the order they did it.
+     *
+     * @return ArrayObject<int, string>
+     */
+    private static function log(): ArrayObject
+    {
+        return new ArrayObject();
+    }
+
+    /**
+     * @param list<callable> $tasks
+     */
     private function schedule(InMemoryCache $cache, array $tasks, int $reclaimAfter = 1): Schedule
     {
         $schedule = (new Schedule())->stateful($cache)->reclaimAfter($reclaimAfter);

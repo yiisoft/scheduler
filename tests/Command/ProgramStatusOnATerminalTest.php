@@ -45,6 +45,9 @@ final class ProgramStatusOnATerminalTest extends TestCase
         $this->assertStringContainsString($expected, $output);
     }
 
+    /**
+     * @return array<string, array{string, string}>
+     */
     public static function commandProvider(): array
     {
         return [
@@ -61,13 +64,13 @@ final class ProgramStatusOnATerminalTest extends TestCase
 
         $root = dirname(__DIR__, 2);
         $process = @proc_open(
-            [
+            array_values([
                 PHP_BINARY,
                 $root . '/tests/Support/run-command.php',
                 $root . '/vendor/autoload.php',
                 $command,
                 ...$options,
-            ],
+            ]),
             [['pty'], ['pty'], ['pty']],
             $pipes,
             $root,

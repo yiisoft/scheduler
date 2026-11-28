@@ -90,6 +90,9 @@ final class WorkCommand extends Command implements SignalableCommandInterface
         );
     }
 
+    /**
+     * @return list<int>
+     */
     public function getSubscribedSignals(): array
     {
         return extension_loaded('pcntl') ? [SIGTERM, SIGINT, SIGCHLD] : [];
@@ -125,7 +128,7 @@ final class WorkCommand extends Command implements SignalableCommandInterface
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $this->status = ProgramStatus::of($output, !$input->getOption('no-program-status'));
+        $status = $this->status = ProgramStatus::of($output, !$input->getOption('no-program-status'));
         $this->owner = getmypid();
 
         /** @var mixed $sleep */
@@ -140,7 +143,7 @@ final class WorkCommand extends Command implements SignalableCommandInterface
             );
 
             $output->writeln(sprintf('<error>%s</error>', $message));
-            $this->status->error($message);
+            $status->error($message);
 
             return Command::INVALID;
         }
@@ -157,7 +160,7 @@ final class WorkCommand extends Command implements SignalableCommandInterface
             );
 
             $output->writeln(sprintf('<error>%s</error>', $message));
-            $this->status->error($message);
+            $status->error($message);
 
             return Command::INVALID;
         }
@@ -168,7 +171,7 @@ final class WorkCommand extends Command implements SignalableCommandInterface
 
         // A daemon between runs looks exactly like a dead one from the outside, which is the
         // state worth reporting: the terminal drops a working record when the process ends.
-        $this->status->working($this->doing());
+        $status->working($this->doing());
 
         try {
             $this->scheduler->run(
@@ -177,19 +180,19 @@ final class WorkCommand extends Command implements SignalableCommandInterface
                 null === $maxProcesses ? null : (int) $maxProcesses,
             );
         } catch (Throwable $error) {
-            $this->status->error($error->getMessage());
+            $status->error($error->getMessage());
 
             throw $error;
         }
 
         if (null !== $this->failure) {
-            $this->status->error($this->failure->getMessage());
+            $status->error($this->failure->getMessage());
 
             throw $this->failure;
         }
 
         $output->writeln('<info>Scheduler stopped.</info>');
-        $this->status->done('Scheduler stopped.');
+        $status->done('Scheduler stopped.');
 
         return Command::SUCCESS;
     }

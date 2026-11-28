@@ -27,6 +27,9 @@ final class WorkCommandTest extends TestCase
         $this->assertStringContainsString('--sleep', $tester->getDisplay());
     }
 
+    /**
+     * @return array<string, array{string}>
+     */
     public static function invalidSleepProvider(): array
     {
         return [
@@ -47,6 +50,9 @@ final class WorkCommandTest extends TestCase
         $this->assertStringContainsString('--max-processes', $tester->getDisplay());
     }
 
+    /**
+     * @return array<string, array{string}>
+     */
     public static function invalidMaxProcessesProvider(): array
     {
         return [
@@ -100,6 +106,7 @@ final class WorkCommandTest extends TestCase
     private function selfStoppingScheduler(): Scheduler
     {
         $clock = new TestClock();
+        /** @var Scheduler|null $scheduler */
         $scheduler = null;
 
         $schedule = (new Schedule())->task(

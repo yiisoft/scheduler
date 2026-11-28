@@ -25,7 +25,7 @@ final class PeriodicTriggerTest extends TestCase
         $trigger = new PeriodicTrigger(300);
         $lastRun = new DateTimeImmutable('2026-01-01 00:00:00+00:00');
 
-        $this->assertSame('2026-01-01 00:05:00', $trigger->getNextRunDate($lastRun)->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-01-01 00:05:00', $this->nextRunDate($trigger, $lastRun)->format('Y-m-d H:i:s'));
     }
 
     public function testSecondsIntervalStaysAnchored(): void
@@ -35,7 +35,7 @@ final class PeriodicTriggerTest extends TestCase
         // 7 minutes after the anchor: next run is at 10, not at 12.
         $lastRun = new DateTimeImmutable('2026-01-01 00:07:00+00:00');
 
-        $this->assertSame('2026-01-01 00:10:00', $trigger->getNextRunDate($lastRun)->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-01-01 00:10:00', $this->nextRunDate($trigger, $lastRun)->format('Y-m-d H:i:s'));
     }
 
     public function testBeforeAnchorRunsAtAnchor(): void
@@ -43,7 +43,7 @@ final class PeriodicTriggerTest extends TestCase
         $trigger = new PeriodicTrigger(300, new DateTimeImmutable('2026-01-01 12:00:00+00:00'));
         $lastRun = new DateTimeImmutable('2026-01-01 00:00:00+00:00');
 
-        $this->assertSame('2026-01-01 12:00:00', $trigger->getNextRunDate($lastRun)->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-01-01 12:00:00', $this->nextRunDate($trigger, $lastRun)->format('Y-m-d H:i:s'));
     }
 
     public function testUntilExhaustsTheTrigger(): void
@@ -64,7 +64,7 @@ final class PeriodicTriggerTest extends TestCase
         foreach (['00:00:00', '00:03:27', '00:09:59.999999'] as $time) {
             $lastRun = new DateTimeImmutable('2026-01-01 ' . $time . '+00:00');
 
-            $this->assertSame('2026-01-01 00:10:00', $trigger->getNextRunDate($lastRun)->format('Y-m-d H:i:s'));
+            $this->assertSame('2026-01-01 00:10:00', $this->nextRunDate($trigger, $lastRun)->format('Y-m-d H:i:s'));
         }
     }
 
@@ -75,7 +75,7 @@ final class PeriodicTriggerTest extends TestCase
 
         $this->assertSame(
             '2026-01-01 00:10:00',
-            $trigger->getNextRunDate($lastRun)->setTimezone($lastRun->getTimezone())->format('Y-m-d H:i:s'),
+            $this->nextRunDate($trigger, $lastRun)->setTimezone($lastRun->getTimezone())->format('Y-m-d H:i:s'),
         );
     }
 
@@ -84,7 +84,7 @@ final class PeriodicTriggerTest extends TestCase
         $trigger = new PeriodicTrigger(new DateInterval('P1D'));
         $lastRun = new DateTimeImmutable('2026-01-01 00:00:00+00:00');
 
-        $this->assertSame('2026-01-02 00:00:00', $trigger->getNextRunDate($lastRun)->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-01-02 00:00:00', $this->nextRunDate($trigger, $lastRun)->format('Y-m-d H:i:s'));
     }
 
     public function testDateIntervalDescriptionDistinguishesMonthsFromYears(): void
@@ -138,7 +138,7 @@ final class PeriodicTriggerTest extends TestCase
         // Four hours past the anchor is more than 10000 one-second steps away.
         $lastRun = new DateTimeImmutable('2026-01-01 04:00:00+00:00');
 
-        $this->assertSame('2026-01-01 04:00:01', $trigger->getNextRunDate($lastRun)->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-01-01 04:00:01', $this->nextRunDate($trigger, $lastRun)->format('Y-m-d H:i:s'));
     }
 
     public function testCalendarDateIntervalStaysAnchored(): void
@@ -148,7 +148,7 @@ final class PeriodicTriggerTest extends TestCase
 
         $lastRun = new DateTimeImmutable('2026-06-15 00:00:00+00:00');
 
-        $this->assertSame('2026-07-01 00:00:00', $trigger->getNextRunDate($lastRun)->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-07-01 00:00:00', $this->nextRunDate($trigger, $lastRun)->format('Y-m-d H:i:s'));
     }
 
     public function testDateIntervalBeforeTheAnchorRunsAtTheFirstMultiple(): void
@@ -158,7 +158,7 @@ final class PeriodicTriggerTest extends TestCase
 
         $lastRun = new DateTimeImmutable('2025-12-01 00:00:00+00:00');
 
-        $this->assertSame('2026-01-01 00:00:00', $trigger->getNextRunDate($lastRun)->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-01-01 00:00:00', $this->nextRunDate($trigger, $lastRun)->format('Y-m-d H:i:s'));
     }
 
     public function testNonAdvancingDateIntervalIsRejected(): void
@@ -186,7 +186,7 @@ final class PeriodicTriggerTest extends TestCase
                 $runs = [];
 
                 for ($i = 0; $i < 6; ++$i) {
-                    $run = $trigger->getNextRunDate($run);
+                    $run = $this->nextRunDate($trigger, $run);
                     $runs[] = $run->setTimezone(new DateTimeZone('Europe/Berlin'))->format('H:i T');
                 }
 
@@ -207,7 +207,7 @@ final class PeriodicTriggerTest extends TestCase
             $runs = [];
 
             for ($i = 0; $i < 3; ++$i) {
-                $run = $trigger->getNextRunDate($run);
+                $run = $this->nextRunDate($trigger, $run);
                 $runs[] = $run->format('H:i:s.u');
             }
 
@@ -215,7 +215,7 @@ final class PeriodicTriggerTest extends TestCase
 
             // Asked between two runs, before and after the fraction within the second.
             foreach (['00:00:10.200000' => '00:00:10.500000', '00:00:10.700000' => '00:00:20.500000'] as $lastRun => $expected) {
-                $next = $trigger->getNextRunDate(new DateTimeImmutable('2026-01-01 ' . $lastRun . '+00:00'));
+                $next = $this->nextRunDate($trigger, new DateTimeImmutable('2026-01-01 ' . $lastRun . '+00:00'));
 
                 $this->assertSame($expected, $next->format('H:i:s.u'));
             }
@@ -228,7 +228,7 @@ final class PeriodicTriggerTest extends TestCase
         $trigger = new PeriodicTrigger(new DateInterval('P1D'));
 
         $this->inTimezone('Europe/Moscow', function () use ($trigger): void {
-            $next = $trigger->getNextRunDate(new DateTimeImmutable('2026-01-14 09:03:00'));
+            $next = $this->nextRunDate($trigger, new DateTimeImmutable('2026-01-14 09:03:00'));
 
             $this->assertSame('2026-01-15T00:00:00+03:00', $next->format('c'));
         });
@@ -240,7 +240,7 @@ final class PeriodicTriggerTest extends TestCase
             $trigger = new PeriodicTrigger(new DateInterval('P1D'));
 
             foreach (['2026-01-14 09:03:00' => '2026-01-15T00:00:00+01:00', '2026-07-15 09:03:00' => '2026-07-16T00:00:00+02:00'] as $lastRun => $expected) {
-                $this->assertSame($expected, $trigger->getNextRunDate(new DateTimeImmutable($lastRun))->format('c'));
+                $this->assertSame($expected, $this->nextRunDate($trigger, new DateTimeImmutable($lastRun))->format('c'));
             }
         });
     }
@@ -249,7 +249,7 @@ final class PeriodicTriggerTest extends TestCase
     {
         $trigger = new PeriodicTrigger(new DateInterval('P1W'));
 
-        $next = $trigger->getNextRunDate(new DateTimeImmutable('2026-01-14 09:03:00+00:00'));
+        $next = $this->nextRunDate($trigger, new DateTimeImmutable('2026-01-14 09:03:00+00:00'));
 
         $this->assertSame('Monday 2026-01-19 00:00:00', $next->format('l Y-m-d H:i:s'));
     }
@@ -261,7 +261,7 @@ final class PeriodicTriggerTest extends TestCase
             $lastRun = new DateTimeImmutable('2026-01-14 09:03:00');
 
             foreach ([new PeriodicTrigger(3600), new PeriodicTrigger(new DateInterval('PT1H'))] as $trigger) {
-                $this->assertSame('2026-01-14T10:00:00+05:45', $trigger->getNextRunDate($lastRun)->format('c'));
+                $this->assertSame('2026-01-14T10:00:00+05:45', $this->nextRunDate($trigger, $lastRun)->format('c'));
             }
         });
     }
@@ -272,9 +272,12 @@ final class PeriodicTriggerTest extends TestCase
         $this->expectException(LogicException::class);
         $this->expectExceptionMessage('use a cron expression for calendar-based schedules');
 
-        new PeriodicTrigger(DateInterval::createFromDateString($format));
+        new PeriodicTrigger($this->interval($format));
     }
 
+    /**
+     * @return array<string, array{string}>
+     */
     public static function relativeFormats(): array
     {
         return [
@@ -287,7 +290,7 @@ final class PeriodicTriggerTest extends TestCase
     #[DataProvider('plainFormats')]
     public function testIntervalOfAPlainAmountOfTimeIsAccepted(string $format): void
     {
-        $trigger = new PeriodicTrigger(DateInterval::createFromDateString($format));
+        $trigger = new PeriodicTrigger($this->interval($format));
         $lastRun = new DateTimeImmutable('2026-01-01 00:00:00+00:00');
 
         $this->assertGreaterThan($lastRun, $trigger->getNextRunDate($lastRun));
@@ -298,9 +301,12 @@ final class PeriodicTriggerTest extends TestCase
         $trigger = new PeriodicTrigger(DateInterval::createFromDateString('500 microseconds'));
         $lastRun = new DateTimeImmutable('2026-01-01 00:00:00.000100+00:00');
 
-        $this->assertSame('2026-01-01 00:00:00.000500', $trigger->getNextRunDate($lastRun)->format('Y-m-d H:i:s.u'));
+        $this->assertSame('2026-01-01 00:00:00.000500', $this->nextRunDate($trigger, $lastRun)->format('Y-m-d H:i:s.u'));
     }
 
+    /**
+     * @return array<string, array{string}>
+     */
     public static function plainFormats(): array
     {
         return [
@@ -640,7 +646,7 @@ final class PeriodicTriggerTest extends TestCase
         $onTheHour = new DateTimeImmutable('2026-01-01 05:00:00+00:00');
 
         $this->assertEquals($onTheHour, $trigger->getNextRunDateAtOrAfter($onTheHour));
-        $this->assertSame('2026-01-01 06:00:00', $trigger->getNextRunDate($onTheHour)->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-01-01 06:00:00', $this->nextRunDate($trigger, $onTheHour)->format('Y-m-d H:i:s'));
     }
 
     public function testARunAlreadyAccountedForIsNotGivenAgain(): void
@@ -693,6 +699,30 @@ final class PeriodicTriggerTest extends TestCase
         $tail = $trigger->getRunDates(new DateTimeImmutable('2026-01-01 01:07:00+00:00'), $before, 100);
 
         $this->assertEquals(array_slice($whole, 4), $tail);
+    }
+
+    /**
+     * The next run of a trigger that is expected to have one.
+     */
+    private function nextRunDate(PeriodicTrigger $trigger, DateTimeImmutable $lastRun): DateTimeImmutable
+    {
+        $next = $trigger->getNextRunDate($lastRun);
+
+        $this->assertNotNull($next);
+
+        return $next;
+    }
+
+    /**
+     * The interval a format describes, for a format this test knows parses.
+     */
+    private function interval(string $format): DateInterval
+    {
+        $interval = DateInterval::createFromDateString($format);
+
+        $this->assertInstanceOf(DateInterval::class, $interval);
+
+        return $interval;
     }
 
     /**

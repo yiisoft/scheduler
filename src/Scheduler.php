@@ -281,8 +281,6 @@ final class Scheduler
      * sequential execution when ext-pcntl is not available.
      * @param int|null $maxProcesses The most task processes to have running at once (see
      * tick()), null for no limit.
-     *
-     * @psalm-suppress RedundantCondition, TypeDoesNotContainType The flag is flipped by stop() from a signal handler.
      */
     public function run(float $sleepSeconds = 1.0, bool $concurrent = true, ?int $maxProcesses = null): void
     {
@@ -294,6 +292,7 @@ final class Scheduler
             while (!$this->shouldStop) {
                 $this->tick($concurrent, $maxProcesses);
 
+                // @phpstan-ignore if.alwaysFalse (The flag is flipped by stop(), from a signal handler.)
                 if ($this->shouldStop) {
                     break;
                 }
@@ -722,8 +721,6 @@ final class Scheduler
      * while it waits, so a burst of due tasks cannot outgrow the limit.
      *
      * @return bool Whether there is room now; false when a stop was requested while waiting.
-     *
-     * @psalm-suppress RedundantCondition The flag is flipped by stop() from a signal handler.
      */
     private function awaitFreeSlot(?int $maxProcesses, ?Throwable &$failure): bool
     {
