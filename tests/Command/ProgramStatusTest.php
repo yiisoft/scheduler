@@ -120,7 +120,7 @@ final class ProgramStatusTest extends TestCase
      */
     public function testWriteThatFailsIsNotThrown(): void
     {
-        $handle = fopen('php://memory', 'wb+');
+        $handle = $this->memoryStream();
         $output = new StreamOutput($handle);
 
         fclose($handle);
@@ -185,7 +185,21 @@ final class ProgramStatusTest extends TestCase
         int $verbosity = OutputInterface::VERBOSITY_NORMAL,
         bool $decorated = true,
     ): StreamOutput {
-        return new StreamOutput(fopen('php://memory', 'wb+'), $verbosity, $decorated);
+        return new StreamOutput($this->memoryStream(), $verbosity, $decorated);
+    }
+
+    /**
+     * @return resource
+     */
+    private function memoryStream()
+    {
+        $handle = fopen('php://memory', 'wb+');
+
+        if (false === $handle) {
+            self::fail('An in-memory stream could not be opened.');
+        }
+
+        return $handle;
     }
 
     private function read(StreamOutput $output): string

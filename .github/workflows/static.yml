@@ -4,6 +4,7 @@ on:
   pull_request:
     paths: &paths
       - 'src/**'
+      - 'tests/**'
       - 'config/**'
       - 'phpstan.neon'
       - 'composer.json'
