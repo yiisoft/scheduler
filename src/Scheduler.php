@@ -419,6 +419,25 @@ final class Scheduler
         );
     }
 
+    /**
+     * The code a child exited with, or null where it did not exit at all. A wait status that
+     * says nothing of either is answered with null rather than guessed at.
+     */
+    private static function exitCodeOf(int $status): ?int
+    {
+        $code = pcntl_wifexited($status) ? pcntl_wexitstatus($status) : false;
+
+        return false === $code ? null : $code;
+    }
+
+    /** The signal a child was terminated by, or null where it was not. */
+    private static function signalOf(int $status): ?int
+    {
+        $signal = pcntl_wifsignaled($status) ? pcntl_wtermsig($status) : false;
+
+        return false === $signal ? null : $signal;
+    }
+
     private static function supportsForking(): bool
     {
         return extension_loaded('pcntl') && function_exists('pcntl_fork');
@@ -1074,8 +1093,8 @@ final class Scheduler
         // What was seen of the process, which is how a backlog read later says on what evidence
         // the capacity it held was given back.
         $observation = new ProcessObservation(
-            exitCode: pcntl_wifexited($status) ? pcntl_wexitstatus($status) : null,
-            signal: pcntl_wifsignaled($status) ? pcntl_wtermsig($status) : null,
+            exitCode: self::exitCodeOf($status),
+            signal: self::signalOf($status),
         );
 
         if (pcntl_wifexited($status) && 0 === pcntl_wexitstatus($status)) {
@@ -1206,8 +1225,8 @@ final class Scheduler
                 $authority,
                 $taskStatus,
                 new ProcessObservation(
-                    exitCode: pcntl_wifexited($status) ? pcntl_wexitstatus($status) : null,
-                    signal: pcntl_wifsignaled($status) ? pcntl_wtermsig($status) : null,
+                    exitCode: self::exitCodeOf($status),
+                    signal: self::signalOf($status),
                 ),
             );
             $this->resolve($context, $taskStatus, $pid);

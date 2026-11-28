@@ -141,7 +141,7 @@ final class ExecutionOwnership
     {
         $record = $this->schedule->getLedgerQueries()?->find($identity);
 
-        return $record?->authority ?? ExecutionAuthority::forAttempt($identity, 1);
+        return $record->authority ?? ExecutionAuthority::forAttempt($identity, 1);
     }
 
     private static function outcomeOf(TaskStatus $status): ExecutionOutcome

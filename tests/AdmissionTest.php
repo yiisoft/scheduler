@@ -65,8 +65,9 @@ final class AdmissionTest extends TestCase
         // the tick after this one has nothing of it to offer.
         $record = $ledger->find(new ExecutionIdentity('default', 'report', $due));
 
-        $this->assertSame(ExecutionOutcome::Skipped, $record?->outcome);
-        $this->assertSame(ExecutionPhase::Terminal, $record?->phase);
+        $this->assertNotNull($record);
+        $this->assertSame(ExecutionOutcome::Skipped, $record->outcome);
+        $this->assertSame(ExecutionPhase::Terminal, $record->phase);
 
         $scheduler->tick(true);
 
@@ -96,8 +97,9 @@ final class AdmissionTest extends TestCase
         // What the record says was launched, which outlives the process that was launched.
         $record = $ledger->find(new ExecutionIdentity('default', 'report', $due));
 
-        $this->assertSame(LaunchFact::Started, $record?->launch);
-        $this->assertNotNull($record?->process);
+        $this->assertNotNull($record);
+        $this->assertSame(LaunchFact::Started, $record->launch);
+        $this->assertNotNull($record->process);
         $this->reap($scheduler);
     }
 
