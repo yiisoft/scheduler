@@ -430,6 +430,37 @@ other end of the same rule: a claim made on another server is only ever taken ba
 window, because a process of another host cannot be asked about, so a server that dies mid-run
 leaves its run waiting the whole window rather than being picked up at once.
 
+## One process plans a schedule
+
+A schedule with a state is planned by one process at a time. The first process to take it on
+keeps it for as long as it runs; a second process started against the same schedule and the
+same state plans nothing at all and waits, rather than taking every other tick. The schedule is
+found by its name with the differences a retyped name picks up taken out, so `reports`,
+`Reports` and ` reports ` are one schedule rather than three owners of one set of records.
+
+A process that stops hands the schedule back, which includes a `schedule:run` that ends when
+its tick is over. One that is killed leaves the record behind, and the next process takes over
+as soon as it can prove that process is gone. Only a process of the same host can be asked
+about, and only with ext-posix, so an owner that went away on another server is replaced once
+the window runs out instead:
+
+```php
+$schedule->replaceOwnerAfter(300); // or a DateInterval
+```
+
+The window defaults to a day, the same as the reclaim window, and for the same reason: it has
+to outlast the longest a tick can take, because a process still working its way through one has
+not been heard from either, and replacing it would put two processes on one schedule.
+
+Which process plans the schedule is not which process holds a run. Taking a schedule over says
+nothing about the runs the process before it had started: those stay claimed under the reclaim
+window and are handed back by the checkpoint, not by the change of owner.
+
+A process is also fenced when the tasks of its schedule change under it, whether its own
+schedule gained or lost a task or another process took the schedule over with tasks of its own.
+It plans nothing more, and `schedule:work` ends its loop rather than carrying on with runs it
+worked out from a schedule the records no longer belong to.
+
 ## Documentation
 
 - [Internals](docs/internals.md)

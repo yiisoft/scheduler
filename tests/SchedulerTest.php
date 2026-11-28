@@ -710,7 +710,10 @@ final class SchedulerTest extends TestCase
 
         $scheduler->tick();
         $clock->advance('+1 minute');
-        $cache->failWrites();
+
+        // The tick writes down which process is planning the schedule before it plans anything;
+        // that write is let through so that the one this test is about is the one refused.
+        $cache->failWritesAfter(1);
 
         // A run is claimed before it is handed out, so a checkpoint that cannot be written stops
         // the task from running at all rather than letting it run unrecorded and be repeated.

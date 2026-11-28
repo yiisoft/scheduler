@@ -136,6 +136,182 @@ final class Scheduler
      */
     public function tick(bool $concurrent = false, ?int $maxProcesses = null): int
     {
+        try {
+            return $this->tickOnce($concurrent, $maxProcesses);
+        } finally {
+            // A process driven one tick at a time is done with its schedules as the tick ends.
+            // A schedule left held would keep the next process out of it until the window the
+            // schedule allows for replacing an owner had run out. The loop keeps them instead,
+            // which is the whole point of holding them in the first place.
+            if (!$this->looping) {
+                $this->disownAll();
+            }
+        }
+    }
+
+    /**
+     * The soonest pending run across all schedules, if any.
+     */
+    public function nextRunDate(): ?DateTimeImmutable
+    {
+        $next = null;
+
+        foreach ($this->generators as $generator) {
+            $date = $generator->getNextRunDate();
+
+            if (null !== $date && (null === $next || $date < $next)) {
+                $next = $date;
+            }
+        }
+
+        return $next;
+    }
+
+    /**
+     * Runs the scheduler loop until stop() is called (e.g. from a signal handler).
+     *
+     * A stop() requested before the loop starts, by a signal handler registered ahead of it,
+     * is honoured: the loop is not entered at all.
+     *
+     * Between ticks the loop sleeps until the soonest pending run instead of waking up on a
+     * fixed interval, so an idle daemon costs a couple of syscalls per run instead of a full
+     * schedule evaluation per second.
+     *
+     * A task failure does not end the loop. The failure event and the schedule's failure
+     * listeners are told about it as usual and it is logged as an error, whether a listener
+     * ignored it or not; the other tasks, running or due later, are not affected.
+     *
+     * @param float $sleepSeconds The fallback sleep when no task has a pending run.
+     * @param bool $concurrent Fork a child process per due task (see tick()). Falls back to
+     * sequential execution when ext-pcntl is not available.
+     * @param int|null $maxProcesses The most task processes to have running at once (see
+     * tick()), null for no limit.
+     */
+    public function run(float $sleepSeconds = 1.0, bool $concurrent = true, ?int $maxProcesses = null): void
+    {
+        $concurrent = $concurrent && self::supportsForking();
+        $this->looping = true;
+        $failure = null;
+
+        try {
+            while (!$this->shouldStop) {
+                $this->tick($concurrent, $maxProcesses);
+
+                // @phpstan-ignore if.alwaysFalse (The flag is flipped by stop(), from a signal handler.)
+                if ($this->shouldStop) {
+                    break;
+                }
+
+                if ($this->isFenced()) {
+                    break;
+                }
+
+                $sleep = $this->computeSleep($sleepSeconds);
+
+                if ($sleep > 0) {
+                    $this->sleep($sleep);
+                }
+
+                $this->reapChildren();
+            }
+        } catch (Throwable $error) {
+            // Held rather than thrown: the children are stopped first, and a failure of that
+            // must not take the place of this one.
+            $failure = $error;
+        } finally {
+            try {
+                $this->terminateChildren();
+            } catch (Throwable $error) {
+                $failure = $this->firstFailure($failure, $error);
+            } finally {
+                // After the children, so that what became of them is recorded while this
+                // process is still the one the schedule belongs to.
+                $this->disownAll();
+
+                // The stop request ends this run only; left in place it would keep every later
+                // run() from entering the loop at all. Cleared last, so a second request
+                // arriving while the children are being stopped is spent on this run too.
+                $this->shouldStop = false;
+            }
+        }
+
+        if (null !== $failure) {
+            throw $failure;
+        }
+    }
+
+    /**
+     * Asks run() to return: the one in progress, or else the next one to be called.
+     */
+    public function stop(): void
+    {
+        $this->shouldStop = true;
+    }
+
+    /**
+     * Collects the outcome of every finished child process, dispatching its post-run or
+     * failure event. Safe to call from a SIGCHLD handler; does nothing without ext-pcntl.
+     *
+     * Outside of run(), a failure that no listener ignored is thrown once the whole batch is
+     * reaped, so one broken task neither kills its siblings nor goes silently unnoticed.
+     * Inside of run() nothing is thrown for it; it is logged as an error instead, the way an
+     * ignored failure is everywhere. A listener may still throw, though, and called from a
+     * signal handler that lands wherever the main loop happens to be, so the handler should
+     * catch it and let the loop finish instead of unwinding it from there.
+     */
+    public function reapChildren(): void
+    {
+        if ([] === $this->children || $this->terminating || !self::supportsForking()) {
+            return;
+        }
+
+        $failure = null;
+
+        // Only the processes we started: pcntl_wait() would also consume the exit status of a
+        // child the host application forked, leaving its owner unable to collect it.
+        foreach (array_keys($this->children) as $pid) {
+            // A SIGCHLD handler may have re-entered this method and taken the entry already.
+            if (!array_key_exists($pid, $this->children)) {
+                continue;
+            }
+
+            if ($pid !== pcntl_waitpid($pid, $status, WNOHANG)) {
+                continue;
+            }
+
+            [$task, $context] = $this->children[$pid];
+            unset($this->children[$pid]);
+
+            try {
+                $this->handleChildOutcome($task, $context, $status, $pid);
+            } catch (Throwable $error) {
+                $failure = $this->firstFailure($failure, $error);
+            }
+        }
+
+        if (null !== $failure) {
+            throw $failure;
+        }
+    }
+
+    public function hasRunningChildren(): bool
+    {
+        return [] !== $this->children;
+    }
+
+    /**
+     * @return Schedule[]
+     */
+    public function getSchedules(): array
+    {
+        return array_map(
+            static fn(TaskGenerator $generator): Schedule => $generator->getSchedule(),
+            $this->generators,
+        );
+    }
+
+    private function tickOnce(bool $concurrent, ?int $maxProcesses): int
+    {
         if (!$concurrent || !self::supportsForking()) {
             $count = 0;
             $failure = null;
@@ -245,156 +421,54 @@ final class Scheduler
     }
 
     /**
-     * The soonest pending run across all schedules, if any.
+     * Hands every schedule back for the next process to plan.
      */
-    public function nextRunDate(): ?DateTimeImmutable
+    private function disownAll(): void
     {
-        $next = null;
+        foreach ($this->generators as $generator) {
+            try {
+                $generator->disown();
+            } catch (Throwable $error) {
+                // Letting go of a schedule is not work to fail a run over: the record is left
+                // behind and the next process replaces it once the window runs out.
+                try {
+                    $this->logger->error(
+                        'Unable to hand schedule "{schedule}" back: {error}',
+                        [
+                            'schedule' => $generator->getSchedule()->getName(),
+                            'error' => $error->getMessage(),
+                            'exception' => $error,
+                        ],
+                    );
+                } catch (Throwable) {
+                    // Nowhere left to say so.
+                }
+            }
+        }
+    }
+
+    /**
+     * Whether every schedule has changed under this process since it took them on. There is
+     * nothing left for the loop to plan once they have, and what it worked out before came
+     * from schedules the records no longer belong to.
+     */
+    private function isFenced(): bool
+    {
+        if ([] === $this->generators) {
+            return false;
+        }
 
         foreach ($this->generators as $generator) {
-            $date = $generator->getNextRunDate();
-
-            if (null !== $date && (null === $next || $date < $next)) {
-                $next = $date;
+            if (!$generator->isFenced()) {
+                return false;
             }
         }
 
-        return $next;
-    }
-
-    /**
-     * Runs the scheduler loop until stop() is called (e.g. from a signal handler).
-     *
-     * A stop() requested before the loop starts, by a signal handler registered ahead of it,
-     * is honoured: the loop is not entered at all.
-     *
-     * Between ticks the loop sleeps until the soonest pending run instead of waking up on a
-     * fixed interval, so an idle daemon costs a couple of syscalls per run instead of a full
-     * schedule evaluation per second.
-     *
-     * A task failure does not end the loop. The failure event and the schedule's failure
-     * listeners are told about it as usual and it is logged as an error, whether a listener
-     * ignored it or not; the other tasks, running or due later, are not affected.
-     *
-     * @param float $sleepSeconds The fallback sleep when no task has a pending run.
-     * @param bool $concurrent Fork a child process per due task (see tick()). Falls back to
-     * sequential execution when ext-pcntl is not available.
-     * @param int|null $maxProcesses The most task processes to have running at once (see
-     * tick()), null for no limit.
-     */
-    public function run(float $sleepSeconds = 1.0, bool $concurrent = true, ?int $maxProcesses = null): void
-    {
-        $concurrent = $concurrent && self::supportsForking();
-        $this->looping = true;
-        $failure = null;
-
-        try {
-            while (!$this->shouldStop) {
-                $this->tick($concurrent, $maxProcesses);
-
-                // @phpstan-ignore if.alwaysFalse (The flag is flipped by stop(), from a signal handler.)
-                if ($this->shouldStop) {
-                    break;
-                }
-
-                $sleep = $this->computeSleep($sleepSeconds);
-
-                if ($sleep > 0) {
-                    $this->sleep($sleep);
-                }
-
-                $this->reapChildren();
-            }
-        } catch (Throwable $error) {
-            // Held rather than thrown: the children are stopped first, and a failure of that
-            // must not take the place of this one.
-            $failure = $error;
-        } finally {
-            try {
-                $this->terminateChildren();
-            } catch (Throwable $error) {
-                $failure = $this->firstFailure($failure, $error);
-            } finally {
-                // The stop request ends this run only; left in place it would keep every later
-                // run() from entering the loop at all. Cleared last, so a second request
-                // arriving while the children are being stopped is spent on this run too.
-                $this->shouldStop = false;
-            }
-        }
-
-        if (null !== $failure) {
-            throw $failure;
-        }
-    }
-
-    /**
-     * Asks run() to return: the one in progress, or else the next one to be called.
-     */
-    public function stop(): void
-    {
-        $this->shouldStop = true;
-    }
-
-    /**
-     * Collects the outcome of every finished child process, dispatching its post-run or
-     * failure event. Safe to call from a SIGCHLD handler; does nothing without ext-pcntl.
-     *
-     * Outside of run(), a failure that no listener ignored is thrown once the whole batch is
-     * reaped, so one broken task neither kills its siblings nor goes silently unnoticed.
-     * Inside of run() nothing is thrown for it; it is logged as an error instead, the way an
-     * ignored failure is everywhere. A listener may still throw, though, and called from a
-     * signal handler that lands wherever the main loop happens to be, so the handler should
-     * catch it and let the loop finish instead of unwinding it from there.
-     */
-    public function reapChildren(): void
-    {
-        if ([] === $this->children || $this->terminating || !self::supportsForking()) {
-            return;
-        }
-
-        $failure = null;
-
-        // Only the processes we started: pcntl_wait() would also consume the exit status of a
-        // child the host application forked, leaving its owner unable to collect it.
-        foreach (array_keys($this->children) as $pid) {
-            // A SIGCHLD handler may have re-entered this method and taken the entry already.
-            if (!array_key_exists($pid, $this->children)) {
-                continue;
-            }
-
-            if ($pid !== pcntl_waitpid($pid, $status, WNOHANG)) {
-                continue;
-            }
-
-            [$task, $context] = $this->children[$pid];
-            unset($this->children[$pid]);
-
-            try {
-                $this->handleChildOutcome($task, $context, $status, $pid);
-            } catch (Throwable $error) {
-                $failure = $this->firstFailure($failure, $error);
-            }
-        }
-
-        if (null !== $failure) {
-            throw $failure;
-        }
-    }
-
-    public function hasRunningChildren(): bool
-    {
-        return [] !== $this->children;
-    }
-
-    /**
-     * @return Schedule[]
-     */
-    public function getSchedules(): array
-    {
-        return array_map(
-            static fn(TaskGenerator $generator): Schedule => $generator->getSchedule(),
-            $this->generators,
+        $this->logger->warning(
+            'The scheduler stopped: the tasks of every schedule it was given changed under it.',
         );
+
+        return true;
     }
 
     private static function supportsForking(): bool

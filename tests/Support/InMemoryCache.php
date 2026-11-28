@@ -19,6 +19,7 @@ final class InMemoryCache implements CacheInterface
     /** @var array<string, mixed> */
     private array $values = [];
     private bool $writesFail = false;
+    private ?int $failWritesAfter = null;
     private int $writes = 0;
     private ?int $maximumKeyLength = null;
     /** @var array<string, mixed> */
@@ -30,6 +31,15 @@ final class InMemoryCache implements CacheInterface
     public function failWrites(): void
     {
         $this->writesFail = true;
+    }
+
+    /**
+     * Lets the next writes through and fails the ones after them, for a test that needs a
+     * write to land before the one it is about is refused.
+     */
+    public function failWritesAfter(int $writes): void
+    {
+        $this->failWritesAfter = $this->writes + $writes;
     }
 
     /**
@@ -69,7 +79,7 @@ final class InMemoryCache implements CacheInterface
     {
         $this->checkKey($key);
 
-        if ($this->writesFail) {
+        if ($this->writesFail || (null !== $this->failWritesAfter && $this->writes >= $this->failWritesAfter)) {
             return false;
         }
 
