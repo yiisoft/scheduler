@@ -22,6 +22,7 @@ use function is_finite;
 use function is_float;
 use function is_int;
 use function is_object;
+use function is_scalar;
 use function is_string;
 use function ksort;
 use function sprintf;
@@ -294,6 +295,7 @@ final class RecurringTask
             // The suppression operator silences the warning emitted on PHP 8.1 and 8.2;
             // the false result is handled right below.
             $parsed = @DateInterval::createFromDateString($interval);
+            // @phpstan-ignore catch.neverThrown (PHP 8.3 and later throws here rather than returning false.)
         } catch (Throwable $e) {
             throw new Exception\LogicException('The interval string could not be parsed.', 0, $e);
         }
@@ -331,7 +333,12 @@ final class RecurringTask
         }
 
         if (is_array($task)) {
-            $target = is_object($task[0] ?? null) ? $task[0]::class : (string) ($task[0] ?? '');
+            $first = $task[0] ?? null;
+            $target = match (true) {
+                is_object($first) => $first::class,
+                is_scalar($first) => (string) $first,
+                default => '',
+            };
 
             $method = $task[1] ?? null;
 

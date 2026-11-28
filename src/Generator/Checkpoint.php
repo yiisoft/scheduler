@@ -47,8 +47,8 @@ use function sprintf;
  *
  * @internal
  *
- * @psalm-type Claim = array{string, DateTimeImmutable}
- * @psalm-type Record = array{DateTimeImmutable, TaskStatus, string|null, DateTimeImmutable|null, array<string, Claim>}
+ * @phpstan-type Claim = array{string, DateTimeImmutable}
+ * @phpstan-type Record = array{DateTimeImmutable, TaskStatus, string|null, DateTimeImmutable|null, array<string, Claim>}
  */
 final class Checkpoint
 {
@@ -139,7 +139,7 @@ final class Checkpoint
     }
 
     /**
-     * @psalm-return Record|null
+     * @phpstan-return Record|null
      *
      * @return array{DateTimeImmutable, TaskStatus, string|null, DateTimeImmutable|null, array<string, array{string, DateTimeImmutable}>}|null
      */
@@ -162,12 +162,12 @@ final class Checkpoint
         $claimed = TaskStatus::Claimed === $status;
         $owner = $claimed ? $owner ?? self::owner() : null;
         $at = $claimed ? $at ?? $time : null;
-        $runKey = $time->format('U.u');
+        $runKey = self::runKey($time);
 
         $previous = $this->records[$taskId] ?? null;
         $claims = $previous[4] ?? [];
 
-        if ($claimed && null !== $owner && null !== $at) {
+        if ($claimed && null !== $owner) {
             $claims[$runKey] = [$owner, $at];
             ksort($claims);
         } elseif (TaskStatus::Released === $status) {
@@ -182,8 +182,8 @@ final class Checkpoint
         if (null !== $previous && $previous[0] > $time && !$claimed) {
             $time = $previous[0];
 
-            if (isset($claims[$time->format('U.u')])) {
-                [$claimOwner, $claimAt] = $claims[$time->format('U.u')];
+            if (isset($claims[self::runKey($time)])) {
+                [$claimOwner, $claimAt] = $claims[self::runKey($time)];
                 $status = '' === $claimOwner ? TaskStatus::Released : TaskStatus::Claimed;
                 $owner = '' === $claimOwner ? null : $claimOwner;
                 $at = '' === $claimOwner ? null : $claimAt;
@@ -483,7 +483,7 @@ final class Checkpoint
         }
 
         [$recordTime, $status, $owner, , $claims] = $record;
-        $runKey = $time->format('U.u');
+        $runKey = self::runKey($time);
 
         if (isset($claims[$runKey])) {
             if (self::owner() !== $claims[$runKey][0]) {
@@ -509,7 +509,7 @@ final class Checkpoint
         }
 
         [$recordTime, $status, $owner, $at, $claims] = $record;
-        $runKey = $time->format('U.u');
+        $runKey = self::runKey($time);
         $childOwner = self::host() . '/' . $pid;
 
         if (isset($claims[$runKey])) {
@@ -536,7 +536,7 @@ final class Checkpoint
         }
 
         [$recordTime, $recordStatus, $owner, , $claims] = $record;
-        $runKey = $time->format('U.u');
+        $runKey = self::runKey($time);
 
         if (isset($claims[$runKey])) {
             if (!$this->isOurOwner($claims[$runKey][0], $childPid)) {
@@ -566,7 +566,7 @@ final class Checkpoint
         }
 
         [$recordTime, $recordStatus, $owner, , $claims] = $record;
-        $runKey = $time->format('U.u');
+        $runKey = self::runKey($time);
 
         if (isset($claims[$runKey])) {
             if (self::owner() !== $claims[$runKey][0]) {
@@ -644,7 +644,7 @@ final class Checkpoint
     }
 
     /**
-     * @psalm-param Record $record
+     * @phpstan-param Record $record
      */
     private static function isReclaimable(array $record, DateTimeImmutable $now, DateInterval $reclaimAfter): bool
     {
@@ -669,7 +669,7 @@ final class Checkpoint
     }
 
     /**
-     * @psalm-param Record $record
+     * @phpstan-param Record $record
      */
     private static function hasReclaimableInRecord(
         array $record,
@@ -692,7 +692,7 @@ final class Checkpoint
     }
 
     /**
-     * @psalm-param Record $record
+     * @phpstan-param Record $record
      *
      * @return list<DateTimeImmutable>
      */
@@ -740,7 +740,7 @@ final class Checkpoint
     }
 
     /**
-     * @psalm-param Record $record
+     * @phpstan-param Record $record
      */
     private static function recordHasActiveClaim(array $record): bool
     {
@@ -760,7 +760,7 @@ final class Checkpoint
     }
 
     /**
-     * @psalm-param Record $record
+     * @phpstan-param Record $record
      */
     private function needsPersistedClaims(array $record): bool
     {
@@ -774,7 +774,7 @@ final class Checkpoint
             return true;
         }
 
-        $runKey = $time->format('U.u');
+        $runKey = self::runKey($time);
 
         if (!isset($claims[$runKey])) {
             return true;
@@ -787,6 +787,16 @@ final class Checkpoint
         }
 
         return TaskStatus::Claimed !== $status || $owner !== $claimOwner || $at != $claimAt;
+    }
+
+    /**
+     * The key a run of a task is held under: its date to the microsecond.
+     *
+     * @return non-empty-string
+     */
+    private static function runKey(DateTimeImmutable $time): string
+    {
+        return $time->format('U.u');
     }
 
     /** The process a claim is made by, as "host/pid". */
@@ -923,7 +933,7 @@ final class Checkpoint
     }
 
     /**
-     * @psalm-return Record
+     * @phpstan-return Record
      *
      * @return array{DateTimeImmutable, TaskStatus, string|null, DateTimeImmutable|null, array<string, array{string, DateTimeImmutable}>}
      */
@@ -1027,9 +1037,9 @@ final class Checkpoint
 
         if ([] === $claims) {
             if (TaskStatus::Claimed === $status && null !== $owner) {
-                $claims[$time->format('U.u')] = [$owner, $at ?? $time];
+                $claims[self::runKey($time)] = [$owner, $at ?? $time];
             } elseif (TaskStatus::Released === $status) {
-                $claims[$time->format('U.u')] = ['', $time];
+                $claims[self::runKey($time)] = ['', $time];
             }
         }
 

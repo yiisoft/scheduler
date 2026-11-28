@@ -200,8 +200,9 @@ abstract class LedgerContractTestCase extends TestCase
 
         $after = $ledger->find($identity);
 
-        $this->assertSame('rev-1', $after?->sourceRevision);
-        $this->assertEquals($deadline, $after?->recoveryDeadline);
+        $this->assertNotNull($after);
+        $this->assertSame('rev-1', $after->sourceRevision);
+        $this->assertEquals($deadline, $after->recoveryDeadline);
     }
 
     public function testThereIsNothingLeftToAttemptOnceAnOutcomeIsRecorded(): void
@@ -380,8 +381,10 @@ abstract class LedgerContractTestCase extends TestCase
 
         $after = $ledger->find($identity);
 
-        $this->assertSame(137, $after?->processObservation?->exitCode);
-        $this->assertSame(9, $after?->processObservation?->signal);
+        $this->assertNotNull($after);
+        $this->assertNotNull($after->processObservation);
+        $this->assertSame(137, $after->processObservation->exitCode);
+        $this->assertSame(9, $after->processObservation->signal);
         $this->assertNull($after->outcome, 'an exit status is not what the work achieved');
     }
 

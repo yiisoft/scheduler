@@ -9,8 +9,6 @@ use Yiisoft\Scheduler\Trigger\TriggerInterface;
 
 /**
  * The context of a single task run: which task, when it was triggered and when the next run is due.
- *
- * @psalm-immutable
  */
 final class TaskContext
 {

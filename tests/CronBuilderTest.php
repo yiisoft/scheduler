@@ -15,6 +15,9 @@ use Yiisoft\Scheduler\RecurringTask;
 
 final class CronBuilderTest extends TestCase
 {
+    /**
+     * @return iterable<string, array{string, callable}>
+     */
     public static function expressionProvider(): iterable
     {
         yield 'every minute' => ['* * * * *', RecurringTask::everyMinute(...)];
@@ -53,6 +56,9 @@ final class CronBuilderTest extends TestCase
         yield 'a window narrowing a stepped field' => ['0 8,12,16,20 * * *', static fn() => RecurringTask::everyHours(4)->between('08:00', '22:00')];
     }
 
+    /**
+     * @return iterable<string, array{string, callable}>
+     */
     public static function rejectedProvider(): iterable
     {
         yield 'an interval not dividing an hour' => [
@@ -192,7 +198,6 @@ final class CronBuilderTest extends TestCase
 
         $next = $trigger->getNextRunDate(new DateTimeImmutable('2026-01-05 16:55:00+00:00'));
 
-        $this->assertNotNull($next);
         $this->assertSame('2026-01-06 08:00:00', $next->format('Y-m-d H:i:s'));
     }
 
@@ -202,7 +207,6 @@ final class CronBuilderTest extends TestCase
 
         $next = $trigger->getNextRunDate(new DateTimeImmutable('2026-01-05 23:30:00+00:00'));
 
-        $this->assertNotNull($next);
         $this->assertSame('2026-01-06 00:00:00', $next->format('Y-m-d H:i:s'));
     }
 
@@ -212,7 +216,6 @@ final class CronBuilderTest extends TestCase
 
         $next = $trigger->getNextRunDate(new DateTimeImmutable('2026-01-01 00:00:00+00:00'));
 
-        $this->assertNotNull($next);
         $this->assertSame('09:00', $next->setTimezone(new DateTimeZone('Europe/Skopje'))->format('H:i'));
     }
 

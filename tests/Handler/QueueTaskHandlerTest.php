@@ -21,6 +21,7 @@ final class QueueTaskHandlerTest extends TestCase
     public function testMessageIsPushedToTheQueue(): void
     {
         $producer = new class implements QueueProducerInterface {
+            /** @var list<MessageInterface> */
             public array $messages = [];
 
             public function push(MessageInterface $message): MessageInterface
