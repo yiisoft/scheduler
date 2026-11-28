@@ -1,0 +1,11 @@
+parameters:
+    level: 9
+    paths:
+        - src
+        - tests
+        - config
+    # The package supports every version in this range, and a guard needed by the oldest of
+    # them is not dead code because the newest one no longer needs it.
+    phpVersion:
+        min: 80100
+        max: 80500

@@ -98,6 +98,9 @@ final class RecurringTaskTest extends TestCase
         $this->assertSame($expected, $task->getId());
     }
 
+    /**
+     * @return iterable<string, array{string, RecurringTask}>
+     */
     public static function identifiersThatMustNotChange(): iterable
     {
         yield 'cron, default timezone' => ['f3645913a0aa7449', RecurringTask::cron('0 9 * * *', 'report:daily')];

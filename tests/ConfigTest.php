@@ -253,7 +253,7 @@ final class ConfigTest extends TestCase
     }
 
     /**
-     * @param array $params Read by the configuration file from the scope including it.
+     * @param array<string, mixed> $params Read by the configuration file from the scope including it.
      *
      * @return array<string, mixed>
      */

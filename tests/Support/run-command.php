@@ -27,6 +27,7 @@ $clock = new TestClock();
 $options = [];
 
 if ('work' === $argv[2]) {
+    /** @var Scheduler|null $scheduler */
     $scheduler = null;
 
     // One due task, which stops the loop as it runs: a daemon that returns by itself.

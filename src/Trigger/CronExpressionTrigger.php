@@ -55,7 +55,11 @@ final class CronExpressionTrigger implements TriggerRangeInterface
             : sprintf('cron(%s, %s)', $this->expression, $this->timezone->getName());
     }
 
-    public function getNextRunDate(DateTimeImmutable $lastRun): ?DateTimeImmutable
+    /**
+     * A cron expression always names a next run, or the expression itself is refused, so this
+     * narrows the nullable date the interface allows.
+     */
+    public function getNextRunDate(DateTimeImmutable $lastRun): DateTimeImmutable
     {
         $next = DateTimeImmutable::createFromInterface(
             $this->cron->getNextRunDate($lastRun, 0, false, $this->timezone()),
@@ -70,7 +74,7 @@ final class CronExpressionTrigger implements TriggerRangeInterface
         return $next;
     }
 
-    public function getNextRunDateAtOrAfter(DateTimeImmutable $date, ?DateTimeImmutable $lastRun = null): ?DateTimeImmutable
+    public function getNextRunDateAtOrAfter(DateTimeImmutable $date, ?DateTimeImmutable $lastRun = null): DateTimeImmutable
     {
         if (null !== $lastRun && $lastRun >= $date) {
             return $this->getNextRunDate($lastRun);

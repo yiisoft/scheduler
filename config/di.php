@@ -18,7 +18,7 @@ use Yiisoft\Scheduler\Scheduler;
 use Yiisoft\Queue\QueueProducerInterface;
 use Yiisoft\Scheduler\RecurringTask;
 
-/** @var array $params */
+/** @var array{'yiisoft/scheduler': array{tasks: iterable<RecurringTask>}} $params */
 
 return [
     ClockInterface::class => SystemClock::class,
@@ -69,17 +69,21 @@ return [
             $schedule->stateful($cache);
         }
 
-        /** @var RecurringTask $task */
         foreach ($params['yiisoft/scheduler']['tasks'] as $task) {
             $schedule->task($task);
         }
 
-        return new Scheduler(
-            [$schedule],
-            $container->get(TaskHandlerInterface::class),
-            $container->get(ClockInterface::class),
-            $container->has(EventDispatcherInterface::class) ? $container->get(EventDispatcherInterface::class) : null,
-            $container->has(LoggerInterface::class) ? $container->get(LoggerInterface::class) : null,
-        );
+        /** @var TaskHandlerInterface $handler */
+        $handler = $container->get(TaskHandlerInterface::class);
+        /** @var ClockInterface $clock */
+        $clock = $container->get(ClockInterface::class);
+        /** @var EventDispatcherInterface|null $dispatcher */
+        $dispatcher = $container->has(EventDispatcherInterface::class)
+            ? $container->get(EventDispatcherInterface::class)
+            : null;
+        /** @var LoggerInterface|null $logger */
+        $logger = $container->has(LoggerInterface::class) ? $container->get(LoggerInterface::class) : null;
+
+        return new Scheduler([$schedule], $handler, $clock, $dispatcher, $logger);
     },
 ];

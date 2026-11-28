@@ -31,6 +31,7 @@ use RuntimeException;
 
 use function date_default_timezone_get;
 use function date_default_timezone_set;
+use function is_string;
 use function sprintf;
 
 use const FILE_APPEND;
@@ -226,6 +227,7 @@ final class SchedulerTest extends TestCase
         );
 
         $dispatcher = new class implements EventDispatcherInterface {
+            /** @var list<mixed> */
             public array $results = [];
 
             public function dispatch(object $event): object
@@ -317,7 +319,8 @@ final class SchedulerTest extends TestCase
             public function log($level, string|Stringable $message, array $context = []): void
             {
                 if (LogLevel::ERROR === $level) {
-                    $this->errors[] = (string) ($context['error'] ?? '');
+                    $error = $context['error'] ?? '';
+                    $this->errors[] = is_string($error) ? $error : '';
                 }
             }
         };
@@ -821,6 +824,7 @@ final class SchedulerTest extends TestCase
     {
         $clock = new TestClock();
         $ran = 0;
+        /** @var Scheduler|null $scheduler */
         $scheduler = null;
 
         $schedule = (new Schedule())->task(
@@ -846,6 +850,7 @@ final class SchedulerTest extends TestCase
     {
         $clock = new TestClock();
         $ran = 0;
+        /** @var Scheduler|null $scheduler */
         $scheduler = null;
 
         $schedule = (new Schedule())->task(
@@ -877,6 +882,7 @@ final class SchedulerTest extends TestCase
     public function testTaskFailureDoesNotEndTheLoop(): void
     {
         $clock = new TestClock();
+        /** @var Scheduler|null $scheduler */
         $scheduler = null;
 
         $schedule = (new Schedule())->task(
@@ -895,7 +901,8 @@ final class SchedulerTest extends TestCase
             public function log($level, string|Stringable $message, array $context = []): void
             {
                 if (LogLevel::ERROR === $level) {
-                    $this->errors[] = (string) ($context['error'] ?? '');
+                    $error = $context['error'] ?? '';
+                    $this->errors[] = is_string($error) ? $error : '';
                 }
             }
         };
@@ -915,7 +922,9 @@ final class SchedulerTest extends TestCase
     public function testTaskFailureIsThrownAgainOnceTheLoopHasEnded(): void
     {
         $clock = new TestClock();
+        /** @var Scheduler|null $scheduler */
         $scheduler = null;
+        /** @var bool $fail */
         $fail = false;
 
         $schedule = (new Schedule())->task(
@@ -991,12 +1000,18 @@ final class SchedulerTest extends TestCase
 
         $scheduler = new Scheduler([$schedule], new CallableTaskHandler(), $clock);
 
-        $this->assertSame('2026-01-01 00:01:00', $scheduler->nextRunDate()?->format('Y-m-d H:i:s'));
+        $next = $scheduler->nextRunDate();
+
+        $this->assertNotNull($next);
+        $this->assertSame('2026-01-01 00:01:00', $next->format('Y-m-d H:i:s'));
 
         $clock->advance('+1 minute');
         $scheduler->tick();
 
-        $this->assertSame('2026-01-01 00:02:00', $scheduler->nextRunDate()?->format('Y-m-d H:i:s'));
+        $next = $scheduler->nextRunDate();
+
+        $this->assertNotNull($next);
+        $this->assertSame('2026-01-01 00:02:00', $next->format('Y-m-d H:i:s'));
     }
 
     #[RequiresPhpExtension('pcntl')]
@@ -1034,6 +1049,7 @@ final class SchedulerTest extends TestCase
         );
 
         $dispatcher = new class implements EventDispatcherInterface {
+            /** @var list<mixed> */
             public array $results = [];
 
             public function dispatch(object $event): object
@@ -1130,6 +1146,7 @@ final class SchedulerTest extends TestCase
         );
 
         $dispatcher = new class implements EventDispatcherInterface {
+            /** @var list<string> */
             public array $failures = [];
 
             public function dispatch(object $event): object
@@ -1256,6 +1273,7 @@ final class SchedulerTest extends TestCase
         );
 
         $dispatcher = new class implements EventDispatcherInterface {
+            /** @var list<string> */
             public array $failures = [];
 
             public function dispatch(object $event): object

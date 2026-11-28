@@ -91,7 +91,7 @@ final class CronExpressionTriggerTest extends TestCase
         while (true) {
             $next = $trigger->getNextRunDate($cursor);
 
-            if (null === $next || $next >= $before) {
+            if ($next >= $before) {
                 break;
             }
 
@@ -165,7 +165,7 @@ final class CronExpressionTriggerTest extends TestCase
             '2026-01-01 06:00:00',
             $trigger
                 ->getNextRunDateAtOrAfter(new DateTimeImmutable('2026-01-01 05:00:30+00:00'))
-                ?->format('Y-m-d H:i:s'),
+                ->format('Y-m-d H:i:s'),
         );
     }
 
@@ -183,7 +183,6 @@ final class CronExpressionTriggerTest extends TestCase
                     $date = new DateTimeImmutable(sprintf('%s %02d:30:00', $day, $hour), $timezone);
                     $next = $trigger->getNextRunDateAtOrAfter($date);
 
-                    $this->assertNotNull($next);
                     $this->assertGreaterThanOrEqual($date, $next, sprintf('at %s', $date->format('c')));
                 }
             }
@@ -197,7 +196,7 @@ final class CronExpressionTriggerTest extends TestCase
 
         $this->assertSame(
             '2026-01-01 06:00:00',
-            $trigger->getNextRunDateAtOrAfter($onTheHour, $onTheHour)?->format('Y-m-d H:i:s'),
+            $trigger->getNextRunDateAtOrAfter($onTheHour, $onTheHour)->format('Y-m-d H:i:s'),
         );
     }
 

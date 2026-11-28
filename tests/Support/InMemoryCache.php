@@ -16,6 +16,7 @@ use function strlen;
  */
 final class InMemoryCache implements CacheInterface
 {
+    /** @var array<string, mixed> */
     private array $values = [];
     private bool $writesFail = false;
     private int $writes = 0;
@@ -111,6 +112,9 @@ final class InMemoryCache implements CacheInterface
         }
     }
 
+    /**
+     * @param iterable<string, mixed> $values
+     */
     public function setMultiple(iterable $values, DateInterval|int|null $ttl = null): bool
     {
         foreach ($values as $key => $value) {
